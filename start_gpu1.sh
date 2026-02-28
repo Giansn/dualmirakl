@@ -3,6 +3,7 @@
 
 export CUDA_VISIBLE_DEVICES=1
 export HF_HOME=/per.volume/huggingface
+export PYTHONPATH=/per.volume/vllm_pkg
 
 MODEL=/per.volume/huggingface/hub/qwen2.5-7b-awq
 
