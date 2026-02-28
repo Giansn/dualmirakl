@@ -13,8 +13,11 @@ python -m vllm.entrypoints.openai.api_server \
   --quantization awq \
   --port 8000 \
   --host 0.0.0.0 \
-  --gpu-memory-utilization 0.90 \
+  --gpu-memory-utilization 0.93 \
+  --dtype auto \
   --max-model-len 8192 \
   --served-model-name command-r-7b \
-  --device cuda \
-  --trust-remote-code
+  --trust-remote-code \
+  --enable-prefix-caching \
+  --enable-chunked-prefill \
+  --disable-log-requests

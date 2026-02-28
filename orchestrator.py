@@ -1,14 +1,3 @@
-"""
-dualmirakl orchestrator
------------------------
-Claude Code talks to two local vLLM endpoints:
-  - GPU0 port 8000 : Command-R 7B AWQ  (reasoning / synthesis)
-  - GPU1 port 8001 : Qwen 2.5 7B AWQ  (generation / roleplay)
-
-Used as the LLM backbone for the MA thesis multi-agent simulation
-(JAX/NumPyro + FLAME GPU 2 + SimPy) on media addiction dynamics.
-"""
-
 import httpx
 import asyncio
 from typing import Literal
@@ -20,6 +9,19 @@ MODELS = {
     "command-r": {"url": GPU0_URL, "name": "command-r-7b"},
     "qwen":      {"url": GPU1_URL, "name": "qwen-7b"},
 }
+
+# Persistent client — reuses connections (keep-alive pool) across all calls.
+# HTTP/2 multiplexes concurrent requests over a single TCP connection per host.
+_client = httpx.AsyncClient(
+    http2=True,
+    timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
+    limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+)
+
+
+async def close_client() -> None:
+    """Call once at shutdown to drain the connection pool."""
+    await _client.aclose()
 
 
 async def chat(
@@ -35,10 +37,9 @@ async def chat(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        r = await client.post(f"{cfg['url']}/chat/completions", json=payload)
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+    r = await _client.post(f"{cfg['url']}/chat/completions", json=payload)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
 
 
 async def dual_query(prompt: str) -> dict:
@@ -57,13 +58,14 @@ async def agent_turn(
     system_prompt: str,
     user_message: str,
     history: list[dict] | None = None,
+    max_tokens: int = 256,
 ) -> str:
-    """Single agent turn with system prompt and optional history."""
+    """Single agent turn. max_tokens=256: action descriptions are short."""
     messages = [{"role": "system", "content": system_prompt}]
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": user_message})
-    response = await chat(backend, messages)
+    response = await chat(backend, messages, max_tokens=max_tokens)
     print(f"[{agent_id}] {response[:120]}...")
     return response
 
@@ -71,13 +73,15 @@ async def agent_turn(
 async def health_check() -> dict:
     """Check both vLLM servers are up."""
     status = {}
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        for name, cfg in MODELS.items():
-            try:
-                r = await client.get(f"{cfg['url'].replace('/v1', '')}/health")
-                status[name] = "up" if r.status_code == 200 else f"error {r.status_code}"
-            except Exception as e:
-                status[name] = f"down ({e})"
+    for name, cfg in MODELS.items():
+        try:
+            r = await _client.get(
+                f"{cfg['url'].replace('/v1', '')}/health",
+                timeout=5.0,
+            )
+            status[name] = "up" if r.status_code == 200 else f"error {r.status_code}"
+        except Exception as e:
+            status[name] = f"down ({e})"
     return status
 
 
@@ -95,5 +99,7 @@ if __name__ == "__main__":
             )
             for model, resp in results.items():
                 print(f"\n[{model}]\n{resp}")
+
+        await close_client()
 
     asyncio.run(main())

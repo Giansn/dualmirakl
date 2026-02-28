@@ -3,7 +3,7 @@ SimPy + LLM simulation loop for media addiction dynamics.
 
 Architecture:
   - SimPy drives discrete-event time steps
-  - Each simulated agent calls a vLLM-backed LLM turn per step
+  - All agents in a tick fire concurrently via asyncio.gather
   - JAX/NumPyro handles the probabilistic state updates
   - Results feed into FLAME GPU 2 for large-scale population runs
 """
@@ -12,14 +12,13 @@ import simpy
 import asyncio
 import numpy as np
 from simulation.agent_roles import AGENT_ROLES
-from orchestrator import agent_turn
+from orchestrator import agent_turn, close_client
 
 
 class MediaAgent:
     """A single simulated individual in the media consumption environment."""
 
-    def __init__(self, env: simpy.Environment, agent_id: str, role: str):
-        self.env = env
+    def __init__(self, agent_id: str, role: str):
         self.agent_id = agent_id
         self.role = role
         self.cfg = AGENT_ROLES[role]
@@ -27,14 +26,9 @@ class MediaAgent:
         self.addiction_score: float = np.random.uniform(0.1, 0.5)
         self.engagement_log: list[float] = []
 
-    def run(self):
-        while True:
-            yield self.env.timeout(1)  # 1 time unit = 1 simulated hour
-            asyncio.get_event_loop().run_until_complete(self._step())
-
-    async def _step(self):
+    async def step(self, hour: int) -> None:
         prompt = (
-            f"[Hour {self.env.now}] Your current media engagement score is "
+            f"[Hour {hour}] Your current media engagement score is "
             f"{self.addiction_score:.2f}/1.0. Describe your next action."
         )
         response = await agent_turn(
@@ -54,21 +48,33 @@ class MediaAgent:
         self.engagement_log.append(self.addiction_score)
 
 
-def run_simulation(n_hours: int = 24, n_agents: int = 4):
+async def run_simulation(n_hours: int = 24, n_agents: int = 4) -> list[MediaAgent]:
+    """
+    All agents in each hour tick run concurrently via asyncio.gather.
+    SimPy environment is retained for future event-based extensions.
+    """
     env = simpy.Environment()
     roles = list(AGENT_ROLES.keys())
     agents = [
-        MediaAgent(env, f"agent_{i}", roles[i % len(roles)])
+        MediaAgent(f"agent_{i}", roles[i % len(roles)])
         for i in range(n_agents)
     ]
-    for agent in agents:
-        env.process(agent.run())
-    env.run(until=n_hours)
+
+    for hour in range(1, n_hours + 1):
+        env.run(until=hour)
+        await asyncio.gather(*[a.step(hour) for a in agents])
+
     return agents
 
 
 if __name__ == "__main__":
-    print("Running 12-hour simulation with 4 agents...")
-    agents = run_simulation(n_hours=12, n_agents=4)
-    for a in agents:
-        print(f"{a.agent_id} ({a.role}): final score={a.addiction_score:.2f}")
+    async def main():
+        print("Running 12-hour simulation with 4 agents...")
+        try:
+            agents = await run_simulation(n_hours=12, n_agents=4)
+            for a in agents:
+                print(f"{a.agent_id} ({a.role}): final score={a.addiction_score:.2f}")
+        finally:
+            await close_client()
+
+    asyncio.run(main())
