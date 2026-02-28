@@ -55,7 +55,7 @@ GPU 1 — Qwen 2.5 7B AWQ   :8001   (generation: media_user, platform_ai)
 - `health_check()` — checks both `/health` endpoints
 - `close_client()` — drain pool at shutdown; always call in a `finally` block
 
-**`gateway.py`** — FastAPI proxy that exposes a single `/v1` surface over both backends. Routes by model name: `"command-r"` → port 8000, anything else → port 8001. Supports streaming (`stream: true`) and embeddings (always routed to GPU1/Qwen). Start with `uvicorn gateway:app`.
+**`gateway.py`** — FastAPI proxy that exposes a single `/v1` surface over both backends. Routes by model name: `"command-r"` → port 8000, anything else → port 8001. Supports streaming (`stream: true`). Embeddings (`/v1/embeddings`) are handled locally via `sentence-transformers` on CPU — gte-small (33MB BERT, 384-dim) is loaded once at startup, no third vLLM server needed. Start with `uvicorn gateway:app`.
 
 **`simulation/agent_roles.py`** — four agent personas as dicts (`backend`, `system`). Adding a new role only requires a new entry here; `sim_loop.py` picks it up automatically via `list(AGENT_ROLES.keys())`.
 

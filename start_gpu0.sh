@@ -8,7 +8,7 @@ MODEL=/per.volume/huggingface/hub/command-r7b-awq
 
 echo "[GPU0] Starting Command-R 7B AWQ on port 8000..."
 
-python -m vllm.entrypoints.openai.api_server \
+exec python -m vllm.entrypoints.openai.api_server \
   --model "$MODEL" \
   --quantization awq \
   --port 8000 \

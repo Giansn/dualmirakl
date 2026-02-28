@@ -1,24 +1,40 @@
 #!/bin/bash
-# Start both vLLM servers in background, tail logs
+# Start both vLLM servers in background.
+# Sequential launch is intentional: both models load from /per.volume NFS.
+# Parallel reads over a shared network path cause I/O contention; stagger avoids it.
 
 mkdir -p logs
 
-# --- [1] Check h2 is importable (HTTP/2 support for orchestrator) ---
-if ! python3 -c "import h2" 2>/dev/null; then
-  echo "[WARN] h2 not found — installing for HTTP/2 support..."
-  pip install -q "h2>=4.0.0" || { echo "[ERROR] h2 install failed. Aborting."; exit 1; }
+# --- [1] Preflight: dependencies ---
+echo "[dualmirakl] Preflight checks..."
+if ! python3 -c "import httpx, h2, simpy" 2>/dev/null; then
+  echo "[WARN] Missing dependencies — installing..."
+  pip install -q "httpx>=0.27.0" "h2>=4.0.0" "simpy>=4.1.1" \
+    || { echo "[ERROR] Dependency install failed. Aborting."; exit 1; }
 fi
 
-# --- [2] Stagger GPU launches to avoid simultaneous VRAM pressure ---
+# --- [2] Port collision check ---
+for PORT in 8000 8001; do
+  if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
+    echo "[ERROR] Port ${PORT} already in use. Run: bash stop_all.sh"
+    exit 1
+  fi
+done
+
+# --- [3] Launch GPU0 (Command-R 7B) ---
 echo "[dualmirakl] Starting GPU0 (Command-R 7B) on port 8000..."
+mv logs/gpu0.log logs/gpu0.last 2>/dev/null
 bash start_gpu0.sh > logs/gpu0.log 2>&1 &
 GPU0_PID=$!
 echo "  PID: $GPU0_PID"
 
-echo "  Waiting for GPU0 before launching GPU1..."
+# Poll completions endpoint directly — proves HTTP server AND engine are ready
 READY=0
 for i in $(seq 1 60); do
-  if curl -sf "http://localhost:8000/health" > /dev/null 2>&1; then
+  if curl -sf "http://localhost:8000/v1/completions" \
+      -H "Content-Type: application/json" \
+      -d '{"model":"command-r-7b","prompt":"hi","max_tokens":1}' \
+      -o /dev/null 2>&1; then
     echo "  port 8000: READY"
     READY=1
     break
@@ -26,21 +42,26 @@ for i in $(seq 1 60); do
   sleep 3
 done
 if [ $READY -eq 0 ]; then
-  echo "[ERROR] GPU0 (port 8000) did not become healthy after 3 min."
+  echo "[ERROR] GPU0 (port 8000) did not become ready after 3 min."
   echo "  Check logs/gpu0.log for details."
+  nvidia-smi >> logs/gpu0.log 2>&1
   kill $GPU0_PID 2>/dev/null
   exit 1
 fi
 
+# --- [4] Launch GPU1 (Qwen 2.5 7B) ---
 echo "[dualmirakl] Starting GPU1 (Qwen 2.5 7B) on port 8001..."
+mv logs/gpu1.log logs/gpu1.last 2>/dev/null
 bash start_gpu1.sh > logs/gpu1.log 2>&1 &
 GPU1_PID=$!
 echo "  PID: $GPU1_PID"
 
-# --- [3] Health check with explicit timeout failure for GPU1 ---
 READY=0
 for i in $(seq 1 60); do
-  if curl -sf "http://localhost:8001/health" > /dev/null 2>&1; then
+  if curl -sf "http://localhost:8001/v1/completions" \
+      -H "Content-Type: application/json" \
+      -d '{"model":"qwen-7b","prompt":"hi","max_tokens":1}' \
+      -o /dev/null 2>&1; then
     echo "  port 8001: READY"
     READY=1
     break
@@ -48,8 +69,9 @@ for i in $(seq 1 60); do
   sleep 3
 done
 if [ $READY -eq 0 ]; then
-  echo "[ERROR] GPU1 (port 8001) did not become healthy after 3 min."
+  echo "[ERROR] GPU1 (port 8001) did not become ready after 3 min."
   echo "  Check logs/gpu1.log for details."
+  nvidia-smi >> logs/gpu1.log 2>&1
   kill $GPU0_PID $GPU1_PID 2>/dev/null
   exit 1
 fi

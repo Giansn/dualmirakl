@@ -1,11 +1,16 @@
+import asyncio
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
-import httpx, asyncio
+from sentence_transformers import SentenceTransformer
+import httpx
 
 app = FastAPI()
 
 GPU0 = "http://localhost:8000/v1"  # Command-R
 GPU1 = "http://localhost:8001/v1"  # Qwen
+
+# gte-small loaded once at startup — 33MB BERT, CPU inference ~2-5ms per call
+_embed = SentenceTransformer("/per.volume/huggingface/hub/gte-small")
 
 client = httpx.AsyncClient(
     http2=True,
@@ -20,8 +25,7 @@ def route(model: str) -> str:
 async def chat(req: Request):
     body = await req.json()
     target = route(body.get("model", "command-r"))
-    stream = body.get("stream", False)
-    if stream:
+    if body.get("stream", False):
         async def gen():
             async with client.stream("POST", f"{target}/chat/completions", json=body) as r:
                 async for chunk in r.aiter_bytes():
@@ -33,22 +37,30 @@ async def chat(req: Request):
 @app.post("/v1/embeddings")
 async def embeddings(req: Request):
     body = await req.json()
-    r = await client.post(f"{GPU1}/embeddings", json=body)
-    return r.json()
+    inp = body.get("input", [])
+    texts = inp if isinstance(inp, list) else [inp]
+    loop = asyncio.get_event_loop()
+    vectors = await loop.run_in_executor(None, _embed.encode, texts)
+    return {
+        "object": "list",
+        "data": [{"object": "embedding", "index": i, "embedding": v.tolist()} for i, v in enumerate(vectors)],
+        "model": "gte-small",
+    }
 
 @app.get("/v1/models")
 async def models():
-    return {"object":"list","data":[
-        {"id":"command-r","object":"model"},
-        {"id":"qwen","object":"model"},
+    return {"object": "list", "data": [
+        {"id": "command-r", "object": "model"},
+        {"id": "qwen", "object": "model"},
+        {"id": "gte-small", "object": "model"},
     ]}
 
 @app.get("/health")
 async def health():
-    s = {}
+    s = {"gte-small": "up"}  # CPU-local, always available
     for name, url in [("command-r", GPU0), ("qwen", GPU1)]:
         try:
-            r = await client.get(url.replace("/v1","") + "/health", timeout=3.0)
+            r = await client.get(url.replace("/v1", "") + "/health", timeout=3.0)
             s[name] = "up" if r.status_code == 200 else f"error {r.status_code}"
         except Exception as e:
             s[name] = f"down ({e})"
