@@ -237,9 +237,10 @@ def _make_intervention(key: str) -> tuple[str, str, dict]:
 class PlatformAgent:
     """Decides content per user (Phase A). Singleton — one platform serves all users."""
 
-    def __init__(self):
+    def __init__(self, history_window: int = 4):
         self.cfg = AGENT_ROLES["platform_ai"]
         self.history: list[dict] = []
+        self.history_window = history_window
 
     async def decide(self, user: "MediaUserAgent", world_state: WorldState) -> str:
         constraints = world_state.platform_constraints()
@@ -256,7 +257,7 @@ class PlatformAgent:
             backend=self.cfg["backend"],
             system_prompt=self.cfg["system"],
             user_message=prompt,
-            history=self.history[-4:],
+            history=self.history[-self.history_window:],
             max_tokens=128,   # content decisions are short
         )
         self.history.append({"role": "assistant", "content": response})
@@ -270,10 +271,11 @@ class PlatformAgent:
 class MediaUserAgent:
     """Reacts to platform content (Phase B). N instances run concurrently."""
 
-    def __init__(self, agent_id: str):
+    def __init__(self, agent_id: str, history_window: int = 4):
         self.agent_id = agent_id
         self.cfg = AGENT_ROLES["media_user"]
         self.history: list[dict] = []
+        self.history_window = history_window
         self.addiction_score: float = float(np.random.uniform(0.1, 0.5))
         self.engagement_log: list[float] = []
         self.last_platform_content: str = "nothing yet"
@@ -293,7 +295,7 @@ class MediaUserAgent:
             backend=self.cfg["backend"],
             system_prompt=self.cfg["system"],
             user_message=prompt,
-            history=self.history[-4:],
+            history=self.history[-self.history_window:],
         )
         self.last_platform_content = content
         self.last_response = response
@@ -304,10 +306,11 @@ class MediaUserAgent:
 class ObserverAgent:
     """Researcher or policy_analyst — fires every K ticks (Phase D)."""
 
-    def __init__(self, agent_id: str, role: str):
+    def __init__(self, agent_id: str, role: str, history_window: int = 4):
         self.agent_id = agent_id
         self.cfg = AGENT_ROLES[role]
         self.history: list[dict] = []
+        self.history_window = history_window
         self.analyses: list[str] = []
 
     async def observe(self, hour: int, world_state: WorldState, n_users: int) -> list[Intervention]:
@@ -324,7 +327,7 @@ class ObserverAgent:
             backend=self.cfg["backend"],
             system_prompt=self.cfg["system"],
             user_message=prompt,
-            history=self.history[-4:],
+            history=self.history[-self.history_window:],
             max_tokens=256,
         )
         print(f"[{self.agent_id}] {response[:120]}...")
@@ -391,29 +394,34 @@ async def run_simulation(
     n_users: int = 4,
     k: int = 3,
     alpha: float = 0.2,
+    history_window: int = 4,
 ) -> tuple[list[MediaUserAgent], WorldState]:
     """
     Run the stratified multi-agent simulation.
 
     Args:
-        n_hours: Simulated hours to run.
-        n_users: Number of media_user agents.
-        k:       Observer fire frequency (every k ticks). Thesis sensitivity parameter.
-        alpha:   EMA responsiveness for score dynamics. Thesis sensitivity parameter.
-                 Calibrated to PSMU longitudinal autocorrelation (sweep [0.1, 0.4]).
+        n_hours:        Simulated hours to run.
+        n_users:        Number of media_user agents.
+        k:              Observer fire frequency (every k ticks). Thesis sensitivity parameter.
+        alpha:          EMA responsiveness for score dynamics. Thesis sensitivity parameter.
+                        Calibrated to PSMU longitudinal autocorrelation (sweep [0.1, 0.4]).
+        history_window: Number of previous turns passed to each agent as context.
+                        Budget: system_prompt (~300) + user_msg (~200) + history_window * 256
+                        + output (256) must stay under 8192. Safe range: 1–12.
     """
     env = simpy.Environment()
     world_state = WorldState(k=k)
-    platform = PlatformAgent()
-    users = [MediaUserAgent(f"user_{i}") for i in range(n_users)]
+    platform = PlatformAgent(history_window=history_window)
+    users = [MediaUserAgent(f"user_{i}", history_window=history_window) for i in range(n_users)]
     observers = [
-        ObserverAgent("researcher",    "researcher"),
-        ObserverAgent("policy_analyst","policy_analyst"),
+        ObserverAgent("researcher",     "researcher",     history_window=history_window),
+        ObserverAgent("policy_analyst", "policy_analyst", history_window=history_window),
     ]
 
     for hour in range(1, n_hours + 1):
         env.run(until=hour)
-        print(f"\n── Hour {hour} ──")
+        pct = hour / n_hours * 100
+        print(f"\n── Hour {hour}/{n_hours}  ({pct:.0f}%) ──")
         await run_tick(hour, platform, users, observers, world_state, alpha)
         for u in users:
             print(f"  {u.agent_id}: score={u.addiction_score:.3f}")
@@ -421,11 +429,34 @@ async def run_simulation(
     return users, world_state
 
 
+def _prompt(label: str, default, cast, valid_range: str = "") -> any:
+    """Single parameter prompt with default and optional range hint."""
+    hint = f"  ({valid_range})" if valid_range else ""
+    raw = input(f"  {label:<22} [default: {default}]{hint}: ").strip()
+    return cast(raw) if raw else default
+
+
 if __name__ == "__main__":
+    print("\n── dualmirakl simulation ──")
+    print("Press Enter to accept defaults.\n")
+
+    n_hours        = _prompt("Hours to simulate",    12,  int,   "1–168")
+    n_users        = _prompt("Number of users",       4,  int,   "1–50")
+    k              = _prompt("Observer frequency K",  3,  int,   "1–n_hours")
+    alpha          = _prompt("EMA alpha",             0.2, float, "0.1–0.4")
+    history_window = _prompt("History window (turns)", 4, int,   "1–12")
+
+    print(f"\n  n_hours={n_hours} | n_users={n_users} | K={k} | alpha={alpha} | history_window={history_window}\n")
+
     async def main():
-        print("Running 12-hour simulation | 4 users | K=3 | alpha=0.2")
         try:
-            users, world_state = await run_simulation(n_hours=12, n_users=4)
+            users, world_state = await run_simulation(
+                n_hours=n_hours,
+                n_users=n_users,
+                k=k,
+                alpha=alpha,
+                history_window=history_window,
+            )
             print("\n── Final scores ──")
             for u in users:
                 print(f"  {u.agent_id}: {u.addiction_score:.3f}")
