@@ -1,0 +1,42 @@
+# Environment
+.env
+*.env
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Model weights — never commit large files
+*.safetensors
+*.bin
+*.gguf
+*.ggml
+*.pt
+*.pth
+
+# Secrets — never commit
+*.key
+*.pem
