@@ -3,7 +3,6 @@
 
 export CUDA_VISIBLE_DEVICES=0
 export HF_HOME=/per.volume/huggingface
-export PYTHONPATH=/per.volume/vllm_pkg
 
 MODEL=/per.volume/huggingface/hub/command-r7b-awq
 
@@ -17,4 +16,5 @@ python -m vllm.entrypoints.openai.api_server \
   --gpu-memory-utilization 0.90 \
   --max-model-len 8192 \
   --served-model-name command-r-7b \
+  --device cuda \
   --trust-remote-code
