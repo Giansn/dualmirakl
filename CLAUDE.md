@@ -57,9 +57,15 @@ GPU 1 — Qwen 2.5 7B AWQ   :8001   (generation: media_user, platform_ai)
 
 **`gateway.py`** — FastAPI proxy that exposes a single `/v1` surface over both backends. Routes by model name: `"command-r"` → port 8000, anything else → port 8001. Supports streaming (`stream: true`). Embeddings (`/v1/embeddings`) are handled locally via `sentence-transformers` on CPU — gte-small (33MB BERT, 384-dim) is loaded once at startup, no third vLLM server needed. Start with `uvicorn gateway:app`.
 
-**`simulation/agent_roles.py`** — four agent personas as dicts (`backend`, `system`). Adding a new role only requires a new entry here; `sim_loop.py` picks it up automatically via `list(AGENT_ROLES.keys())`.
+**`simulation/agent_roles.py`** — agent personas (`backend`, `system`), plus `ENGAGEMENT_ANCHORS` (gte-small vocab for scoring) and `INTERVENTION_CODEBOOK` (gte-small vocab for observer output extraction).
 
-**`simulation/sim_loop.py`** — `MediaAgent` class holds `addiction_score` (0.0–1.0), `history` (capped at last 4 turns), and `engagement_log`. Each simulated hour all agents fire concurrently. Score update is currently keyword-matching; intended replacement is a NumPyro probabilistic model.
+**`simulation/sim_loop.py`** — stratified tick architecture with closed inter-agent feedback loop:
+- **Phase A** `PlatformAgent.decide()` — sequential per user; sees `addiction_score` + user's response to last content (closes feedback loop)
+- **Phase B** `MediaUserAgent.step()` — reacts to platform content; concurrent via `asyncio.gather`
+- **Phase C** `embed_score()` + `update_score()` — gte-small cosine similarity against `ENGAGEMENT_ANCHORS`; EMA dynamics with `alpha=0.2` (high inertia, calibrated to PSMU longitudinal autocorrelation r~0.75–0.85); thesis sensitivity parameter, sweep `[0.1, 0.4]`
+- **Phase D** `ObserverAgent.observe()` — researcher + policy_analyst fire concurrently every `K=3` ticks on GPU0; interventions extracted via `INTERVENTION_CODEBOOK` similarity (threshold 0.72), not tag parsing
+- `WorldState` holds typed interventions (`platform_constraint`, `user_nudge`, `score_modifier`), granular `full_log()` for thesis data export, and token-capped aggregate stats for LLM observer prompts
+- `run_simulation(n_hours, n_users, k, alpha)` — `k` and `alpha` are configurable for sensitivity analysis
 
 ## Key constraints
 
@@ -74,9 +80,11 @@ GPU 1 — Qwen 2.5 7B AWQ   :8001   (generation: media_user, platform_ai)
 - `--enable-prefix-caching`: agents of the same role share a system prompt → KV cache reuse across every turn (largest single latency saving).
 - `--enable-chunked-prefill`: interleaves prefill/decode across concurrent requests.
 - `--gpu-memory-utilization 0.93` / `--dtype auto` (bfloat16 on Blackwell): ~28.3 GB KV cache reserved per GPU.
-- `asyncio.gather` in `sim_loop.py` fires all agents in a tick concurrently — do not reintroduce serial loops.
+- Phase A (platform decisions) is intentionally sequential — both models load from the same NFS volume; parallel reads cause I/O contention.
+- Phase B (user reactions) uses `asyncio.gather` — do not reintroduce serial loops here.
+- `PlatformAgent.batch_decide()` stub exists for N>10; implement cohort-level strategy when scaling.
 
 ## Planned upgrades (not yet implemented)
 
-- Replace keyword-matching score update in `sim_loop.py` with a NumPyro Beta-distribution model.
-- FLAME GPU 2 for population-scale runs (current default is 4 agents).
+- Replace EMA score dynamics with a NumPyro Beta-distribution model (signal extraction via gte-small is already in place).
+- FLAME GPU 2 for population-scale runs (current default is 4 users).
