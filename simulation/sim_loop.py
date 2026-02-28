@@ -242,7 +242,7 @@ class PlatformAgent:
         self.history: list[dict] = []
         self.history_window = history_window
 
-    async def decide(self, user: "MediaUserAgent", world_state: WorldState) -> str:
+    async def decide(self, user: "MediaUserAgent", world_state: WorldState, max_tokens: int = 128) -> str:
         constraints = world_state.platform_constraints()
         constraint_note = f" ACTIVE CONSTRAINTS: {constraints}" if constraints else ""
         prompt = (
@@ -258,7 +258,7 @@ class PlatformAgent:
             system_prompt=self.cfg["system"],
             user_message=prompt,
             history=self.history[-self.history_window:],
-            max_tokens=128,   # content decisions are short
+            max_tokens=max_tokens,
         )
         self.history.append({"role": "assistant", "content": response})
         return response
@@ -281,7 +281,7 @@ class MediaUserAgent:
         self.last_platform_content: str = "nothing yet"
         self.last_response: str = ""
 
-    async def step(self, hour: int, content: str, world_state: WorldState) -> str:
+    async def step(self, hour: int, content: str, world_state: WorldState, max_tokens: int = 256) -> str:
         nudge = world_state.user_nudges()
         nudge_note = f" {nudge}" if nudge else ""
         prompt = (
@@ -296,6 +296,7 @@ class MediaUserAgent:
             system_prompt=self.cfg["system"],
             user_message=prompt,
             history=self.history[-self.history_window:],
+            max_tokens=max_tokens,
         )
         self.last_platform_content = content
         self.last_response = response
@@ -306,11 +307,12 @@ class MediaUserAgent:
 class ObserverAgent:
     """Researcher or policy_analyst — fires every K ticks (Phase D)."""
 
-    def __init__(self, agent_id: str, role: str, history_window: int = 4):
+    def __init__(self, agent_id: str, role: str, history_window: int = 4, max_tokens: int = 256):
         self.agent_id = agent_id
         self.cfg = AGENT_ROLES[role]
         self.history: list[dict] = []
         self.history_window = history_window
+        self.max_tokens = max_tokens
         self.analyses: list[str] = []
 
     async def observe(self, hour: int, world_state: WorldState, n_users: int) -> list[Intervention]:
@@ -328,7 +330,7 @@ class ObserverAgent:
             system_prompt=self.cfg["system"],
             user_message=prompt,
             history=self.history[-self.history_window:],
-            max_tokens=256,
+            max_tokens=self.max_tokens,
         )
         print(f"[{self.agent_id}] {response[:120]}...")
         self.history.append({"role": "assistant", "content": response})
@@ -345,6 +347,7 @@ async def run_tick(
     observers: list[ObserverAgent],
     world_state: WorldState,
     alpha: float = 0.2,
+    max_tokens: int = 256,
 ) -> None:
     n = len(users)
 
@@ -352,13 +355,13 @@ async def run_tick(
     if n <= 10:
         contents = {}
         for user in users:
-            contents[user.agent_id] = await platform.decide(user, world_state)
+            contents[user.agent_id] = await platform.decide(user, world_state, max_tokens=max(64, max_tokens // 2))
     else:
         contents = await platform.batch_decide(users, world_state)
 
     # Phase B — all users react concurrently
     responses = await asyncio.gather(*[
-        u.step(hour, contents[u.agent_id], world_state) for u in users
+        u.step(hour, contents[u.agent_id], world_state, max_tokens=max_tokens) for u in users
     ])
 
     # Phase C — score update + observation log (CPU, no LLM)
@@ -395,6 +398,7 @@ async def run_simulation(
     k: int = 3,
     alpha: float = 0.2,
     history_window: int = 4,
+    max_tokens: int = 256,
 ) -> tuple[list[MediaUserAgent], WorldState]:
     """
     Run the stratified multi-agent simulation.
@@ -414,15 +418,15 @@ async def run_simulation(
     platform = PlatformAgent(history_window=history_window)
     users = [MediaUserAgent(f"user_{i}", history_window=history_window) for i in range(n_users)]
     observers = [
-        ObserverAgent("researcher",     "researcher",     history_window=history_window),
-        ObserverAgent("policy_analyst", "policy_analyst", history_window=history_window),
+        ObserverAgent("researcher",     "researcher",     history_window=history_window, max_tokens=max_tokens),
+        ObserverAgent("policy_analyst", "policy_analyst", history_window=history_window, max_tokens=max_tokens),
     ]
 
     for hour in range(1, n_hours + 1):
         env.run(until=hour)
         pct = hour / n_hours * 100
         print(f"\n── Hour {hour}/{n_hours}  ({pct:.0f}%) ──")
-        await run_tick(hour, platform, users, observers, world_state, alpha)
+        await run_tick(hour, platform, users, observers, world_state, alpha, max_tokens)
         for u in users:
             print(f"  {u.agent_id}: score={u.addiction_score:.3f}")
 
@@ -440,13 +444,14 @@ if __name__ == "__main__":
     print("\n── dualmirakl simulation ──")
     print("Press Enter to accept defaults.\n")
 
-    n_hours        = _prompt("Hours to simulate",    12,  int,   "1–168")
-    n_users        = _prompt("Number of users",       4,  int,   "1–50")
-    k              = _prompt("Observer frequency K",  3,  int,   "1–n_hours")
-    alpha          = _prompt("EMA alpha",             0.2, float, "0.1–0.4")
-    history_window = _prompt("History window (turns)", 4, int,   "1–12")
+    n_hours        = _prompt("Hours to simulate",     12,   int,   "1–168")
+    n_users        = _prompt("Number of users",        4,   int,   "1–50")
+    k              = _prompt("Observer frequency K",   3,   int,   "1–n_hours")
+    alpha          = _prompt("EMA alpha",              0.2, float, "0.1–0.4")
+    history_window = _prompt("History window (turns)", 4,   int,   "1–n")
+    max_tokens     = _prompt("Context size (tokens)",  256, int,   "64–8192")
 
-    print(f"\n  n_hours={n_hours} | n_users={n_users} | K={k} | alpha={alpha} | history_window={history_window}\n")
+    print(f"\n  n_hours={n_hours} | n_users={n_users} | K={k} | alpha={alpha} | history_window={history_window} | max_tokens={max_tokens}\n")
 
     async def main():
         try:
@@ -456,6 +461,7 @@ if __name__ == "__main__":
                 k=k,
                 alpha=alpha,
                 history_window=history_window,
+                max_tokens=max_tokens,
             )
             print("\n── Final scores ──")
             for u in users:
