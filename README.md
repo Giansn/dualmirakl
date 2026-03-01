@@ -1,14 +1,16 @@
 # dualmirakl
 
-Dual-GPU vLLM orchestration stack for MA thesis research on media addiction dynamics.
+Dual-GPU vLLM orchestration stack for MA thesis agent-based simulation research.
 
 ## Architecture
 
 ```
 RunPod Pod (2x RTX PRO 4500 Blackwell, 32GB VRAM each)
 │
-├── GPU 0 : vLLM → GLM-5                 (port 8000)  — reasoning / synthesis agents
-├── GPU 1 : vLLM → DeepSeek-V3.2-Special (port 8001)  — generative / persona agents
+├── GPU 0 : vLLM → authority slot      (port 8000)  — reasoning / analyst agents
+├── GPU 1 : vLLM → swarm slot          (port 8001)  — generative / persona agents
+│
+├── Gateway (gateway.py)               (port 9000)  — unified /v1 + local embeddings
 │
 └── Orchestrator (orchestrator.py)
     └── Simulation stack
@@ -20,7 +22,12 @@ RunPod Pod (2x RTX PRO 4500 Blackwell, 32GB VRAM each)
 ## Quick Start
 
 ```bash
-# 1. Start both vLLM servers
+# 1. Start servers manually
+bash start_authority.sh   # GPU 0 — set MODEL in models/authority.env first
+bash start_swarm.sh       # GPU 1 — ready (nemotron-nano-30b)
+bash start_gateway.sh     # embedding + unified proxy
+
+# or all at once:
 bash start_all.sh
 
 # 2. Check health
@@ -30,24 +37,31 @@ python orchestrator.py
 python simulation/sim_loop.py
 ```
 
-## Models (pre-downloaded to /per.volume/huggingface/hub/)
+## Models
 
-| Model | Path | GPU | Port |
-|-------|------|-----|------|
-| GLM-5 | `hub/glm-5` | 0 | 8000 |
-| DeepSeek-V3.2-Special | `hub/deepseek-v3.2-special` | 1 | 8001 |
-| e5-small-v2 | `hub/e5-small-v2` | CPU | — |
+| Slot | Model | Path | GPU | Port |
+|------|-------|------|-----|------|
+| authority | *(not set — edit models/authority.env)* | — | 0 | 8000 |
+| swarm | nemotron-nano-30b (NVFP4) | `hub/nemotron-nano-30b` | 1 | 8001 |
+| embedding | e5-small-v2 | `hub/e5-small-v2` | CPU | — |
+
+To swap a model: edit the 2-3 variables at the top of `models/<slot>.env`. Nothing else changes.
 
 ## Project Structure
 
 ```
 dualmirakl/
-├── start_gpu0.sh        # Launch GLM-5 on GPU0
-├── start_gpu1.sh        # Launch DeepSeek on GPU1
-├── start_all.sh         # Launch both + health poll
-├── stop_all.sh          # Stop all vLLM processes
-├── orchestrator.py      # Async dual-backend client
-├── gateway.py           # Unified /v1 endpoint + embeddings
+├── models/
+│   ├── authority.env       # Authority slot: model path + vLLM flags
+│   └── swarm.env           # Swarm slot: model path + vLLM flags
+├── start_authority.sh      # Launch authority slot on GPU 0
+├── start_swarm.sh          # Launch swarm slot on GPU 1
+├── start_gateway.sh        # Launch embedding gateway
+├── start_all.sh            # Launch all three
+├── stop_all.sh             # Stop all vLLM processes
+├── audit_env.sh            # Environment / model health check
+├── orchestrator.py         # Async dual-backend client
+├── gateway.py              # Unified /v1 endpoint + embeddings
 ├── requirements.txt
 ├── .env.example
 └── simulation/
@@ -55,11 +69,3 @@ dualmirakl/
     ├── sim_loop_v3_patch.py    # Simulation loop patches (v3)
     └── sim_loop.py             # SimPy + LLM simulation loop
 ```
-
-## Research Context
-
-MA thesis: **Computational modelling of media addiction dynamics**
-- Agents: media users, platform algorithms, researchers, policy analysts
-- State: addiction score evolves via probabilistic transitions (NumPyro)
-- Scale: population-level runs on FLAME GPU 2
-- Orchestration: Claude Code directs local LLM agents via vLLM OpenAI-compatible API

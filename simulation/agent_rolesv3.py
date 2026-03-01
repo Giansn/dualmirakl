@@ -95,7 +95,7 @@ from __future__ import annotations
 
 # ── [Fix 4] Configurable backend mapping ──────────────────────────────────────
 # Set env vars BACKEND_ANALYST and BACKEND_PERSONA to override at runtime:
-#   BACKEND_ANALYST=glm-5 BACKEND_PERSONA=qwen3 python sim_loop.py
+#   BACKEND_ANALYST=authority BACKEND_PERSONA=swarm python sim_loop.py
 import os
 
 BACKEND_CONFIG: dict[str, str] = {
@@ -192,7 +192,7 @@ AGENT_ROLES: dict[str, dict] = {
 
     # ══════════════════════════════════════════════════════════════════════
     # OBSERVER A — Behavioural Dynamics Analyst [Fix 1, Fix 2]
-    # Backend: analyst (Command-R 7B by default)
+    # Backend: analyst (authority slot)
     # ══════════════════════════════════════════════════════════════════════
     #
     # [Fix 2] ANALYSIS ONLY — no intervention recommendations.
@@ -240,7 +240,7 @@ AGENT_ROLES: dict[str, dict] = {
 
     # ══════════════════════════════════════════════════════════════════════
     # OBSERVER B — Intervention Specialist [Fix 1, Fix 2]
-    # Backend: analyst (Command-R 7B by default)
+    # Backend: analyst (authority slot)
     # ══════════════════════════════════════════════════════════════════════
     #
     # [Fix 2] Receives observer_a's analysis as context (via sim_loop.py
@@ -291,7 +291,7 @@ AGENT_ROLES: dict[str, dict] = {
 
     # ══════════════════════════════════════════════════════════════════════
     # PARTICIPANT — Persona Agent [Fix 1, Fix 6, Fix 7]
-    # Backend: persona (Qwen 2.5 7B by default)
+    # Backend: persona (swarm slot)
     # ══════════════════════════════════════════════════════════════════════
     #
     # [Fix 1] Removed jargon ("PAD baseline", "Big Five", "aleatory").
@@ -344,7 +344,7 @@ AGENT_ROLES: dict[str, dict] = {
 
     # ══════════════════════════════════════════════════════════════════════
     # ENVIRONMENT — Scenario Engine [Fix 1, Fix 6, Fix 8]
-    # Backend: persona (Qwen 2.5 7B by default)
+    # Backend: persona (swarm slot)
     # ══════════════════════════════════════════════════════════════════════
     #
     # [Fix 1] Removed "δ_ext", "loop gain", "DDA" as jargon. Kept the
@@ -398,7 +398,7 @@ AGENT_ROLES: dict[str, dict] = {
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 # Use AGENT_ROLES_DE when running German-language simulations.
-# Command-R and Qwen both support German, but prompt quality and
+# Both authority and swarm models support German, but prompt quality and
 # persona fidelity improve significantly when instructions are in German.
 #
 # Usage in sim_loop.py:

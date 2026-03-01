@@ -1,44 +1,48 @@
-# COWORK.md
-## Model Cooperation Reference
+# COWORK — Agent Cooperation Model
+
+## Slots
+
+### Authority — GPU 0, port 8000
+**Role** — Primary reasoning and output model. Runs analyst agents (observer_a, observer_b).
+
+**Function** — Structured reasoning, analysis, synthesis. Directs the swarm slot on what information is needed and how it should be structured. Receives filtered, ranked context from the swarm. Produces output and initiates the next retrieval cycle.
+
+**Config** — `models/authority.env`
 
 ---
 
-### GLM-5 — Authority
+### Swarm — GPU 1, port 8001
+**Role** — Generative and persona model. Runs participant and environment agents.
 
-**Function** — Primary reasoning and output model. Formulates retrieval queries, synthesises retrieved context into coherent, grounded output. Identifies gaps and directs the next preparation cycle.
+**Function** — High-throughput generation. Intermediary between raw information and the authority slot. Chunks and labels incoming documents. Filters and reranks retrieval results before forwarding. Manages file organisation.
 
-**Skills** — RAG synthesis · grounded generation · source citation · long-context consistency · professional output
-
-**Interaction** — Directs DeepSeek on what information is needed and how it should be structured. Receives filtered, ranked context from DeepSeek. Produces output and initiates the next retrieval cycle.
-
----
-
-### DeepSeek-V3.2-Special — Middleware
-
-**Function** — Intermediary between raw information and GLM-5. Chunks and labels all incoming documents per GLM-5's direction. Filters and reranks retrieval results before forwarding. Manages file organisation.
-
-**Skills** — Chunking · labelling · preprocessing · reranking · file management · high-throughput generation
-
-**Interaction** — Receives direction from GLM-5. Prepares and routes material to e5-small-v2 for embedding. Receives raw retrieval results from e5-small-v2, filters them, and passes a clean shortlist to GLM-5.
+**Config** — `models/swarm.env`
 
 ---
 
-### e5-small-v2 (384-dim) — Index
+### Embedding — CPU (via gateway, port 9000)
+**Role** — Pure embedding and retrieval layer.
 
-**Function** — Pure embedding and retrieval layer. Converts text to vectors for storage and similarity search. Produces no text output. Controlled indirectly through what DeepSeek chooses to embed and query.
+**Function** — Converts text to vectors for storage and similarity search. Produces no text output. Controlled indirectly through what the swarm slot chooses to embed and query.
 
-**Skills** — Text embedding · cosine similarity · vector retrieval · context compression
-
-**Interaction** — Receives prepared chunks from DeepSeek for indexing. Returns top-k similar chunks to DeepSeek on query. Keeps GLM-5's context window within token budget by enabling selective retrieval over large corpora.
+**Model** — e5-small-v2 (384-dim, ~2–5 ms per call)
 
 ---
 
-### Cooperation Flow
+## Cooperation Loop
 
 ```
-GLM-5       →  direction          →  DeepSeek
-DeepSeek    →  prepared chunks    →  e5-small-v2
-e5-small-v2 →  top-k results      →  DeepSeek
-DeepSeek    →  filtered context   →  GLM-5
-GLM-5       →  output + new need  →  DeepSeek  [repeat]
+authority  →  direction          →  swarm
+swarm      →  prepared chunks    →  embedding
+embedding  →  top-k results      →  swarm
+swarm      →  filtered context   →  authority
+authority  →  output + new need  →  swarm  [repeat]
 ```
+
+## Backend Keys
+
+| Key | Slot | Agents |
+|-----|------|--------|
+| `authority` | GPU 0 :8000 | observer_a, observer_b |
+| `swarm` | GPU 1 :8001 | environment, participant |
+| `e5-small-v2` | CPU :9000 | embedding only |

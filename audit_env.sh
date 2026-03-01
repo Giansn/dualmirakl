@@ -10,8 +10,8 @@ which python3
 python3 -c "import vllm, torch; print(f'vLLM: {vllm.__version__} | PyTorch: {torch.__version__} | CUDA: {torch.version.cuda}')"
 
 echo -e "\n--- [MODEL FILES] ---"
-[ -f /per.volume/huggingface/hub/glm-5/config.json ] && echo "✅ GLM-5: OK" || echo "❌ GLM-5: MISSING"
-[ -f /per.volume/huggingface/hub/deepseek-v3.2-special/config.json ] && echo "✅ DeepSeek-V3.2-Special: OK" || echo "❌ DeepSeek-V3.2-Special: MISSING"
+[ -n "$(ls /per.volume/huggingface/hub/ 2>/dev/null)" ] && echo "✅ authority model slot: check models/authority.env" || echo "❌ hub: MISSING"
+[ -f /per.volume/huggingface/hub/nemotron-nano-30b/config.json ] && echo "✅ swarm (nemotron-nano-30b): OK" || echo "❌ swarm model: MISSING"
 [ -f /per.volume/huggingface/hub/e5-small-v2/config.json ] && echo "✅ e5-small-v2: OK" || echo "❌ e5-small-v2: MISSING"
 
 echo -e "\n--- [CLEANUP POTENTIAL] ---"
