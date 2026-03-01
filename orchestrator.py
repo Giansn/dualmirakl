@@ -95,7 +95,7 @@ if __name__ == "__main__":
         if all(v == "up" for v in s.values()):
             print("\n=== dual query test ===")
             results = await dual_query(
-                "In one sentence: what is the core mechanism of media addiction?"
+                "In one sentence: what is an agent-based simulation?"
             )
             for model, resp in results.items():
                 print(f"\n[{model}]\n{resp}")
