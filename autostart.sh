@@ -19,7 +19,10 @@ exec >> "$LOG" 2>&1
 export HF_HOME=/per.volume/huggingface
 export PATH="/usr/local/bin:$PATH"
 
-[ -f "$PROJ/.env" ] && source "$PROJ/.env" && echo "[autostart] .env loaded"
+if [ -f "$PROJ/.env" ]; then
+  set -a; source "$PROJ/.env"; set +a   # export all vars so child processes inherit them
+  echo "[autostart] .env loaded"
+fi
 
 # ── Git identity ──────────────────────────────────────────────────────────────
 git -C "$PROJ" config user.email "dualmirakl@runpod" 2>/dev/null

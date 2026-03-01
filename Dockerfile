@@ -28,7 +28,6 @@ RUN pip install vllm==0.16.0
 
 # ── Project Python dependencies (pinned to current environment) ───────────────
 RUN pip install \
-    anthropic==0.84.0 \
     openai==2.24.0 \
     fastapi==0.134.0 \
     "sentence-transformers==5.2.3" \

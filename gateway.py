@@ -1,3 +1,4 @@
+import os
 import asyncio
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
@@ -6,8 +7,8 @@ import httpx
 
 app = FastAPI()
 
-GPU0 = "http://localhost:8000/v1"  # authority
-GPU1 = "http://localhost:8001/v1"  # swarm
+AUTHORITY = os.getenv("AUTHORITY_URL", "http://localhost:8000/v1")
+SWARM     = os.getenv("SWARM_URL",     "http://localhost:8001/v1")
 
 # e5-small-v2 loaded once at startup — CPU inference ~2-5ms per call
 _embed = SentenceTransformer("/per.volume/huggingface/hub/e5-small-v2")
@@ -19,7 +20,7 @@ client = httpx.AsyncClient(
 )
 
 def route(model: str) -> str:
-    return GPU0 if "authority" in model else GPU1
+    return AUTHORITY if "authority" in model else SWARM
 
 @app.post("/v1/chat/completions")
 async def chat(req: Request):
@@ -58,7 +59,7 @@ async def models():
 @app.get("/health")
 async def health():
     s = {"e5-small-v2": "up"}  # CPU-local, always available
-    for name, url in [("authority", GPU0), ("swarm", GPU1)]:
+    for name, url in [("authority", AUTHORITY), ("swarm", SWARM)]:
         try:
             r = await client.get(url.replace("/v1", "") + "/health", timeout=3.0)
             s[name] = "up" if r.status_code == 200 else f"error {r.status_code}"

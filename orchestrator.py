@@ -1,13 +1,14 @@
+import os
 import httpx
 import asyncio
 from typing import Literal
 
-GPU0_URL = "http://localhost:8000/v1"
-GPU1_URL = "http://localhost:8001/v1"
+AUTHORITY_URL = os.getenv("AUTHORITY_URL", "http://localhost:8000/v1")
+SWARM_URL     = os.getenv("SWARM_URL",     "http://localhost:8001/v1")
 
 MODELS = {
-    "authority": {"url": GPU0_URL, "name": "authority"},
-    "swarm":     {"url": GPU1_URL, "name": "swarm"},
+    "authority": {"url": AUTHORITY_URL, "name": "authority"},
+    "swarm":     {"url": SWARM_URL,     "name": "swarm"},
 }
 
 # Persistent client — reuses connections (keep-alive pool) across all calls.
