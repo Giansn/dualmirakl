@@ -7,8 +7,8 @@ Dual-GPU vLLM orchestration stack for MA thesis research on media addiction dyna
 ```
 RunPod Pod (2x RTX PRO 4500 Blackwell, 32GB VRAM each)
 │
-├── GPU 0 : vLLM → Command-R 7B AWQ  (port 8000)  — reasoning / synthesis agents
-├── GPU 1 : vLLM → Qwen 2.5 7B AWQ  (port 8001)  — generative / persona agents
+├── GPU 0 : vLLM → GLM-5                 (port 8000)  — reasoning / synthesis agents
+├── GPU 1 : vLLM → DeepSeek-V3.2-Special (port 8001)  — generative / persona agents
 │
 └── Orchestrator (orchestrator.py)
     └── Simulation stack
@@ -34,23 +34,26 @@ python simulation/sim_loop.py
 
 | Model | Path | GPU | Port |
 |-------|------|-----|------|
-| Command-R 7B AWQ | `hub/command-r7b-awq` | 0 | 8000 |
-| Qwen 2.5 7B AWQ  | `hub/qwen2.5-7b-awq`  | 1 | 8001 |
+| GLM-5 | `hub/glm-5` | 0 | 8000 |
+| DeepSeek-V3.2-Special | `hub/deepseek-v3.2-special` | 1 | 8001 |
+| e5-small-v2 | `hub/e5-small-v2` | CPU | — |
 
 ## Project Structure
 
 ```
 dualmirakl/
-├── start_gpu0.sh        # Launch Command-R on GPU0
-├── start_gpu1.sh        # Launch Qwen on GPU1
+├── start_gpu0.sh        # Launch GLM-5 on GPU0
+├── start_gpu1.sh        # Launch DeepSeek on GPU1
 ├── start_all.sh         # Launch both + health poll
 ├── stop_all.sh          # Stop all vLLM processes
 ├── orchestrator.py      # Async dual-backend client
+├── gateway.py           # Unified /v1 endpoint + embeddings
 ├── requirements.txt
 ├── .env.example
 └── simulation/
-    ├── agent_roles.py   # Agent persona definitions
-    └── sim_loop.py      # SimPy + LLM simulation loop
+    ├── agent_rolesv3.py        # Agent persona definitions (v3)
+    ├── sim_loop_v3_patch.py    # Simulation loop patches (v3)
+    └── sim_loop.py             # SimPy + LLM simulation loop
 ```
 
 ## Research Context
