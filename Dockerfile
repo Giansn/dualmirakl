@@ -9,7 +9,7 @@
 # Code  is NOT baked in — cloned to /per.volume/dualmirakl/ on first boot
 # =============================================================================
 
-FROM runpod/pytorch:2.9.1-py3.11-cuda12.8.0-devel-ubuntu22.04
+FROM runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2204
 
 # ── Environment ───────────────────────────────────────────────────────────────
 ENV HF_HOME=/per.volume/huggingface \
