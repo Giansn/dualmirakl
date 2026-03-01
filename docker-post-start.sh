@@ -34,7 +34,7 @@ fi
 # ── Create .env if missing ────────────────────────────────────────────────────
 if [ ! -f "$PROJ/.env" ] && [ -f "$PROJ/.env.example" ]; then
     cp "$PROJ/.env.example" "$PROJ/.env"
-    echo "[post_start] .env created from .env.example — set ANTHROPIC_API_KEY"
+    echo "[post_start] .env created from .env.example"
 fi
 
 # ── Launch stack in background ────────────────────────────────────────────────
