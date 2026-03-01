@@ -21,8 +21,8 @@ for PORT in 8000 8001; do
   fi
 done
 
-# --- [3] Launch GPU0 (Command-R 7B) ---
-echo "[dualmirakl] Starting GPU0 (Command-R 7B) on port 8000..."
+# --- [3] Launch GPU0 (GLM-5) ---
+echo "[dualmirakl] Starting GPU0 (GLM-5) on port 8000..."
 mv logs/gpu0.log logs/gpu0.last 2>/dev/null
 bash start_gpu0.sh > logs/gpu0.log 2>&1 &
 GPU0_PID=$!
@@ -33,7 +33,7 @@ READY=0
 for i in $(seq 1 60); do
   if curl -sf "http://localhost:8000/v1/completions" \
       -H "Content-Type: application/json" \
-      -d '{"model":"command-r-7b","prompt":"hi","max_tokens":1}' \
+      -d '{"model":"glm-5","prompt":"hi","max_tokens":1}' \
       -o /dev/null 2>&1; then
     echo "  port 8000: READY"
     READY=1
@@ -49,8 +49,8 @@ if [ $READY -eq 0 ]; then
   exit 1
 fi
 
-# --- [4] Launch GPU1 (Qwen 2.5 7B) ---
-echo "[dualmirakl] Starting GPU1 (Qwen 2.5 7B) on port 8001..."
+# --- [4] Launch GPU1 (DeepSeek-V3.2-Special) ---
+echo "[dualmirakl] Starting GPU1 (DeepSeek-V3.2-Special) on port 8001..."
 mv logs/gpu1.log logs/gpu1.last 2>/dev/null
 bash start_gpu1.sh > logs/gpu1.log 2>&1 &
 GPU1_PID=$!
@@ -60,7 +60,7 @@ READY=0
 for i in $(seq 1 60); do
   if curl -sf "http://localhost:8001/v1/completions" \
       -H "Content-Type: application/json" \
-      -d '{"model":"qwen-7b","prompt":"hi","max_tokens":1}' \
+      -d '{"model":"deepseek-v3.2-special","prompt":"hi","max_tokens":1}' \
       -o /dev/null 2>&1; then
     echo "  port 8001: READY"
     READY=1

@@ -1,12 +1,12 @@
 #!/bin/bash
-# GPU 1 — Qwen 2.5 7B AWQ — port 8001
+# GPU 1 — DeepSeek-V3.2-Special — port 8001
 
 export CUDA_VISIBLE_DEVICES=1
 export HF_HOME=/per.volume/huggingface
 
-MODEL=/per.volume/huggingface/hub/qwen2.5-7b-awq
+MODEL=/per.volume/huggingface/hub/deepseek-v3.2-special
 
-echo "[GPU1] Starting Qwen 2.5 7B AWQ on port 8001..."
+echo "[GPU1] Starting DeepSeek-V3.2-Special on port 8001..."
 
 exec python -m vllm.entrypoints.openai.api_server \
   --model "$MODEL" \
@@ -16,7 +16,7 @@ exec python -m vllm.entrypoints.openai.api_server \
   --gpu-memory-utilization 0.93 \
   --dtype auto \
   --max-model-len 8192 \
-  --served-model-name qwen-7b \
+  --served-model-name deepseek-v3.2-special \
   --trust-remote-code \
   --enable-prefix-caching \
   --enable-chunked-prefill \

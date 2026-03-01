@@ -6,11 +6,11 @@ import httpx
 
 app = FastAPI()
 
-GPU0 = "http://localhost:8000/v1"  # Command-R
-GPU1 = "http://localhost:8001/v1"  # Qwen
+GPU0 = "http://localhost:8000/v1"  # GLM-5
+GPU1 = "http://localhost:8001/v1"  # DeepSeek-V3.2-Special
 
-# gte-small loaded once at startup — 33MB BERT, CPU inference ~2-5ms per call
-_embed = SentenceTransformer("/per.volume/huggingface/hub/gte-small")
+# e5-small-v2 loaded once at startup — CPU inference ~2-5ms per call
+_embed = SentenceTransformer("/per.volume/huggingface/hub/e5-small-v2")
 
 client = httpx.AsyncClient(
     http2=True,
@@ -19,12 +19,12 @@ client = httpx.AsyncClient(
 )
 
 def route(model: str) -> str:
-    return GPU0 if "command-r" in model else GPU1
+    return GPU0 if "glm" in model else GPU1
 
 @app.post("/v1/chat/completions")
 async def chat(req: Request):
     body = await req.json()
-    target = route(body.get("model", "command-r"))
+    target = route(body.get("model", "glm-5"))
     if body.get("stream", False):
         async def gen():
             async with client.stream("POST", f"{target}/chat/completions", json=body) as r:
@@ -44,21 +44,21 @@ async def embeddings(req: Request):
     return {
         "object": "list",
         "data": [{"object": "embedding", "index": i, "embedding": v.tolist()} for i, v in enumerate(vectors)],
-        "model": "gte-small",
+        "model": "e5-small-v2",
     }
 
 @app.get("/v1/models")
 async def models():
     return {"object": "list", "data": [
-        {"id": "command-r", "object": "model"},
-        {"id": "qwen", "object": "model"},
-        {"id": "gte-small", "object": "model"},
+        {"id": "glm-5", "object": "model"},
+        {"id": "deepseek-v3.2-special", "object": "model"},
+        {"id": "e5-small-v2", "object": "model"},
     ]}
 
 @app.get("/health")
 async def health():
-    s = {"gte-small": "up"}  # CPU-local, always available
-    for name, url in [("command-r", GPU0), ("qwen", GPU1)]:
+    s = {"e5-small-v2": "up"}  # CPU-local, always available
+    for name, url in [("glm-5", GPU0), ("deepseek-v3.2-special", GPU1)]:
         try:
             r = await client.get(url.replace("/v1", "") + "/health", timeout=3.0)
             s[name] = "up" if r.status_code == 200 else f"error {r.status_code}"

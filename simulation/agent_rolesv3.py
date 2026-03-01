@@ -100,9 +100,9 @@ import os
 
 BACKEND_CONFIG: dict[str, str] = {
     # Analyst roles (observer_a, observer_b): strong at structured reasoning
-    "analyst": os.getenv("BACKEND_ANALYST", "command-r"),
+    "analyst": os.getenv("BACKEND_ANALYST", "glm-5"),
     # Persona roles (environment, participant): fast, high-throughput
-    "persona": os.getenv("BACKEND_PERSONA", "qwen"),
+    "persona": os.getenv("BACKEND_PERSONA", "deepseek"),
 }
 
 # ── [Fix 5] Intervention threshold — single source of truth ───────────────────
@@ -405,7 +405,7 @@ AGENT_ROLES: dict[str, dict] = {
 #   from agent_rolesv3 import AGENT_ROLES_DE as AGENT_ROLES  # drop-in replacement
 #
 # Note: ENGAGEMENT_ANCHORS and INTERVENTION_CODEBOOK remain in English
-#   because the embedding model (gte-small) was trained primarily on English text.
+#   because the embedding model (e5-small-v2) was trained primarily on English text.
 #   For German simulations, consider replacing with a multilingual model
 #   (e.g., multilingual-e5-base) and translating anchors.
 
