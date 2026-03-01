@@ -6,8 +6,8 @@ GPU0_URL = "http://localhost:8000/v1"
 GPU1_URL = "http://localhost:8001/v1"
 
 MODELS = {
-    "glm-5":    {"url": GPU0_URL, "name": "glm-5"},
-    "deepseek": {"url": GPU1_URL, "name": "deepseek-v3.2-special"},
+    "authority": {"url": GPU0_URL, "name": "authority"},
+    "swarm":     {"url": GPU1_URL, "name": "swarm"},
 }
 
 # Persistent client — reuses connections (keep-alive pool) across all calls.
@@ -25,7 +25,7 @@ async def close_client() -> None:
 
 
 async def chat(
-    backend: Literal["glm-5", "deepseek"],
+    backend: Literal["authority", "swarm"],
     messages: list[dict],
     max_tokens: int = 512,
     temperature: float = 0.7,
@@ -45,16 +45,16 @@ async def chat(
 async def dual_query(prompt: str) -> dict:
     """Send the same prompt to both backends concurrently."""
     msgs = [{"role": "user", "content": prompt}]
-    glm, deepseek = await asyncio.gather(
-        chat("glm-5", msgs),
-        chat("deepseek", msgs),
+    authority, swarm = await asyncio.gather(
+        chat("authority", msgs),
+        chat("swarm", msgs),
     )
-    return {"glm-5": glm, "deepseek": deepseek}
+    return {"authority": authority, "swarm": swarm}
 
 
 async def agent_turn(
     agent_id: str,
-    backend: Literal["glm-5", "deepseek"],
+    backend: Literal["authority", "swarm"],
     system_prompt: str,
     user_message: str,
     history: list[dict] | None = None,

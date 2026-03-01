@@ -100,9 +100,9 @@ import os
 
 BACKEND_CONFIG: dict[str, str] = {
     # Analyst roles (observer_a, observer_b): strong at structured reasoning
-    "analyst": os.getenv("BACKEND_ANALYST", "glm-5"),
+    "analyst": os.getenv("BACKEND_ANALYST", "authority"),
     # Persona roles (environment, participant): fast, high-throughput
-    "persona": os.getenv("BACKEND_PERSONA", "deepseek"),
+    "persona": os.getenv("BACKEND_PERSONA", "swarm"),
 }
 
 # ── [Fix 5] Intervention threshold — single source of truth ───────────────────
