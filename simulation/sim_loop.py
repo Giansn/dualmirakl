@@ -657,12 +657,15 @@ async def run_tick_v3(
     stimuli = {p.agent_id: s for p, s in zip(participants, stimuli_list)}
 
     # ── Phase B — participants (GPU 1) + authority preview (GPU 0) concurrent ──
-    preview_task = asyncio.create_task(obs_a.preview(tick, stimuli))
+    # Also sample GPU telemetry mid-flight so we catch both GPUs while active.
+    preview_task  = asyncio.create_task(obs_a.preview(tick, stimuli))
+    telemetry_task = asyncio.create_task(asyncio.to_thread(_query_gpu_util))
     responses = await asyncio.gather(*[
         p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens, extra_nudge=directive)
         for p in participants
     ])
-    preview = await preview_task  # usually done by now
+    preview    = await preview_task
+    _live_util = await telemetry_task  # captured while both GPUs were running
 
     # ── Phase C — embedding (all CPU cores) + GPU directive prefetch concurrent ─
     # asyncio.to_thread releases the event loop so the directive task runs in parallel.
@@ -691,10 +694,8 @@ async def run_tick_v3(
             signal_se=signal_se,
         ))
 
-    # Harmony protocol: GPU telemetry + embedding engagement signal → adaptive tokens.
-    # GPU signal: how far from 50% target utilization?
-    # Engagement signal: low scores mean scenarios aren't landing — push tokens up.
-    u0, u1 = _query_gpu_util()
+    # Harmony protocol: GPU telemetry (sampled during Phase B) + engagement signal.
+    u0, u1 = _live_util
     mean_util = (u0 + u1) / 2.0
     GPU_TARGET = 50.0
     stats_now = world_state.compute_score_statistics(tick)
