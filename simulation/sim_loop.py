@@ -533,24 +533,19 @@ async def run_tick_v3(
     observers: list[ObserverAgent],
     world_state: WorldState,
     alpha: float = 0.2,
-    max_tokens: int = 256,
+    max_tokens: int = 512,
+    directive: str = "",  # pre-fetched by run_simulation_v3
 ) -> None:
     n = len(participants)
 
-    # ── Phase 0 — authority tick directive ───────────────────────────────────
-    obs_a = observers[0]
-    participant_scores = {p.agent_id: p.behavioral_score for p in participants}
-    directive = await obs_a.direct(tick, world_state, participant_scores, environment.scenario)
-
-    # ── Phase A — stimulus generation ────────────────────────────────────────
-    if n <= 10:
-        stimuli = {}
-        for p in participants:
-            stimuli[p.agent_id] = await environment.decide(
-                p, world_state, max_tokens=max(64, max_tokens // 2), directive=directive
-            )
-    else:
-        stimuli = await environment.batch_decide(participants, world_state, directive=directive)
+    # ── Phase A — concurrent stimulus generation ──────────────────────────────
+    # All environment calls fire in parallel (asyncio.gather), keeping GPU 1 busy.
+    env_max = max(64, max_tokens // 2)
+    stimuli_list = await asyncio.gather(*[
+        environment.decide(p, world_state, max_tokens=env_max, directive=directive)
+        for p in participants
+    ])
+    stimuli = {p.agent_id: s for p, s in zip(participants, stimuli_list)}
 
     # ── Phase B — concurrent participant responses ────────────────────────────
     responses = await asyncio.gather(*[
@@ -595,11 +590,11 @@ async def run_tick_v3(
 
 async def run_simulation_v3(
     n_ticks: int = 12,
-    n_participants: int = 4,
+    n_participants: int = 8,
     k: int = 2,
     alpha: float = 0.2,
     history_window: int = 4,
-    max_tokens: int = 256,
+    max_tokens: int = 512,
     intervention_threshold: float = INTERVENTION_THRESHOLD,   # [Fix 5] SA target
     persona_summary_interval: int = PERSONA_SUMMARY_INTERVAL, # [Fix 7] SA target
     scenario: str = "",          # domain/context seed for environment
@@ -643,14 +638,31 @@ async def run_simulation_v3(
     # Pre-load embedding model before ticks begin
     _load_anchors()
 
+    # Pre-fetch tick 1 directive immediately (authority GPU starts while embedding loads).
+    _init_scores = {p.agent_id: p.behavioral_score for p in participants}
+    _directive_task: asyncio.Task = asyncio.create_task(
+        observers[0].direct(1, world_state, _init_scores, scenario)
+    )
+
     try:
         for tick in range(1, n_ticks + 1):
+            # Await pre-fetched directive (usually already done by now)
+            directive = await _directive_task
+
+            # Pre-fetch next tick's directive concurrently with Phase A+B.
+            # Authority (GPU 0) and swarm (GPU 1) both run at the same time.
+            if tick < n_ticks:
+                _next_scores = {p.agent_id: p.behavioral_score for p in participants}
+                _directive_task = asyncio.create_task(
+                    observers[0].direct(tick + 1, world_state, _next_scores, scenario)
+                )
+
             env_sim.run(until=tick)
             pct = tick / n_ticks * 100
             print(f"\n── Tick {tick}/{n_ticks}  ({pct:.0f}%) ──")
             await run_tick_v3(
                 tick, environment, participants, observers,
-                world_state, alpha, max_tokens,
+                world_state, alpha, max_tokens, directive=directive,
             )
             for p in participants:
                 label = _score_label(p.behavioral_score)
@@ -744,10 +756,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="dualmirakl simulation v3")
     parser.add_argument("--ticks",        type=int,   default=12)
-    parser.add_argument("--participants", type=int,   default=4)
+    parser.add_argument("--participants", type=int,   default=8)
     parser.add_argument("--k",           type=int,   default=2,   help="Observer frequency (ticks)")
     parser.add_argument("--alpha",       type=float, default=0.2, help="EMA alpha")
-    parser.add_argument("--max-tokens",  type=int,   default=256)
+    parser.add_argument("--max-tokens",  type=int,   default=512)
     parser.add_argument("--threshold",   type=float, default=INTERVENTION_THRESHOLD,
                         help="Intervention cosine similarity threshold (SA target)")
     parser.add_argument("--scenario",    type=str,   default="",
