@@ -23,6 +23,44 @@ import numpy as np
 # ── GPU telemetry (pynvml — zero subprocess overhead) ─────────────────────────
 _GPU_HANDLES: list = []
 
+async def warmup_kv_cache(scenario: str) -> None:
+    """
+    Pre-fill vLLM KV cache with system prompt + scenario prefix before tick 1.
+
+    Each agent role's system prompt is the heaviest shared prefix across all
+    requests in the simulation. Sending it once with max_tokens=1 costs ~zero
+    GPU time but primes the prefix cache so every real request gets a cache hit
+    on those tokens — no recomputation for the full run.
+
+    Requires --enable-prefix-caching in vLLM EXTRA_FLAGS (set in models/*.env).
+    """
+    print("[warmup] Priming KV cache with scenario prefix...")
+    scenario_suffix = f"\n\nScenario: {scenario}" if scenario else ""
+
+    # Build one warmup message per (backend, system_prompt) pair.
+    # The orchestrator folds system→user, so the cached prefix is:
+    #   "{system_prompt}\n\n{scenario_suffix}\n\nBegin."
+    warmup_tasks = []
+    seen = set()
+    for role, cfg in AGENT_ROLES.items():
+        key = (cfg["backend"], cfg["system"][:40])
+        if key in seen:
+            continue
+        seen.add(key)
+        prefix_msg = f"{cfg['system']}{scenario_suffix}\n\nBegin."
+        warmup_tasks.append(
+            chat(
+                cfg["backend"],
+                [{"role": "system", "content": cfg["system"]},
+                 {"role": "user",   "content": f"{scenario_suffix}\n\nBegin."}],
+                max_tokens=1,
+                temperature=0.0,
+            )
+        )
+    await asyncio.gather(*warmup_tasks)
+    print(f"[warmup] KV cache primed — {len(warmup_tasks)} prefixes cached.")
+
+
 def _init_gpu_handles() -> None:
     global _GPU_HANDLES
     try:
@@ -61,7 +99,7 @@ from agent_rolesv3 import (
     EMBED_BATCH_SIZE,
     check_compliance,
 )
-from orchestrator import agent_turn, close_client
+from orchestrator import agent_turn, chat, close_client
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -759,6 +797,10 @@ async def run_simulation_v3(
     _load_anchors()
     _init_gpu_handles()
     world_state._adaptive_tokens = max_tokens
+
+    # Smart KV cache warmup: prime both backends with system prompt + scenario prefix.
+    # Runs concurrently with embedding anchor loading (already done above).
+    await warmup_kv_cache(scenario)
 
     try:
         for tick in range(1, n_ticks + 1):
