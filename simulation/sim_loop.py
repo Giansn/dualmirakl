@@ -352,9 +352,11 @@ class ParticipantAgent:
         self.last_response: str = ""
         self.persona_summary: str = ""  # [Fix 7]
 
-    async def _maybe_update_persona_summary(self, tick: int) -> None:
+    async def _maybe_update_persona_summary(self, tick: int, force: bool = False) -> None:
         """[Fix 7] Regenerate persona summary every PERSONA_SUMMARY_INTERVAL ticks."""
-        if tick % PERSONA_SUMMARY_INTERVAL != 0 or tick == 0 or len(self.history) < 4:
+        if not force and (tick % PERSONA_SUMMARY_INTERVAL != 0 or tick == 0 or len(self.history) < 4):
+            return
+        if force and len(self.history) < 4:
             return
         self.persona_summary = await agent_turn(
             agent_id=f"{self.agent_id}_summariser",
@@ -381,10 +383,11 @@ class ParticipantAgent:
         )
         return f"{summary_block}\n\n{base}"
 
-    async def step(self, tick: int, stimulus: str, world_state: WorldState, max_tokens: int = 256) -> str:
+    async def step(self, tick: int, stimulus: str, world_state: WorldState, max_tokens: int = 512, extra_nudge: str = "") -> str:
         await self._maybe_update_persona_summary(tick)
-        nudge = world_state.participant_nudges()
-        nudge_note = f" {nudge}" if nudge else ""
+        nudge_parts = [world_state.participant_nudges(), extra_nudge]
+        combined_nudge = " ".join(p for p in nudge_parts if p)
+        nudge_note = f" {combined_nudge}" if combined_nudge else ""
         # [Fix 6] behavioral_score NOT leaked to participant
         prompt = (
             f"[Tick {tick}]{nudge_note} "
@@ -534,22 +537,27 @@ async def run_tick_v3(
     world_state: WorldState,
     alpha: float = 0.2,
     max_tokens: int = 512,
-    directive: str = "",  # pre-fetched by run_simulation_v3
 ) -> None:
     n = len(participants)
-
-    # ── Phase A — concurrent stimulus generation ──────────────────────────────
-    # All environment calls fire in parallel (asyncio.gather), keeping GPU 1 busy.
     env_max = max(64, max_tokens // 2)
+    obs_a = observers[0]
+
+    # ── Phase 0+A — authority directive + swarm env calls concurrently ────────
+    # GPU 0 (authority) and GPU 1 (swarm) both active from the first moment.
+    scores = {p.agent_id: p.behavioral_score for p in participants}
+    directive_task = asyncio.create_task(
+        obs_a.direct(tick, world_state, scores, environment.scenario)
+    )
     stimuli_list = await asyncio.gather(*[
-        environment.decide(p, world_state, max_tokens=env_max, directive=directive)
+        environment.decide(p, world_state, max_tokens=env_max)
         for p in participants
     ])
+    directive = await directive_task  # await after Phase A completes (usually already done)
     stimuli = {p.agent_id: s for p, s in zip(participants, stimuli_list)}
 
-    # ── Phase B — concurrent participant responses ────────────────────────────
+    # ── Phase B — concurrent participant responses (directive injected as nudge) ─
     responses = await asyncio.gather(*[
-        p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens)
+        p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens, extra_nudge=directive)
         for p in participants
     ])
 
@@ -572,12 +580,17 @@ async def run_tick_v3(
             signal_se=signal_se,
         ))
 
-    # ── Phase D — sequential observer cycle [Fix 2] ──────────────────────────
+    # ── Phase D — observer cycle: authority + swarm persona updates concurrent ──
     if tick % world_state.k == 0:
-        print(f"\n[Tick {tick}] Observer cycle (A→B sequential)...")
-        obs_a, obs_b = observers[0], observers[1]
-        analysis = await obs_a.analyse(tick, world_state, n)       # D1: analyse
-        ivs      = await obs_b.intervene(tick, world_state, n, analysis)  # D2: intervene
+        print(f"\n[Tick {tick}] Observer cycle (A→B) + persona updates...")
+        obs_b = observers[1]
+        # GPU 0: observer_a analysis  |  GPU 1: persona summaries — both at once
+        analysis, *_ = await asyncio.gather(
+            obs_a.analyse(tick, world_state, n),
+            *[p._maybe_update_persona_summary(tick, force=True) for p in participants],
+        )
+        # GPU 0: observer_b intervention (sequential after analysis)
+        ivs = await obs_b.intervene(tick, world_state, n, analysis)
         world_state.active_interventions.extend(ivs)
         world_state.log_interventions(ivs, tick)
 
@@ -638,31 +651,14 @@ async def run_simulation_v3(
     # Pre-load embedding model before ticks begin
     _load_anchors()
 
-    # Pre-fetch tick 1 directive immediately (authority GPU starts while embedding loads).
-    _init_scores = {p.agent_id: p.behavioral_score for p in participants}
-    _directive_task: asyncio.Task = asyncio.create_task(
-        observers[0].direct(1, world_state, _init_scores, scenario)
-    )
-
     try:
         for tick in range(1, n_ticks + 1):
-            # Await pre-fetched directive (usually already done by now)
-            directive = await _directive_task
-
-            # Pre-fetch next tick's directive concurrently with Phase A+B.
-            # Authority (GPU 0) and swarm (GPU 1) both run at the same time.
-            if tick < n_ticks:
-                _next_scores = {p.agent_id: p.behavioral_score for p in participants}
-                _directive_task = asyncio.create_task(
-                    observers[0].direct(tick + 1, world_state, _next_scores, scenario)
-                )
-
             env_sim.run(until=tick)
             pct = tick / n_ticks * 100
             print(f"\n── Tick {tick}/{n_ticks}  ({pct:.0f}%) ──")
             await run_tick_v3(
                 tick, environment, participants, observers,
-                world_state, alpha, max_tokens, directive=directive,
+                world_state, alpha, max_tokens,
             )
             for p in participants:
                 label = _score_label(p.behavioral_score)
