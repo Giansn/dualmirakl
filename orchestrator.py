@@ -40,7 +40,10 @@ async def chat(
     }
     r = await _client.post(f"{cfg['url']}/chat/completions", json=payload)
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    msg = r.json()["choices"][0]["message"]
+    # Reasoning models (e.g. nemotron nano_v3) may return content=null
+    # with the actual output in reasoning_content.
+    return msg.get("content") or msg.get("reasoning_content") or ""
 
 
 async def dual_query(prompt: str) -> dict:

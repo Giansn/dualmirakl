@@ -1,0 +1,664 @@
+"""
+sim_loop.py — dualmirakl simulation loop v3
+
+Architecture (DEVS Coupled System):
+  Phase A: EnvironmentAgent generates stimuli (sequential, DDA-guided)
+  Phase B: ParticipantAgent responds (concurrent asyncio.gather)
+  Phase C: Score update via e5-small-v2 embedding (batched)  [Fix 12]
+  Phase D: ObserverAgent cycle — A analyses, B intervenes    [Fix 2]
+
+All v3 fixes from agent_rolesv3.py are active.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import math
+import os
+import sys
+from dataclasses import dataclass, field
+
+import numpy as np
+
+# ── Path setup ────────────────────────────────────────────────────────────────
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
+sys.path.insert(0, _HERE)  # agent_rolesv3
+sys.path.insert(0, _ROOT)  # orchestrator
+
+from agent_rolesv3 import (
+    AGENT_ROLES,
+    INTERVENTION_CODEBOOK,
+    ENGAGEMENT_ANCHORS,
+    INTERVENTION_THRESHOLD,
+    PERSONA_SUMMARY_INTERVAL,
+    PERSONA_SUMMARY_TEMPLATE,
+    EMBED_BATCH_SIZE,
+    check_compliance,
+)
+from orchestrator import agent_turn, close_client
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EMBEDDING SETUP
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_EMBED_MODEL_PATH = os.getenv(
+    "EMBED_MODEL_PATH",
+    "/per.volume/huggingface/hub/e5-small-v2",
+)
+
+_embed_model = None
+_anchor_vecs = None
+_anchor_labels = None
+
+
+def _get_embed():
+    global _embed_model
+    if _embed_model is None:
+        from sentence_transformers import SentenceTransformer
+        print(f"[embed] Loading {_EMBED_MODEL_PATH}...")
+        _embed_model = SentenceTransformer(_EMBED_MODEL_PATH)
+        print("[embed] Ready.")
+    return _embed_model
+
+
+def _load_anchors():
+    global _anchor_vecs, _anchor_labels
+    if _anchor_vecs is not None:
+        return
+    model = _get_embed()
+    texts, labels = [], []
+    for label, phrases in ENGAGEMENT_ANCHORS.items():
+        for phrase in phrases:
+            texts.append(phrase)
+            labels.append(label)
+    _anchor_vecs = model.encode(texts, batch_size=EMBED_BATCH_SIZE, show_progress_bar=False)
+    _anchor_labels = labels
+    print(f"[embed] Anchors loaded: {len(texts)} phrases ({len(set(labels))} poles).")
+
+
+def _cosine(a, b) -> float:
+    denom = np.linalg.norm(a) * np.linalg.norm(b)
+    return 0.0 if denom < 1e-10 else float(np.dot(a, b) / denom)
+
+
+def _compute_signal_from_vec(vec) -> tuple[float, float]:
+    """Compute behavioral signal and SE from a pre-encoded response vector."""
+    _load_anchors()
+    sims = np.array([_cosine(vec, a) for a in _anchor_vecs])
+    high_mask = np.array([l == "high" for l in _anchor_labels])
+    high_sim = float(np.mean(sims[high_mask]))
+    low_sim  = float(np.mean(sims[~high_mask]))
+    signal = float(np.clip((high_sim - low_sim + 1.0) / 2.0, 0.0, 1.0))
+    se     = float(np.std(sims) / math.sqrt(len(sims)))
+    return signal, se
+
+
+def embed_score_batch(responses: list[str]) -> list[tuple[float, float]]:
+    """[Fix 12] Batch encode all responses in one model.encode() call."""
+    _load_anchors()
+    vecs = _get_embed().encode(responses, batch_size=EMBED_BATCH_SIZE, show_progress_bar=False)
+    return [_compute_signal_from_vec(v) for v in vecs]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA STRUCTURES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ObsEntry:
+    tick: int
+    participant_id: str
+    score_before: float
+    score_after: float
+    stimulus: str
+    response: str
+    signal: float
+    signal_se: float
+
+
+@dataclass
+class Intervention:
+    type: str        # pause_prompt | boundary_warning | pacing_adjustment | dynamics_dampening
+    description: str
+    tick_applied: int
+    agent_id: str = ""
+    duration: int = 3  # ticks before expiry
+
+    @property
+    def expired_at(self) -> int:
+        return self.tick_applied + self.duration
+
+
+@dataclass
+class WorldState:
+    k: int = 3
+    active_interventions: list[Intervention]  = field(default_factory=list)
+    history:              list[ObsEntry]       = field(default_factory=list)
+    _compliance_log:      list[dict]           = field(default_factory=list)
+    _current_tick:        int                  = 0
+
+    def log(self, entry: ObsEntry) -> None:
+        self.history.append(entry)
+        self._current_tick = entry.tick
+
+    def apply_interventions(self) -> None:
+        """Remove expired interventions after each tick."""
+        self.active_interventions = [
+            iv for iv in self.active_interventions
+            if iv.expired_at > self._current_tick
+        ]
+
+    def score_dampening(self) -> float:
+        """Return dampening factor d ∈ (0,1]. Reduced when dynamics_dampening is active."""
+        for iv in self.active_interventions:
+            if iv.type == "dynamics_dampening":
+                return 0.6
+        return 1.0
+
+    def participant_nudges(self) -> str:
+        """Return nudge string injected into participant prompts when active."""
+        nudges = [
+            iv.description for iv in self.active_interventions
+            if iv.type == "pause_prompt"
+        ]
+        return " ".join(nudges)
+
+    def observer_prompt_window(self, tick: int, n_participants: int) -> str:
+        """Format recent history for observer prompts."""
+        recent = [e for e in self.history if e.tick > tick - self.k]
+        if not recent:
+            return "(no history yet)"
+        lines = []
+        for e in recent[-(n_participants * self.k):]:
+            label = _score_label(e.score_after)
+            lines.append(
+                f"  [T{e.tick}] {e.participant_id} score={e.score_after:.3f} ({label})\n"
+                f"    stimulus: {e.stimulus[:80]}\n"
+                f"    response: {e.response[:100]}"
+            )
+        return "\n".join(lines)
+
+    def compute_score_statistics(self, tick: int) -> dict:
+        """POM population statistics for the current tick."""
+        recent = [e for e in self.history if e.tick == tick]
+        if not recent:
+            return {}
+        scores = np.array([e.score_after for e in recent])
+        try:
+            from scipy.stats import skew as _skew
+            sk = float(_skew(scores))
+        except Exception:
+            sk = 0.0
+        all_scores = np.array([e.score_after for e in self.history])
+        ac = None
+        if len(all_scores) >= 3 and np.std(all_scores) > 1e-6:
+            ac = float(np.corrcoef(all_scores[:-1], all_scores[1:])[0, 1])
+        return {
+            "mean": float(np.mean(scores)),
+            "std":  float(np.std(scores)),
+            "skewness": sk,
+            "n_above_threshold": int(np.sum(scores >= 0.7)),
+            "n_total": len(scores),
+            "autocorrelation_lag1": ac,
+        }
+
+    def compliance_report(self) -> list[dict]:
+        return list(self._compliance_log)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _score_label(score: float) -> str:
+    if score >= 0.8: return "HIGH"
+    if score >= 0.5: return "MODERATE"
+    return "LOW"
+
+
+def _dda_note(score: float) -> str:
+    """[Fix 6] DDA pacing instruction injected into environment user_message."""
+    if score >= 0.8: return "[HIGH: use a stabilising situation]"
+    if score >= 0.5: return "[MODERATE: introduce mild variation]"
+    return "[LOW: keep it standard]"
+
+
+def _format_stats(stats: dict) -> str:
+    if not stats:
+        return ""
+    s = (
+        f"\nPopulation statistics: mean={stats['mean']:.3f}, "
+        f"σ={stats['std']:.3f}, skew={stats['skewness']:.2f}, "
+        f"above 0.7: {stats['n_above_threshold']}/{stats['n_total']}"
+    )
+    if stats.get("autocorrelation_lag1") is not None:
+        s += f", lag-1 autocorr={stats['autocorrelation_lag1']:.3f}"
+    return s
+
+
+def update_score(score: float, signal: float, dampening: float, alpha: float) -> float:
+    """EMA score update with optional dampening."""
+    return float(np.clip(alpha * signal + (1.0 - alpha) * score * dampening, 0.0, 1.0))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# INTERVENTION EXTRACTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def extract_interventions(agent_id: str, response: str, tick: int) -> list[Intervention]:
+    """
+    Match observer_b response against INTERVENTION_CODEBOOK via cosine similarity.
+    Returns Intervention objects whose similarity ≥ INTERVENTION_THRESHOLD.
+    """
+    if "no intervention needed" in response.lower():
+        return []
+    _load_anchors()
+    model = _get_embed()
+    response_vec = model.encode([response], show_progress_bar=False)[0]
+    found = []
+    for iv_type, phrases in INTERVENTION_CODEBOOK.items():
+        phrase_vecs = model.encode(phrases, show_progress_bar=False)
+        sims = [_cosine(response_vec, pv) for pv in phrase_vecs]
+        if max(sims) >= INTERVENTION_THRESHOLD:
+            best_phrase = phrases[int(np.argmax(sims))]
+            found.append(Intervention(
+                type=iv_type,
+                description=best_phrase,
+                tick_applied=tick,
+                agent_id=agent_id,
+            ))
+    return found
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENVIRONMENT AGENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class EnvironmentAgent:
+
+    def __init__(self, history_window: int = 4):
+        self.agent_id = "environment"
+        self.cfg = AGENT_ROLES["environment"]
+        self.history: list[dict] = []
+        self.history_window = history_window
+
+    async def decide(self, participant, world_state: WorldState, max_tokens: int = 128) -> str:
+        """[Fix 6, Fix 8] DDA note injected here in code, not in prompt."""
+        score = participant.behavioral_score
+        dda = _dda_note(score)
+        constraints = ", ".join(
+            iv.description for iv in world_state.active_interventions
+            if iv.type in ("boundary_warning", "pacing_adjustment")
+        ) or "none"
+        user_msg = (
+            f"Participant: {participant.agent_id}\n"
+            f"Current score: {score:.3f} ({_score_label(score)})\n"
+            f"DDA instruction: {dda}\n"
+            f"Observer constraints: {constraints}\n"
+            f"Previous response: \"{participant.last_response[:120]}\"\n\n"
+            f"Generate the next situation this participant encounters."
+        )
+        response = await agent_turn(
+            agent_id=self.agent_id,
+            backend=self.cfg["backend"],
+            system_prompt=self.cfg["system"],
+            user_message=user_msg,
+            history=self.history[-self.history_window:],
+            max_tokens=max_tokens,
+        )
+        violations = check_compliance(response, "environment")
+        if violations:
+            print(f"  [COMPLIANCE] environment tick violations: {violations}")
+        self.history.append({"role": "assistant", "content": response})
+        return response
+
+    async def batch_decide(self, participants: list, world_state: WorldState) -> dict:
+        """Concurrent stimulus generation for large N (>10)."""
+        stimuli = await asyncio.gather(*[
+            self.decide(p, world_state) for p in participants
+        ])
+        return {p.agent_id: s for p, s in zip(participants, stimuli)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PARTICIPANT AGENT  [Fix 7, Fix 9]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ParticipantAgent:
+
+    def __init__(self, agent_id: str, history_window: int = 4):
+        self.agent_id = agent_id
+        self.cfg = AGENT_ROLES["participant"]
+        self.history: list[dict] = []
+        self.history_window = history_window
+        self.behavioral_score: float = float(np.random.uniform(0.1, 0.5))
+        self.score_log: list[float] = []
+        self.last_stimulus: str = "nothing yet"
+        self.last_response: str = ""
+        self.persona_summary: str = ""  # [Fix 7]
+
+    async def _maybe_update_persona_summary(self, tick: int) -> None:
+        """[Fix 7] Regenerate persona summary every PERSONA_SUMMARY_INTERVAL ticks."""
+        if tick % PERSONA_SUMMARY_INTERVAL != 0 or tick == 0 or len(self.history) < 4:
+            return
+        self.persona_summary = await agent_turn(
+            agent_id=f"{self.agent_id}_summariser",
+            backend=self.cfg["backend"],
+            system_prompt="You create concise character summaries from conversation history.",
+            user_message=(
+                "In 3 concise sentences, summarise this participant's character: "
+                "their personality, key emotional states shown, and any consistent "
+                "patterns of behaviour (e.g. resistance, eagerness, withdrawal). "
+                "This summary will be used to maintain consistency in future turns."
+            ),
+            history=self.history[-20:],
+            max_tokens=120,
+        )
+
+    def _build_system_prompt(self) -> str:
+        """[Fix 7] Prepend persona summary block if available."""
+        base = self.cfg["system"]
+        if not self.persona_summary:
+            return base
+        summary_block = PERSONA_SUMMARY_TEMPLATE.format(
+            interval=PERSONA_SUMMARY_INTERVAL,
+            summary=self.persona_summary,
+        )
+        return f"{summary_block}\n\n{base}"
+
+    async def step(self, tick: int, stimulus: str, world_state: WorldState, max_tokens: int = 256) -> str:
+        await self._maybe_update_persona_summary(tick)
+        nudge = world_state.participant_nudges()
+        nudge_note = f" {nudge}" if nudge else ""
+        # [Fix 6] behavioral_score NOT leaked to participant
+        prompt = (
+            f"[Tick {tick}]{nudge_note} "
+            f"The environment presents: \"{stimulus[:120]}\". "
+            f"How do you respond? What do you do?"
+        )
+        response = await agent_turn(
+            agent_id=self.agent_id,
+            backend=self.cfg["backend"],
+            system_prompt=self._build_system_prompt(),
+            user_message=prompt,
+            history=self.history[-self.history_window:],
+            max_tokens=max_tokens,
+        )
+        # [Fix 9] Compliance check
+        violations = check_compliance(response, "participant")
+        if violations:
+            print(f"  [COMPLIANCE] {self.agent_id} tick={tick} violations: {violations}")
+            world_state._compliance_log.append({
+                "tick": tick, "agent": self.agent_id,
+                "role": "participant", "violations": violations,
+            })
+        self.last_stimulus = stimulus
+        self.last_response = response
+        self.history.append({"role": "user",      "content": stimulus})
+        self.history.append({"role": "assistant", "content": response})
+        return response
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OBSERVER AGENT  [Fix 2, Fix 9]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ObserverAgent:
+
+    def __init__(self, agent_id: str, role: str, history_window: int = 4, max_tokens: int = 256):
+        self.agent_id = agent_id
+        self.role = role
+        self.cfg = AGENT_ROLES[role]
+        self.history: list[dict] = []
+        self.history_window = history_window
+        self.max_tokens = max_tokens
+        self.analyses: list[str] = []
+
+    async def analyse(self, tick: int, world_state: WorldState, n_participants: int) -> str:
+        """[Fix 2] observer_a: analysis only — no codebook extraction."""
+        window   = world_state.observer_prompt_window(tick, n_participants)
+        active   = ", ".join(iv.description for iv in world_state.active_interventions) or "none"
+        stats    = world_state.compute_score_statistics(tick)
+        prompt = (
+            f"[Tick {tick}] Observation window (last {world_state.k} ticks):\n"
+            f"{window}{_format_stats(stats)}\n\n"
+            f"Active interventions: {active}\n\n"
+            f"Analyse participant behaviour and population dynamics. "
+            f"Describe what you see — do NOT recommend any interventions."
+        )
+        response = await agent_turn(
+            agent_id=self.agent_id,
+            backend=self.cfg["backend"],
+            system_prompt=self.cfg["system"],
+            user_message=prompt,
+            history=self.history[-self.history_window:],
+            max_tokens=self.max_tokens,
+        )
+        print(f"[{self.agent_id} ANALYSIS] {response[:120]}...")
+        violations = check_compliance(response, "observer_a")
+        if violations:
+            print(f"  [COMPLIANCE] {self.agent_id} used intervention keywords: {violations}")
+        self.history.append({"role": "assistant", "content": response})
+        self.analyses.append(response)
+        return response  # no extract_interventions here
+
+    async def intervene(
+        self,
+        tick: int,
+        world_state: WorldState,
+        n_participants: int,
+        analysis: str,  # [Fix 2] receives observer_a's output
+    ) -> list[Intervention]:
+        """[Fix 2] observer_b: proposes interventions from observer_a's analysis."""
+        window = world_state.observer_prompt_window(tick, n_participants)
+        active = ", ".join(iv.description for iv in world_state.active_interventions) or "none"
+        stats  = world_state.compute_score_statistics(tick)
+        prompt = (
+            f"[Tick {tick}] Analyst report from observer_a:\n{analysis}\n\n"
+            f"Raw observation window (last {world_state.k} ticks):\n"
+            f"{window}{_format_stats(stats)}\n\n"
+            f"Active interventions: {active}\n\n"
+            f"Based on the analyst's findings, decide whether to intervene. "
+            f"If yes, state which type using the exact phrases from your instructions."
+        )
+        response = await agent_turn(
+            agent_id=self.agent_id,
+            backend=self.cfg["backend"],
+            system_prompt=self.cfg["system"],
+            user_message=prompt,
+            history=self.history[-self.history_window:],
+            max_tokens=self.max_tokens,
+        )
+        print(f"[{self.agent_id} INTERVENTION] {response[:120]}...")
+        self.history.append({"role": "assistant", "content": response})
+        self.analyses.append(response)
+        return extract_interventions(self.agent_id, response, tick)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RUN TICK  [Fix 2, Fix 9, Fix 12]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def run_tick_v3(
+    tick: int,
+    environment: EnvironmentAgent,
+    participants: list[ParticipantAgent],
+    observers: list[ObserverAgent],
+    world_state: WorldState,
+    alpha: float = 0.2,
+    max_tokens: int = 256,
+) -> None:
+    n = len(participants)
+
+    # ── Phase A — stimulus generation ────────────────────────────────────────
+    if n <= 10:
+        stimuli = {}
+        for p in participants:
+            stimuli[p.agent_id] = await environment.decide(
+                p, world_state, max_tokens=max(64, max_tokens // 2)
+            )
+    else:
+        stimuli = await environment.batch_decide(participants, world_state)
+
+    # ── Phase B — concurrent participant responses ────────────────────────────
+    responses = await asyncio.gather(*[
+        p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens)
+        for p in participants
+    ])
+
+    # ── Phase C — batch score update [Fix 12] ────────────────────────────────
+    dampening      = world_state.score_dampening()
+    signals_and_ses = embed_score_batch(list(responses))
+
+    for participant, response, (signal, signal_se) in zip(participants, responses, signals_and_ses):
+        score_before = participant.behavioral_score
+        participant.behavioral_score = update_score(score_before, signal, dampening, alpha)
+        participant.score_log.append(participant.behavioral_score)
+        world_state.log(ObsEntry(
+            tick=tick,
+            participant_id=participant.agent_id,
+            score_before=score_before,
+            score_after=participant.behavioral_score,
+            stimulus=stimuli[participant.agent_id],
+            response=response,
+            signal=signal,
+            signal_se=signal_se,
+        ))
+
+    # ── Phase D — sequential observer cycle [Fix 2] ──────────────────────────
+    if tick % world_state.k == 0:
+        print(f"\n[Tick {tick}] Observer cycle (A→B sequential)...")
+        obs_a, obs_b = observers[0], observers[1]
+        analysis = await obs_a.analyse(tick, world_state, n)       # D1: analyse
+        ivs      = await obs_b.intervene(tick, world_state, n, analysis)  # D2: intervene
+        world_state.active_interventions.extend(ivs)
+
+    world_state.apply_interventions()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RUN SIMULATION  [Fix 5, Fix 7]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def run_simulation_v3(
+    n_ticks: int = 12,
+    n_participants: int = 4,
+    k: int = 3,
+    alpha: float = 0.2,
+    history_window: int = 4,
+    max_tokens: int = 256,
+    intervention_threshold: float = INTERVENTION_THRESHOLD,   # [Fix 5] SA target
+    persona_summary_interval: int = PERSONA_SUMMARY_INTERVAL, # [Fix 7] SA target
+):
+    """
+    Run the full v3 simulation.
+
+    SA sweep example:
+        for theta in [0.60, 0.65, 0.70, 0.72, 0.75, 0.80, 0.85]:
+            participants, ws = await run_simulation_v3(intervention_threshold=theta)
+    """
+    import agent_rolesv3 as _cfg
+    _original_threshold = _cfg.INTERVENTION_THRESHOLD
+    _cfg.INTERVENTION_THRESHOLD = intervention_threshold
+
+    import simpy
+    env_sim     = simpy.Environment()
+    world_state = WorldState(k=k)
+    environment = EnvironmentAgent(history_window=history_window)
+    participants = [
+        ParticipantAgent(f"participant_{i}", history_window=history_window)
+        for i in range(n_participants)
+    ]
+    # [Fix 2] index 0 = analyst (A, observe only), index 1 = interventionist (B)
+    observers = [
+        ObserverAgent("observer_a", "observer_a", history_window=history_window, max_tokens=max_tokens),
+        ObserverAgent("observer_b", "observer_b", history_window=history_window, max_tokens=max_tokens),
+    ]
+
+    print(f"\n{'═'*60}")
+    print(f"dualmirakl simulation v3")
+    print(f"  ticks={n_ticks}  participants={n_participants}  k={k}  α={alpha}")
+    print(f"  threshold={intervention_threshold}  persona_interval={persona_summary_interval}")
+    print(f"  authority → observer_a, observer_b")
+    print(f"  swarm    → environment, participant")
+    print(f"{'═'*60}\n")
+
+    # Pre-load embedding model before ticks begin
+    _load_anchors()
+
+    try:
+        for tick in range(1, n_ticks + 1):
+            env_sim.run(until=tick)
+            pct = tick / n_ticks * 100
+            print(f"\n── Tick {tick}/{n_ticks}  ({pct:.0f}%) ──")
+            await run_tick_v3(
+                tick, environment, participants, observers,
+                world_state, alpha, max_tokens,
+            )
+            for p in participants:
+                label = _score_label(p.behavioral_score)
+                print(f"  {p.agent_id}: score={p.behavioral_score:.3f} [{label}]")
+            stats = world_state.compute_score_statistics(tick)
+            if stats:
+                print(
+                    f"  [POM] mean={stats['mean']:.3f} σ={stats['std']:.3f} "
+                    f"skew={stats['skewness']:.2f} above_0.7={stats['n_above_threshold']}"
+                )
+            if world_state.active_interventions:
+                for iv in world_state.active_interventions:
+                    print(f"  [IV active] {iv.type}: {iv.description}")
+    finally:
+        _cfg.INTERVENTION_THRESHOLD = _original_threshold
+
+    # [Fix 9] Compliance report
+    compliance = world_state.compliance_report()
+    if compliance:
+        print(f"\n── Compliance violations: {len(compliance)} ──")
+        for v in compliance:
+            print(f"  [T{v['tick']}] {v['agent']} ({v['role']}): {v['violations']}")
+
+    print(f"\n{'═'*60}")
+    print(f"Simulation complete — {n_ticks} ticks, {n_participants} participants")
+    print(f"Final scores:")
+    for p in participants:
+        print(f"  {p.agent_id}: {p.behavioral_score:.3f} [{_score_label(p.behavioral_score)}]")
+    total_ivs = sum(1 for e in world_state.history if e.tick > 0)
+    print(f"Total log entries: {total_ivs}")
+    print(f"{'═'*60}")
+
+    return participants, world_state
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENTRY POINT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="dualmirakl simulation v3")
+    parser.add_argument("--ticks",        type=int,   default=12)
+    parser.add_argument("--participants", type=int,   default=4)
+    parser.add_argument("--k",           type=int,   default=3,   help="Observer frequency (ticks)")
+    parser.add_argument("--alpha",       type=float, default=0.2, help="EMA alpha")
+    parser.add_argument("--max-tokens",  type=int,   default=256)
+    parser.add_argument("--threshold",   type=float, default=INTERVENTION_THRESHOLD,
+                        help="Intervention cosine similarity threshold (SA target)")
+    args = parser.parse_args()
+
+    async def main():
+        try:
+            await run_simulation_v3(
+                n_ticks=args.ticks,
+                n_participants=args.participants,
+                k=args.k,
+                alpha=args.alpha,
+                max_tokens=args.max_tokens,
+                intervention_threshold=args.threshold,
+            )
+        finally:
+            await close_client()
+
+    asyncio.run(main())
