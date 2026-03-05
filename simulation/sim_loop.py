@@ -81,9 +81,14 @@ _anchor_labels = None
 def _get_embed():
     global _embed_model
     if _embed_model is None:
+        import torch
         from sentence_transformers import SentenceTransformer
-        print(f"[embed] Loading {_EMBED_MODEL_PATH}...")
-        _embed_model = SentenceTransformer(_EMBED_MODEL_PATH)
+        # Use all available CPU cores for embedding matrix ops.
+        n_cores = os.cpu_count() or 8
+        torch.set_num_threads(n_cores)
+        torch.set_num_interop_threads(max(1, n_cores // 4))
+        print(f"[embed] Loading {_EMBED_MODEL_PATH} (CPU, {n_cores} threads)...")
+        _embed_model = SentenceTransformer(_EMBED_MODEL_PATH, device="cpu")
         print("[embed] Ready.")
     return _embed_model
 
@@ -165,6 +170,7 @@ class WorldState:
     _intervention_log:    list[dict]           = field(default_factory=list)
     _current_tick:        int                  = 0
     _adaptive_tokens:     int                  = 512  # harmony protocol target
+    _pending_directive:   str                  = ""   # prefetched during Phase C
 
     def log(self, entry: ObsEntry) -> None:
         self.history.append(entry)
@@ -588,15 +594,26 @@ async def run_tick_v3(
 
     # ── Phase 0+A — authority directive + swarm env calls concurrently ────────
     # GPU 0 (authority) and GPU 1 (swarm) both active from the first moment.
+    # Use pending directive prefetched during previous tick's Phase C if available.
     scores = {p.agent_id: p.behavioral_score for p in participants}
-    directive_task = asyncio.create_task(
-        obs_a.direct(tick, world_state, scores, environment.scenario)
-    )
+    if world_state._pending_directive:
+        directive_task = asyncio.create_task(
+            obs_a.direct(tick, world_state, scores, environment.scenario)
+        )
+        directive = world_state._pending_directive
+        world_state._pending_directive = ""
+    else:
+        directive_task = asyncio.create_task(
+            obs_a.direct(tick, world_state, scores, environment.scenario)
+        )
+        directive = ""
+
     stimuli_list = await asyncio.gather(*[
-        environment.decide(p, world_state, max_tokens=env_max)
+        environment.decide(p, world_state, max_tokens=env_max, directive=directive)
         for p in participants
     ])
-    directive = await directive_task  # await after Phase A completes (usually already done)
+    # Await the current-tick directive (used for next-tick prefetch and participant nudge)
+    directive = await directive_task
     stimuli = {p.agent_id: s for p, s in zip(participants, stimuli_list)}
 
     # ── Phase B — participants (GPU 1) + authority preview (GPU 0) concurrent ──
@@ -607,9 +624,17 @@ async def run_tick_v3(
     ])
     preview = await preview_task  # usually done by now
 
-    # ── Phase C — batch score update + harmony protocol ───────────────────────
-    dampening       = world_state.score_dampening()
-    signals_and_ses = embed_score_batch(list(responses))
+    # ── Phase C — embedding (all CPU cores) + GPU directive prefetch concurrent ─
+    # asyncio.to_thread releases the event loop so the directive task runs in parallel.
+    dampening = world_state.score_dampening()
+
+    # Prefetch next tick's directive on GPU 0 while CPU cores crunch embeddings.
+    next_scores = {p.agent_id: p.behavioral_score for p in participants}
+    _dir_prefetch = asyncio.create_task(
+        obs_a.direct(tick + 1, world_state, next_scores, environment.scenario)
+    )
+    signals_and_ses = await asyncio.to_thread(embed_score_batch, list(responses))
+    world_state._pending_directive = await _dir_prefetch
 
     for participant, response, (signal, signal_se) in zip(participants, responses, signals_and_ses):
         score_before = participant.behavioral_score
@@ -626,18 +651,25 @@ async def run_tick_v3(
             signal_se=signal_se,
         ))
 
-    # Harmony protocol: read live GPU telemetry, adjust tokens toward target util.
+    # Harmony protocol: GPU telemetry + embedding engagement signal → adaptive tokens.
+    # GPU signal: how far from 50% target utilization?
+    # Engagement signal: low scores mean scenarios aren't landing — push tokens up.
     u0, u1 = _query_gpu_util()
     mean_util = (u0 + u1) / 2.0
     GPU_TARGET = 50.0
+    stats_now = world_state.compute_score_statistics(tick)
+    mean_engagement = stats_now.get("mean", 0.5) if stats_now else 0.5
+
     if mean_util > 0:
-        gap = GPU_TARGET - mean_util                         # positive → need more load
-        step = int(np.clip(gap * 4, -64, 64))               # ±64 tokens per tick
+        gpu_gap        = GPU_TARGET - mean_util          # >0 → GPUs underloaded
+        engage_gap     = (0.5 - mean_engagement) * 100  # >0 → engagement too low
+        combined_gap   = 0.6 * gpu_gap + 0.4 * engage_gap
+        step = int(np.clip(combined_gap * 4, -64, 64))
         world_state._adaptive_tokens = int(np.clip(
             world_state._adaptive_tokens + step, 128, 1024
         ))
-        print(f"  [HARMONY] GPU0={u0:.0f}% GPU1={u1:.0f}% mean={mean_util:.0f}% "
-              f"→ tokens={world_state._adaptive_tokens} (Δ{step:+d})")
+        print(f"  [HARMONY] GPU0={u0:.0f}% GPU1={u1:.0f}% "
+              f"engage={mean_engagement:.2f} → tokens={world_state._adaptive_tokens} (Δ{step:+d})")
 
     # ── Phase D — observer cycle ───────────────────────────────────────────────
     if tick % world_state.k == 0:
