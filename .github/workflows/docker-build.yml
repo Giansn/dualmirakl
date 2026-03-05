@@ -2,39 +2,32 @@ name: Build & Push Docker Image
 
 on:
   push:
-    branches: [runpod]
+    branches: [claude/memory]
     paths:
       - Dockerfile
       - docker-post-start.sh
-      - requirements.txt
-      - .dockerignore
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-push:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v4
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: giansn
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
-          platforms: linux/amd64
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:runpod-cu128
-            ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:latest
-          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:buildcache
-          cache-to:   type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:buildcache,mode=max
+          tags: giansn/dualmirakl:runpod-cu128
+          cache-from: type=registry,ref=giansn/dualmirakl:buildcache
+          cache-to:   type=registry,ref=giansn/dualmirakl:buildcache,mode=max

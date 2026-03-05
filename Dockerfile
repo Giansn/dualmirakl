@@ -15,7 +15,9 @@ FROM runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2204
 ENV HF_HOME=/per.volume/huggingface \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    OMP_NUM_THREADS=64 \
+    MKL_NUM_THREADS=64
 
 # ── System packages ───────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -44,7 +46,9 @@ RUN pip install \
     scipy==1.17.1 \
     python-dotenv==1.2.1 \
     loguru==0.7.3 \
-    rich==14.3.3
+    rich==14.3.3 \
+    nvitop \
+    pynvml
 
 # ── Startup hook — baked in, survives pod recreations ─────────────────────────
 COPY docker-post-start.sh /post_start.sh
