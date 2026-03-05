@@ -38,6 +38,20 @@ async def chat(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    # vLLM 0.16 converts message content to list internally for multimodal
+    # support, breaking Jinja chat templates that do string + on content.
+    # Workaround: fold system message into the first user message.
+    folded = []
+    system_text = ""
+    for m in messages:
+        if m["role"] == "system":
+            system_text = m["content"]
+        else:
+            folded.append(m)
+    if system_text and folded:
+        folded[0] = {**folded[0], "content": f"{system_text}\n\n{folded[0]['content']}"}
+    payload["messages"] = folded or messages
+
     r = await _client.post(f"{cfg['url']}/chat/completions", json=payload)
     r.raise_for_status()
     msg = r.json()["choices"][0]["message"]
