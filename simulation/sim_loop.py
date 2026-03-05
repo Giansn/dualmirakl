@@ -137,6 +137,7 @@ class WorldState:
     active_interventions: list[Intervention]  = field(default_factory=list)
     history:              list[ObsEntry]       = field(default_factory=list)
     _compliance_log:      list[dict]           = field(default_factory=list)
+    _intervention_log:    list[dict]           = field(default_factory=list)
     _current_tick:        int                  = 0
 
     def log(self, entry: ObsEntry) -> None:
@@ -203,6 +204,13 @@ class WorldState:
             "n_total": len(scores),
             "autocorrelation_lag1": ac,
         }
+
+    def log_interventions(self, ivs: list[Intervention], tick: int) -> None:
+        for iv in ivs:
+            self._intervention_log.append({
+                "tick": tick, "type": iv.type,
+                "description": iv.description, "agent_id": iv.agent_id,
+            })
 
     def compliance_report(self) -> list[dict]:
         return list(self._compliance_log)
@@ -278,11 +286,12 @@ def extract_interventions(agent_id: str, response: str, tick: int) -> list[Inter
 
 class EnvironmentAgent:
 
-    def __init__(self, history_window: int = 4):
+    def __init__(self, history_window: int = 4, scenario: str = ""):
         self.agent_id = "environment"
         self.cfg = AGENT_ROLES["environment"]
         self.history: list[dict] = []
         self.history_window = history_window
+        self.scenario = scenario  # domain/context seed
 
     async def decide(self, participant, world_state: WorldState, max_tokens: int = 128) -> str:
         """[Fix 6, Fix 8] DDA note injected here in code, not in prompt."""
@@ -292,7 +301,9 @@ class EnvironmentAgent:
             iv.description for iv in world_state.active_interventions
             if iv.type in ("boundary_warning", "pacing_adjustment")
         ) or "none"
+        scenario_line = f"Scenario context: {self.scenario}\n" if self.scenario else ""
         user_msg = (
+            f"{scenario_line}"
             f"Participant: {participant.agent_id}\n"
             f"Current score: {score:.3f} ({_score_label(score)})\n"
             f"DDA instruction: {dda}\n"
@@ -534,6 +545,7 @@ async def run_tick_v3(
         analysis = await obs_a.analyse(tick, world_state, n)       # D1: analyse
         ivs      = await obs_b.intervene(tick, world_state, n, analysis)  # D2: intervene
         world_state.active_interventions.extend(ivs)
+        world_state.log_interventions(ivs, tick)
 
     world_state.apply_interventions()
 
@@ -551,6 +563,8 @@ async def run_simulation_v3(
     max_tokens: int = 256,
     intervention_threshold: float = INTERVENTION_THRESHOLD,   # [Fix 5] SA target
     persona_summary_interval: int = PERSONA_SUMMARY_INTERVAL, # [Fix 7] SA target
+    scenario: str = "",          # domain/context seed for environment
+    output_file: str | None = None,  # path to save JSON results
 ):
     """
     Run the full v3 simulation.
@@ -566,7 +580,7 @@ async def run_simulation_v3(
     import simpy
     env_sim     = simpy.Environment()
     world_state = WorldState(k=k)
-    environment = EnvironmentAgent(history_window=history_window)
+    environment = EnvironmentAgent(history_window=history_window, scenario=scenario)
     participants = [
         ParticipantAgent(f"participant_{i}", history_window=history_window)
         for i in range(n_participants)
@@ -583,6 +597,8 @@ async def run_simulation_v3(
     print(f"  threshold={intervention_threshold}  persona_interval={persona_summary_interval}")
     print(f"  authority → observer_a, observer_b")
     print(f"  swarm    → environment, participant")
+    if scenario:
+        print(f"  scenario: {scenario[:80]}")
     print(f"{'═'*60}\n")
 
     # Pre-load embedding model before ticks begin
@@ -624,9 +640,52 @@ async def run_simulation_v3(
     print(f"Final scores:")
     for p in participants:
         print(f"  {p.agent_id}: {p.behavioral_score:.3f} [{_score_label(p.behavioral_score)}]")
-    total_ivs = sum(1 for e in world_state.history if e.tick > 0)
-    print(f"Total log entries: {total_ivs}")
+    print(f"Total log entries: {len(world_state.history)}")
     print(f"{'═'*60}")
+
+    # ── Save JSON output ──────────────────────────────────────────────────────
+    if output_file:
+        import json, datetime
+        # Build per-tick records from history
+        ticks_data: dict[int, dict] = {}
+        for e in world_state.history:
+            t = e.tick
+            if t not in ticks_data:
+                ticks_data[t] = {"tick": t, "stimuli": {}, "responses": {},
+                                  "scores": {}, "signals": {}, "signal_ses": {}}
+            ticks_data[t]["stimuli"][e.participant_id]   = e.stimulus
+            ticks_data[t]["responses"][e.participant_id] = e.response
+            ticks_data[t]["scores"][e.participant_id]    = round(e.score_after, 4)
+            ticks_data[t]["signals"][e.participant_id]   = round(e.signal, 4)
+            ticks_data[t]["signal_ses"][e.participant_id] = round(e.signal_se, 4)
+        # Attach observer outputs (one per observer cycle tick)
+        obs_cycle_ticks = [t for t in sorted(ticks_data) if t % k == 0]
+        for i, t in enumerate(obs_cycle_ticks):
+            ticks_data[t]["observer_a_analysis"]    = observers[0].analyses[i] if i < len(observers[0].analyses) else None
+            ticks_data[t]["observer_b_intervention"] = observers[1].analyses[i] if i < len(observers[1].analyses) else None
+        # Attach per-tick stats
+        for t in ticks_data:
+            stats = world_state.compute_score_statistics(t)
+            ticks_data[t]["stats"] = {k2: round(v, 4) if isinstance(v, float) else v
+                                      for k2, v in stats.items()} if stats else {}
+
+        result = {
+            "meta": {
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                "ticks": n_ticks, "participants": n_participants,
+                "k": k, "alpha": alpha, "threshold": intervention_threshold,
+                "persona_summary_interval": persona_summary_interval,
+                "scenario": scenario,
+            },
+            "ticks": [ticks_data[t] for t in sorted(ticks_data)],
+            "interventions": world_state._intervention_log,
+            "compliance": world_state._compliance_log,
+            "final_scores": {p.agent_id: round(p.behavioral_score, 4) for p in participants},
+        }
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, "w") as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+        print(f"Results saved → {output_file}")
 
     return participants, world_state
 
@@ -638,6 +697,12 @@ async def run_simulation_v3(
 if __name__ == "__main__":
     import argparse
 
+    import datetime as _dt
+    _default_output = os.path.join(
+        _ROOT, "logs",
+        f"sim_{_dt.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+    )
+
     parser = argparse.ArgumentParser(description="dualmirakl simulation v3")
     parser.add_argument("--ticks",        type=int,   default=12)
     parser.add_argument("--participants", type=int,   default=4)
@@ -646,6 +711,10 @@ if __name__ == "__main__":
     parser.add_argument("--max-tokens",  type=int,   default=256)
     parser.add_argument("--threshold",   type=float, default=INTERVENTION_THRESHOLD,
                         help="Intervention cosine similarity threshold (SA target)")
+    parser.add_argument("--scenario",    type=str,   default="",
+                        help="Domain/context seed for the environment agent")
+    parser.add_argument("--output",      type=str,   default=_default_output,
+                        help="Path to save JSON results (default: logs/sim_<timestamp>.json)")
     args = parser.parse_args()
 
     async def main():
@@ -657,6 +726,8 @@ if __name__ == "__main__":
                 alpha=args.alpha,
                 max_tokens=args.max_tokens,
                 intervention_threshold=args.threshold,
+                scenario=args.scenario,
+                output_file=args.output,
             )
         finally:
             await close_client()
