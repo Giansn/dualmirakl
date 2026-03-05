@@ -20,6 +20,31 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+# ── GPU telemetry (pynvml — zero subprocess overhead) ─────────────────────────
+_GPU_HANDLES: list = []
+
+def _init_gpu_handles() -> None:
+    global _GPU_HANDLES
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        _GPU_HANDLES = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(2)]
+    except Exception as e:
+        print(f"[harmony] pynvml unavailable: {e}")
+
+def _query_gpu_util() -> tuple[float, float]:
+    """Return (gpu0_util%, gpu1_util%) in ~microseconds via NVML."""
+    if not _GPU_HANDLES:
+        return 0.0, 0.0
+    import pynvml
+    out = []
+    for h in _GPU_HANDLES:
+        try:
+            out.append(float(pynvml.nvmlDeviceGetUtilizationRates(h).gpu))
+        except Exception:
+            out.append(0.0)
+    return (out[0], out[1]) if len(out) == 2 else (0.0, 0.0)
+
 # ── Path setup ────────────────────────────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(_HERE)
@@ -139,6 +164,7 @@ class WorldState:
     _compliance_log:      list[dict]           = field(default_factory=list)
     _intervention_log:    list[dict]           = field(default_factory=list)
     _current_tick:        int                  = 0
+    _adaptive_tokens:     int                  = 512  # harmony protocol target
 
     def log(self, entry: ObsEntry) -> None:
         self.history.append(entry)
@@ -464,14 +490,32 @@ class ObserverAgent:
         print(f"[{self.agent_id} DIRECTIVE] {response[:100]}...")
         return response
 
-    async def analyse(self, tick: int, world_state: WorldState, n_participants: int) -> str:
+    async def preview(self, tick: int, stimuli: dict) -> str:
+        """Authority stimulus preview — runs concurrent with Phase B (GPU 0 while GPU 1 handles participants)."""
+        stimuli_str = "\n".join(f"  {k}: {v[:80]}" for k, v in stimuli.items())
+        response = await agent_turn(
+            agent_id=f"{self.agent_id}_preview",
+            backend=self.cfg["backend"],
+            system_prompt=(
+                "You are a behavioral analyst. Given stimuli presented to participants, "
+                "predict in 2 sentences what engagement patterns will emerge."
+            ),
+            user_message=f"[Tick {tick}] Stimuli:\n{stimuli_str}",
+            max_tokens=80,
+        )
+        print(f"[{self.agent_id} PREVIEW] {response[:100]}...")
+        return response
+
+    async def analyse(self, tick: int, world_state: WorldState, n_participants: int, preview: str = "") -> str:
         """[Fix 2] observer_a: analysis only — no codebook extraction."""
         window   = world_state.observer_prompt_window(tick, n_participants)
         active   = ", ".join(iv.description for iv in world_state.active_interventions) or "none"
         stats    = world_state.compute_score_statistics(tick)
+        preview_block = f"Pre-tick prediction:\n{preview}\n\n" if preview else ""
         prompt = (
             f"[Tick {tick}] Observation window (last {world_state.k} ticks):\n"
             f"{window}{_format_stats(stats)}\n\n"
+            f"{preview_block}"
             f"Active interventions: {active}\n\n"
             f"Analyse participant behaviour and population dynamics. "
             f"Describe what you see — do NOT recommend any interventions."
@@ -555,14 +599,16 @@ async def run_tick_v3(
     directive = await directive_task  # await after Phase A completes (usually already done)
     stimuli = {p.agent_id: s for p, s in zip(participants, stimuli_list)}
 
-    # ── Phase B — concurrent participant responses (directive injected as nudge) ─
+    # ── Phase B — participants (GPU 1) + authority preview (GPU 0) concurrent ──
+    preview_task = asyncio.create_task(obs_a.preview(tick, stimuli))
     responses = await asyncio.gather(*[
         p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens, extra_nudge=directive)
         for p in participants
     ])
+    preview = await preview_task  # usually done by now
 
-    # ── Phase C — batch score update [Fix 12] ────────────────────────────────
-    dampening      = world_state.score_dampening()
+    # ── Phase C — batch score update + harmony protocol ───────────────────────
+    dampening       = world_state.score_dampening()
     signals_and_ses = embed_score_batch(list(responses))
 
     for participant, response, (signal, signal_se) in zip(participants, responses, signals_and_ses):
@@ -580,17 +626,46 @@ async def run_tick_v3(
             signal_se=signal_se,
         ))
 
-    # ── Phase D — observer cycle: authority + swarm persona updates concurrent ──
+    # Harmony protocol: read live GPU telemetry, adjust tokens toward target util.
+    u0, u1 = _query_gpu_util()
+    mean_util = (u0 + u1) / 2.0
+    GPU_TARGET = 50.0
+    if mean_util > 0:
+        gap = GPU_TARGET - mean_util                         # positive → need more load
+        step = int(np.clip(gap * 4, -64, 64))               # ±64 tokens per tick
+        world_state._adaptive_tokens = int(np.clip(
+            world_state._adaptive_tokens + step, 128, 1024
+        ))
+        print(f"  [HARMONY] GPU0={u0:.0f}% GPU1={u1:.0f}% mean={mean_util:.0f}% "
+              f"→ tokens={world_state._adaptive_tokens} (Δ{step:+d})")
+
+    # ── Phase D — observer cycle ───────────────────────────────────────────────
     if tick % world_state.k == 0:
-        print(f"\n[Tick {tick}] Observer cycle (A→B) + persona updates...")
+        print(f"\n[Tick {tick}] Observer cycle (A→B) + persona updates + synthesis...")
         obs_b = observers[1]
-        # GPU 0: observer_a analysis  |  GPU 1: persona summaries — both at once
+
+        # D1: observer_a (GPU 0) + persona summaries (GPU 1) concurrent
         analysis, *_ = await asyncio.gather(
-            obs_a.analyse(tick, world_state, n),
+            obs_a.analyse(tick, world_state, n, preview=preview),
             *[p._maybe_update_persona_summary(tick, force=True) for p in participants],
         )
-        # GPU 0: observer_b intervention (sequential after analysis)
+
+        # D2: observer_b (GPU 0) + swarm tick synthesis (GPU 1) concurrent
+        async def _swarm_synthesis():
+            pairs = "\n".join(
+                f"  {p.agent_id}: {r[:60]}" for p, r in zip(participants, responses)
+            )
+            return await agent_turn(
+                agent_id="environment_synthesiser",
+                backend="swarm",
+                system_prompt="Summarise what happened this simulation tick in 2 sentences.",
+                user_message=f"[Tick {tick}] Responses:\n{pairs}",
+                max_tokens=80,
+            )
+        synthesis_task = asyncio.create_task(_swarm_synthesis())
         ivs = await obs_b.intervene(tick, world_state, n, analysis)
+        await synthesis_task  # ensure GPU 1 work completes before next tick
+
         world_state.active_interventions.extend(ivs)
         world_state.log_interventions(ivs, tick)
 
@@ -648,8 +723,10 @@ async def run_simulation_v3(
         print(f"  scenario: {scenario[:80]}")
     print(f"{'═'*60}\n")
 
-    # Pre-load embedding model before ticks begin
+    # Pre-load embedding model and GPU telemetry handles
     _load_anchors()
+    _init_gpu_handles()
+    world_state._adaptive_tokens = max_tokens
 
     try:
         for tick in range(1, n_ticks + 1):
@@ -658,7 +735,7 @@ async def run_simulation_v3(
             print(f"\n── Tick {tick}/{n_ticks}  ({pct:.0f}%) ──")
             await run_tick_v3(
                 tick, environment, participants, observers,
-                world_state, alpha, max_tokens,
+                world_state, alpha, world_state._adaptive_tokens,
             )
             for p in participants:
                 label = _score_label(p.behavioral_score)
