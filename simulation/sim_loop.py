@@ -122,7 +122,9 @@ def _get_embed():
         import torch
         from sentence_transformers import SentenceTransformer
         # Use all available CPU cores for embedding matrix ops.
-        n_cores = os.cpu_count() or 8
+        n_cores = int(os.environ.get("OMP_NUM_THREADS", os.cpu_count() or 8))
+        os.environ["OMP_NUM_THREADS"] = str(n_cores)
+        os.environ["MKL_NUM_THREADS"] = str(n_cores)
         torch.set_num_threads(n_cores)
         torch.set_num_interop_threads(max(1, n_cores // 4))
         print(f"[embed] Loading {_EMBED_MODEL_PATH} (CPU, {n_cores} threads)...")
