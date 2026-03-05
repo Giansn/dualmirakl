@@ -293,7 +293,7 @@ class EnvironmentAgent:
         self.history_window = history_window
         self.scenario = scenario  # domain/context seed
 
-    async def decide(self, participant, world_state: WorldState, max_tokens: int = 128) -> str:
+    async def decide(self, participant, world_state: WorldState, max_tokens: int = 128, directive: str = "") -> str:
         """[Fix 6, Fix 8] DDA note injected here in code, not in prompt."""
         score = participant.behavioral_score
         dda = _dda_note(score)
@@ -302,8 +302,10 @@ class EnvironmentAgent:
             if iv.type in ("boundary_warning", "pacing_adjustment")
         ) or "none"
         scenario_line = f"Scenario context: {self.scenario}\n" if self.scenario else ""
+        directive_line = f"Director's instruction: {directive}\n" if directive else ""
         user_msg = (
             f"{scenario_line}"
+            f"{directive_line}"
             f"Participant: {participant.agent_id}\n"
             f"Current score: {score:.3f} ({_score_label(score)})\n"
             f"DDA instruction: {dda}\n"
@@ -325,10 +327,10 @@ class EnvironmentAgent:
         self.history.append({"role": "assistant", "content": response})
         return response
 
-    async def batch_decide(self, participants: list, world_state: WorldState) -> dict:
+    async def batch_decide(self, participants: list, world_state: WorldState, directive: str = "") -> dict:
         """Concurrent stimulus generation for large N (>10)."""
         stimuli = await asyncio.gather(*[
-            self.decide(p, world_state) for p in participants
+            self.decide(p, world_state, directive=directive) for p in participants
         ])
         return {p.agent_id: s for p, s in zip(participants, stimuli)}
 
@@ -427,6 +429,38 @@ class ObserverAgent:
         self.max_tokens = max_tokens
         self.analyses: list[str] = []
 
+    async def direct(
+        self,
+        tick: int,
+        world_state: WorldState,
+        participant_scores: dict,
+        scenario: str = "",
+    ) -> str:
+        """Authority pre-tick directive: 1-2 sentence guidance for swarm environment."""
+        active = ", ".join(iv.description for iv in world_state.active_interventions) or "none"
+        scores_str = ", ".join(f"{pid}={s:.3f}" for pid, s in participant_scores.items())
+        scenario_line = f"Scenario: {scenario}\n" if scenario else ""
+        prompt = (
+            f"{scenario_line}"
+            f"[Tick {tick}] Participant scores: {scores_str}\n"
+            f"Active interventions: {active}\n\n"
+            f"In 1-2 sentences, direct what kind of situation the environment should "
+            f"present this tick to meaningfully advance the simulation."
+        )
+        response = await agent_turn(
+            agent_id=f"{self.agent_id}_director",
+            backend=self.cfg["backend"],
+            system_prompt=(
+                "You are a simulation director. Guide the environment agent by specifying "
+                "the type of situation that will best advance the simulation given current "
+                "participant states. Be concise and specific. No preamble."
+            ),
+            user_message=prompt,
+            max_tokens=80,
+        )
+        print(f"[{self.agent_id} DIRECTIVE] {response[:100]}...")
+        return response
+
     async def analyse(self, tick: int, world_state: WorldState, n_participants: int) -> str:
         """[Fix 2] observer_a: analysis only — no codebook extraction."""
         window   = world_state.observer_prompt_window(tick, n_participants)
@@ -503,15 +537,20 @@ async def run_tick_v3(
 ) -> None:
     n = len(participants)
 
+    # ── Phase 0 — authority tick directive ───────────────────────────────────
+    obs_a = observers[0]
+    participant_scores = {p.agent_id: p.behavioral_score for p in participants}
+    directive = await obs_a.direct(tick, world_state, participant_scores, environment.scenario)
+
     # ── Phase A — stimulus generation ────────────────────────────────────────
     if n <= 10:
         stimuli = {}
         for p in participants:
             stimuli[p.agent_id] = await environment.decide(
-                p, world_state, max_tokens=max(64, max_tokens // 2)
+                p, world_state, max_tokens=max(64, max_tokens // 2), directive=directive
             )
     else:
-        stimuli = await environment.batch_decide(participants, world_state)
+        stimuli = await environment.batch_decide(participants, world_state, directive=directive)
 
     # ── Phase B — concurrent participant responses ────────────────────────────
     responses = await asyncio.gather(*[
@@ -557,7 +596,7 @@ async def run_tick_v3(
 async def run_simulation_v3(
     n_ticks: int = 12,
     n_participants: int = 4,
-    k: int = 3,
+    k: int = 2,
     alpha: float = 0.2,
     history_window: int = 4,
     max_tokens: int = 256,
@@ -706,7 +745,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="dualmirakl simulation v3")
     parser.add_argument("--ticks",        type=int,   default=12)
     parser.add_argument("--participants", type=int,   default=4)
-    parser.add_argument("--k",           type=int,   default=3,   help="Observer frequency (ticks)")
+    parser.add_argument("--k",           type=int,   default=2,   help="Observer frequency (ticks)")
     parser.add_argument("--alpha",       type=float, default=0.2, help="EMA alpha")
     parser.add_argument("--max-tokens",  type=int,   default=256)
     parser.add_argument("--threshold",   type=float, default=INTERVENTION_THRESHOLD,
