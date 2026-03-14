@@ -7,6 +7,9 @@
 logs/
 *.log
 
+# Simulation output
+data/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -1,0 +1,94 @@
+# =============================================================================
+# docker-compose.yml — portable dualmirakl deployment
+#
+# Usage:
+#   docker compose up -d                    # start all services
+#   docker compose up -d authority swarm    # start vLLM servers only
+#   docker compose run sim                  # run simulation
+#   docker compose logs -f gateway          # follow gateway logs
+#
+# Prerequisites:
+#   - NVIDIA Container Toolkit installed
+#   - Models downloaded to ./models_cache/ (or run pull_models.sh first)
+# =============================================================================
+
+x-common: &common
+  image: ${DOCKER_REGISTRY:-giansn}/dualmirakl:${DOCKER_TAG:-latest}
+  restart: unless-stopped
+  volumes:
+    - models_cache:${HF_HOME:-/models}
+    - sim_data:/app/data
+    - ./logs:/app/logs
+  env_file:
+    - .env
+
+services:
+  authority:
+    <<: *common
+    environment:
+      ENTRYPOINT_MODE: authority
+      DUALMIRAKL_ROOT: /app
+      CUDA_VISIBLE_DEVICES: "${AUTHORITY_GPU:-0}"
+      AUTHORITY_PORT: "${AUTHORITY_PORT:-8000}"
+    ports:
+      - "${AUTHORITY_PORT:-8000}:${AUTHORITY_PORT:-8000}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${AUTHORITY_GPU:-0}"]
+              capabilities: [gpu]
+    entrypoint: ["/bin/bash", "/app/entrypoint.sh"]
+
+  swarm:
+    <<: *common
+    environment:
+      ENTRYPOINT_MODE: swarm
+      DUALMIRAKL_ROOT: /app
+      CUDA_VISIBLE_DEVICES: "${SWARM_GPU:-1}"
+      SWARM_PORT: "${SWARM_PORT:-8001}"
+    ports:
+      - "${SWARM_PORT:-8001}:${SWARM_PORT:-8001}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${SWARM_GPU:-1}"]
+              capabilities: [gpu]
+    entrypoint: ["/bin/bash", "/app/entrypoint.sh"]
+
+  gateway:
+    <<: *common
+    environment:
+      ENTRYPOINT_MODE: gateway
+      DUALMIRAKL_ROOT: /app
+      AUTHORITY_URL: "http://authority:${AUTHORITY_PORT:-8000}/v1"
+      SWARM_URL: "http://swarm:${SWARM_PORT:-8001}/v1"
+      GATEWAY_PORT: "${GATEWAY_PORT:-9000}"
+    ports:
+      - "${GATEWAY_PORT:-9000}:${GATEWAY_PORT:-9000}"
+    depends_on:
+      - authority
+      - swarm
+    entrypoint: ["/bin/bash", "/app/entrypoint.sh"]
+
+  sim:
+    <<: *common
+    environment:
+      ENTRYPOINT_MODE: sim
+      DUALMIRAKL_ROOT: /app
+      AUTHORITY_URL: "http://authority:${AUTHORITY_PORT:-8000}/v1"
+      SWARM_URL: "http://swarm:${SWARM_PORT:-8001}/v1"
+    depends_on:
+      - gateway
+    profiles:
+      - simulation
+    entrypoint: ["/bin/bash", "/app/entrypoint.sh"]
+
+volumes:
+  models_cache:
+    driver: local
+  sim_data:
+    driver: local

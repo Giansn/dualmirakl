@@ -1,32 +1,31 @@
 # =============================================================================
-# dualmirakl — custom RunPod container image
+# dualmirakl — container image
 #
 # Base: runpod/pytorch (CUDA 12.8, PyTorch 2.9.1, Python 3.11, Ubuntu 22.04)
-# Bakes in all Python dependencies and the /post_start.sh hook so the stack
-# auto-starts on every pod boot — including after pod recreations.
 #
-# Models are NOT baked in — they live on /per.volume/huggingface/hub/
-# Code  is NOT baked in — cloned to /per.volume/dualmirakl/ on first boot
+# Portable: works on RunPod, Docker Compose, K8s.
+# Models are NOT baked in — mount or download at runtime.
 # =============================================================================
 
 FROM runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2204
 
-# ── Environment ───────────────────────────────────────────────────────────────
-ENV HF_HOME=/per.volume/huggingface \
+# ── Environment (overridable at runtime) ──────────────────────────────────────
+ENV HF_HOME=${HF_HOME:-/models} \
+    DUALMIRAKL_ROOT=/app \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1
 
-# ── System packages ───────────────────────────────────────────────────────────
+# ── System packages ──────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# ── vLLM (separate layer — largest dep, slow to install, benefits from cache) ─
+# ── vLLM (separate layer — largest dep, benefits from cache) ──────────────────
 RUN pip install vllm==0.16.0
 
-# ── Project Python dependencies (pinned to current environment) ───────────────
+# ── Project Python dependencies ──────────────────────────────────────────────
 RUN pip install \
     openai==2.24.0 \
     fastapi==0.134.0 \
@@ -44,8 +43,21 @@ RUN pip install \
     scipy==1.17.1 \
     python-dotenv==1.2.1 \
     loguru==0.7.3 \
-    rich==14.3.3
+    rich==14.3.3 \
+    pytest==8.3.5
 
-# ── Startup hook — baked in, survives pod recreations ─────────────────────────
+# ── Copy project code ────────────────────────────────────────────────────────
+WORKDIR /app
+COPY . /app/
+
+RUN chmod +x /app/*.sh
+
+# ── RunPod compatibility (post_start hook) ────────────────────────────────────
 COPY docker-post-start.sh /post_start.sh
 RUN chmod +x /post_start.sh
+
+# ── Volumes (models, data output, logs) ──────────────────────────────────────
+VOLUME ["/models", "/app/data", "/app/logs"]
+
+# ── Default entrypoint ──────────────────────────────────────────────────────
+ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]

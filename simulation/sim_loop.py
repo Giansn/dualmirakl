@@ -25,8 +25,11 @@ import json
 import logging
 import math
 import os
+import time
 import numpy as np
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from simulation.agent_rolesv3 import (
@@ -848,6 +851,8 @@ async def run_simulation(
     _cfg.INTERVENTION_THRESHOLD = intervention_threshold
     _cfg.PERSONA_SUMMARY_INTERVAL = persona_summary_interval
 
+    t_start = time.monotonic()
+
     set_seed(seed)
     world_state = WorldState(k=k)
     environment = EnvironmentAgent(history_window=history_window)
@@ -879,6 +884,8 @@ async def run_simulation(
         _cfg.INTERVENTION_THRESHOLD = _original_threshold
         _cfg.PERSONA_SUMMARY_INTERVAL = _original_interval
 
+    duration_s = time.monotonic() - t_start
+
     # [Fix 9] Compliance report
     compliance = world_state.compliance_report()
     if compliance:
@@ -886,7 +893,92 @@ async def run_simulation(
         for v in compliance:
             print(f"  [T{v['tick']}] {v['agent']} ({v['role']}): {v['violations']}")
 
+    # Export results
+    run_config = {
+        "n_ticks": n_ticks, "n_participants": n_participants,
+        "k": k, "alpha": alpha, "history_window": history_window,
+        "max_tokens": max_tokens, "seed": seed,
+        "intervention_threshold": intervention_threshold,
+        "persona_summary_interval": persona_summary_interval,
+    }
+    run_dir = export_results(participants, world_state, run_config, duration_s)
+    print(f"\n\u2500\u2500 Results exported to {run_dir} \u2500\u2500")
+
     return participants, world_state
+
+
+# ── Data export ───────────────────────────────────────────────────────────────
+
+OUTPUT_DIR = os.environ.get("SIM_OUTPUT_DIR", "data")
+
+
+def export_results(
+    participants: list[ParticipantAgent],
+    world_state: WorldState,
+    config: dict,
+    duration_s: float,
+    output_dir: str | None = None,
+) -> str:
+    """
+    Export simulation results to JSON files in data/{run_id}/.
+    Returns the output directory path.
+    """
+    output_dir = output_dir or OUTPUT_DIR
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    run_id = f"run_{ts}_s{config.get('seed', 0)}"
+    run_dir = Path(output_dir) / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Config + metadata
+    meta = {
+        "run_id": run_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "duration_s": round(duration_s, 2),
+        "config": config,
+    }
+    (run_dir / "config.json").write_text(json.dumps(meta, indent=2))
+
+    # Score trajectories
+    trajectories = {}
+    for p in participants:
+        trajectories[p.agent_id] = {
+            "initial_score": p.score_log[0] if p.score_log else p.behavioral_score,
+            "final_score": p.behavioral_score,
+            "score_log": [round(s, 4) for s in p.score_log],
+        }
+    (run_dir / "trajectories.json").write_text(json.dumps(trajectories, indent=2))
+
+    # Full observation log
+    obs_log = [
+        {
+            "tick": e.tick, "participant_id": e.participant_id,
+            "score_before": round(e.score_before, 4),
+            "score_after": round(e.score_after, 4),
+            "signal": round(e.signal, 4),
+            "signal_se": round(e.signal_se, 4),
+            "stimulus": e.stimulus, "response": e.response,
+        }
+        for e in world_state.full_log()
+    ]
+    (run_dir / "observations.json").write_text(json.dumps(obs_log, indent=2))
+
+    # Compliance report
+    compliance = world_state.compliance_report()
+    if compliance:
+        (run_dir / "compliance.json").write_text(json.dumps(compliance, indent=2))
+
+    # Interventions that were active during the run
+    interventions = [
+        {
+            "type": iv.type, "description": iv.description,
+            "activated_at": iv.activated_at, "source": iv.source,
+        }
+        for iv in world_state.active_interventions
+    ]
+    (run_dir / "interventions.json").write_text(json.dumps(interventions, indent=2))
+
+    logger.info(f"Results exported to {run_dir}")
+    return str(run_dir)
 
 
 # ── Sensitivity analysis runner ───────────────────────────────────────────────

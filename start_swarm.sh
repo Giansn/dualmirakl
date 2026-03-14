@@ -4,11 +4,12 @@
 # Model config: models/swarm.env  (edit that file to swap models)
 # =============================================================================
 set -e
-PROJ=/per.volume/dualmirakl
+PROJ="${DUALMIRAKL_ROOT:-/per.volume/dualmirakl}"
 source "$PROJ/models/swarm.env"
 
-export CUDA_VISIBLE_DEVICES=1
-export HF_HOME=/per.volume/huggingface
+export CUDA_VISIBLE_DEVICES="${SWARM_GPU:-1}"
+export HF_HOME="${HF_HOME:-/per.volume/huggingface}"
+SWARM_PORT="${SWARM_PORT:-8001}"
 eval "export $EXTRA_ENV" 2>/dev/null || true
 
 if [ -z "$MODEL" ]; then
@@ -22,7 +23,7 @@ echo "[swarm] Context: $MAX_MODEL_LEN tokens | Seqs: $MAX_NUM_SEQS"
 exec python -m vllm.entrypoints.openai.api_server \
   --model "$MODEL" \
   --served-model-name swarm \
-  --port 8001 \
+  --port "$SWARM_PORT" \
   --host 0.0.0.0 \
   --gpu-memory-utilization 0.93 \
   --max-model-len "$MAX_MODEL_LEN" \

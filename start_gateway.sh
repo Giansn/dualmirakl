@@ -1,15 +1,16 @@
 #!/bin/bash
 # =============================================================================
-# Gateway — unified /v1 proxy + local embedding (e5-small-v2, CPU) — port 9000
+# Gateway — unified /v1 proxy + local embedding (e5-small-v2, CPU)
 # =============================================================================
-PROJ=/per.volume/dualmirakl
-export HF_HOME=/per.volume/huggingface
+PROJ="${DUALMIRAKL_ROOT:-/per.volume/dualmirakl}"
+export HF_HOME="${HF_HOME:-/per.volume/huggingface}"
+GATEWAY_PORT="${GATEWAY_PORT:-9000}"
 
-echo "[gateway] Starting gateway + embedding on port 9000..."
+echo "[gateway] Starting gateway + embedding on port $GATEWAY_PORT..."
 
 exec uvicorn gateway:app \
   --host 0.0.0.0 \
-  --port 9000 \
+  --port "$GATEWAY_PORT" \
   --workers 1 \
   --loop asyncio \
   --app-dir "$PROJ"

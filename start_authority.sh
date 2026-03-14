@@ -4,11 +4,12 @@
 # Model config: models/authority.env  (edit that file to swap models)
 # =============================================================================
 set -e
-PROJ=/per.volume/dualmirakl
+PROJ="${DUALMIRAKL_ROOT:-/per.volume/dualmirakl}"
 source "$PROJ/models/authority.env"
 
-export CUDA_VISIBLE_DEVICES=0
-export HF_HOME=/per.volume/huggingface
+export CUDA_VISIBLE_DEVICES="${AUTHORITY_GPU:-0}"
+export HF_HOME="${HF_HOME:-/per.volume/huggingface}"
+AUTHORITY_PORT="${AUTHORITY_PORT:-8000}"
 eval "export $EXTRA_ENV" 2>/dev/null || true
 
 if [ -z "$MODEL" ]; then
@@ -22,7 +23,7 @@ echo "[authority] Context: $MAX_MODEL_LEN tokens | Seqs: $MAX_NUM_SEQS"
 exec python -m vllm.entrypoints.openai.api_server \
   --model "$MODEL" \
   --served-model-name authority \
-  --port 8000 \
+  --port "$AUTHORITY_PORT" \
   --host 0.0.0.0 \
   --gpu-memory-utilization 0.93 \
   --max-model-len "$MAX_MODEL_LEN" \
