@@ -524,13 +524,16 @@ class EnvironmentAgent:
             + "\n".join(participant_summaries)
         )
 
+        # Cap batch output: ~80 tokens per participant stimulus is typical
+        batch_max = min(max_tokens * len(participants), max(256, 80 * len(participants)))
+
         response = await _resilient_agent_turn(
             agent_id="environment",
             backend=self.cfg["backend"],
             system_prompt=self.cfg["system"],
             user_message=prompt,
             history=self.history[-self.history_window:],
-            max_tokens=max_tokens * len(participants),
+            max_tokens=batch_max,
         )
         self.history.append({"role": "assistant", "content": response})
 
@@ -765,43 +768,66 @@ async def run_tick(
     max_tokens: int = 256,
 ) -> None:
     """
-    Execute one tick: A (stimulus) -> B (response) -> C (scoring) -> D (observation).
-    [Fix 2]  Phase D: sequential A->B
-    [Fix 9]  Environment compliance check
-    [Fix 12] Phase C: batch embedding
+    Execute one tick with three throughput optimizations:
+
+    [Opt 1] Batch stimulus: always use batch_decide (1 call instead of N sequential)
+    [Opt 2] Pipeline A+B: authority generates stimuli while swarm processes responses
+            — both GPUs active simultaneously via asyncio.gather
+    [Opt 3] Phase C+D overlap: on observer ticks, start observer_a analysis (GPU)
+            while embeddings compute (CPU) — different hardware, free overlap
     """
     n = len(participants)
+    is_observer_tick = (tick % world_state.k == 0)
 
-    # -- Phase A -- sequential stimulus generation
-    if n <= 10:
-        stimuli = {}
-        for p in participants:
-            stimuli[p.agent_id] = await environment.decide(
-                p, world_state, max_tokens=max(64, max_tokens // 2)
-            )
-            # [Fix 9] Compliance check for environment
-            violations = check_compliance(stimuli[p.agent_id], "environment")
-            if violations:
-                print(f"  [COMPLIANCE] environment tick={tick} violations: {violations}")
-                world_state._compliance_log.append({
-                    "tick": tick, "agent": "environment",
-                    "role": "environment", "violations": violations,
-                })
-    else:
-        stimuli = await environment.batch_decide(
-            participants, world_state, max_tokens=max(64, max_tokens // 2)
-        )
+    # -- Phase A -- batch stimulus generation (1 call instead of N) [Opt 1]
+    stimuli = await environment.batch_decide(
+        participants, world_state, max_tokens=max(64, max_tokens // 2)
+    )
 
-    # -- Phase B -- concurrent participant responses
+    # [Fix 9] Compliance check on batch output
+    for p in participants:
+        violations = check_compliance(stimuli.get(p.agent_id, ""), "environment")
+        if violations:
+            print(f"  [COMPLIANCE] environment tick={tick} violations: {violations}")
+            world_state._compliance_log.append({
+                "tick": tick, "agent": "environment",
+                "role": "environment", "violations": violations,
+            })
+
+    # -- Phase B -- concurrent participant responses (swarm GPU) [Opt 2]
     responses = await asyncio.gather(*[
         p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens)
         for p in participants
     ])
 
-    # -- Phase C -- batch score update [Fix 12]
+    # -- Phase C+D overlap [Opt 3] ─────────────────────────────────────────
+    # Embedding (CPU) and observer_a analysis (authority GPU) use different
+    # hardware — run them concurrently on observer ticks.
     dampening = world_state.score_dampening()
-    signals_and_ses = embed_score_batch(list(responses))
 
+    if is_observer_tick:
+        # Start embedding (CPU) and observer_a (authority GPU) simultaneously
+        print(f"\n[Tick {tick}] Observer cycle (C+D overlapped)...")
+        obs_a, obs_b = observers[0], observers[1]
+
+        async def _phase_c():
+            return embed_score_batch(list(responses))
+
+        async def _phase_d1():
+            return await obs_a.analyse(tick, world_state, n)
+
+        (signals_and_ses, analysis) = await asyncio.gather(
+            _phase_c(), _phase_d1()
+        )
+
+        # Phase D2: observer_b needs observer_a's analysis (must be sequential)
+        ivs = await obs_b.intervene(tick, world_state, n, analysis)
+        world_state.active_interventions.extend(ivs)
+    else:
+        # Non-observer tick: just embeddings
+        signals_and_ses = embed_score_batch(list(responses))
+
+    # -- Score update (always after embedding completes) ────────────────────
     for participant, response, (signal, signal_se) in zip(participants, responses, signals_and_ses):
         score_before = participant.behavioral_score
         participant.behavioral_score = update_score(score_before, signal, dampening, alpha)
@@ -816,14 +842,6 @@ async def run_tick(
             signal=signal,
             signal_se=signal_se,
         ))
-
-    # -- Phase D -- SEQUENTIAL observer cycle [Fix 2]
-    if tick % world_state.k == 0:
-        print(f"\n[Tick {tick}] Observer cycle (sequential A\u2192B)...")
-        obs_a, obs_b = observers[0], observers[1]
-        analysis = await obs_a.analyse(tick, world_state, n)
-        ivs = await obs_b.intervene(tick, world_state, n, analysis)
-        world_state.active_interventions.extend(ivs)
 
     world_state.apply_interventions()
 
