@@ -99,9 +99,12 @@ from __future__ import annotations
 import os
 
 BACKEND_CONFIG: dict[str, str] = {
-    # Analyst roles (observer_a, observer_b): strong at structured reasoning
+    # Analyst roles (observer_a, observer_b): structured reasoning, fires every K ticks
     "analyst": os.getenv("BACKEND_ANALYST", "authority"),
-    # Persona roles (environment, participant): fast, high-throughput
+    # Environment role: DDA-aware stimulus generation, fires N times per tick (sequential)
+    # Routed to authority to balance GPU load — environment does structured decision-making
+    "environment": os.getenv("BACKEND_ENVIRONMENT", "authority"),
+    # Persona roles (participant): creative persona generation, fires N times per tick (concurrent)
     "persona": os.getenv("BACKEND_PERSONA", "swarm"),
 }
 
@@ -358,9 +361,11 @@ AGENT_ROLES: dict[str, dict] = {
     #   The prompt instructs the model to follow these injected notes.
     #
     # [Fix 8] No DDA logic described in prose here — fully delegated to code.
+    # Backend: environment (authority slot) — balances GPU load, environment
+    # does structured DDA-aware decisions, not creative persona generation.
 
     "environment": {
-        "backend": BACKEND_CONFIG["persona"],
+        "backend": BACKEND_CONFIG["environment"],
         "system": (
             "You are the scenario engine of a simulation. Your job is to "
             "generate the next situation or event that a participant encounters. "
@@ -502,7 +507,7 @@ AGENT_ROLES_DE: dict[str, dict] = {
     },
 
     "environment": {
-        "backend": BACKEND_CONFIG["persona"],
+        "backend": BACKEND_CONFIG["environment"],
         "system": (
             "Du bist die Szenario-Umgebung einer Simulation. Deine Aufgabe ist es, "
             "die nächste Situation oder das nächste Ereignis zu generieren, "
