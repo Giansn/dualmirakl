@@ -25,7 +25,7 @@ exec python -m vllm.entrypoints.openai.api_server \
   --served-model-name authority \
   --port "$AUTHORITY_PORT" \
   --host 0.0.0.0 \
-  --gpu-memory-utilization 0.93 \
+  --gpu-memory-utilization 0.90 \
   --max-model-len "$MAX_MODEL_LEN" \
   --max-num-seqs "$MAX_NUM_SEQS" \
   --trust-remote-code \

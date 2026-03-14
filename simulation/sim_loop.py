@@ -831,10 +831,10 @@ async def run_tick(
 async def run_simulation(
     n_ticks: int = 12,
     n_participants: int = 4,
-    k: int = 3,
-    alpha: float = 0.2,
+    k: int = 4,
+    alpha: float = 0.15,
     history_window: int = 4,
-    max_tokens: int = 256,
+    max_tokens: int = 192,
     seed: int = 42,
     intervention_threshold: float = INTERVENTION_THRESHOLD,
     persona_summary_interval: int = PERSONA_SUMMARY_INTERVAL,
@@ -1054,13 +1054,15 @@ if __name__ == "__main__":
         run_sensitivity_analysis(mode="sobol")
 
     else:
-        n_ticks        = _prompt("Ticks to simulate",      12,   int,   "1\u2013168")
-        n_participants = _prompt("Number of participants",   4,   int,   "1\u201350")
-        k              = _prompt("Observer frequency K",     3,   int,   "1\u2013n_ticks")
-        alpha          = _prompt("EMA alpha",                0.2, float, "0.1\u20130.4")
-        history_window = _prompt("History window (turns)",   4,   int,   "1\u201312")
-        max_tokens     = _prompt("Context size (tokens)",  256,   int,   "64\u20138192")
-        seed           = _prompt("Random seed",             42,   int,   "any int")
+        # Defaults from env vars (set in .env), overridable via interactive prompt
+        _e = lambda k, d: os.environ.get(k, d)
+        n_ticks        = _prompt("Ticks to simulate",      int(_e("SIM_N_TICKS", "12")),       int,   "1\u2013168")
+        n_participants = _prompt("Number of participants",  int(_e("SIM_N_PARTICIPANTS", "4")), int,   "1\u201350")
+        k              = _prompt("Observer frequency K",    int(_e("SIM_OBSERVER_K", "4")),     int,   "1\u2013n_ticks")
+        alpha          = _prompt("EMA alpha",               float(_e("SIM_ALPHA", "0.15")),     float, "0.1\u20130.4")
+        history_window = _prompt("History window (turns)",  int(_e("SIM_HISTORY_WINDOW", "4")), int,   "1\u201312")
+        max_tokens     = _prompt("Context size (tokens)",   int(_e("SIM_MAX_TOKENS", "192")),   int,   "64\u20138192")
+        seed           = _prompt("Random seed",             int(_e("SIM_SEED", "42")),          int,   "any int")
 
         print(
             f"\n  n_ticks={n_ticks} | n_participants={n_participants} | K={k} | "
