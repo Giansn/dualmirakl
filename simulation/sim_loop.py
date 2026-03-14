@@ -20,7 +20,6 @@ Architecture layers (Park et al. 2023; Adaptive-VP, ACL 2025):
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import logging
 import math
@@ -168,6 +167,7 @@ class ObsEntry:
 class WorldState:
     k: int = 3
     _log: list[ObsEntry] = field(default_factory=list)
+    _log_by_tick: dict = field(default_factory=dict)  # tick → [ObsEntry]
     active_interventions: list[Intervention] = field(default_factory=list)
     _compliance_log: list[dict] = field(default_factory=list)
 
@@ -180,6 +180,7 @@ class WorldState:
 
     def log(self, entry: ObsEntry) -> None:
         self._log.append(entry)
+        self._log_by_tick.setdefault(entry.tick, []).append(entry)
 
     def full_log(self) -> list[ObsEntry]:
         return list(self._log)
@@ -188,7 +189,10 @@ class WorldState:
         return list(self._compliance_log)
 
     def observer_prompt_window(self, tick: int, n_participants: int) -> str:
-        window = [e for e in self._log if e.tick > tick - self.k]
+        # O(K) lookup instead of O(total_entries)
+        window = []
+        for t in range(max(1, tick - self.k + 1), tick + 1):
+            window.extend(self._log_by_tick.get(t, []))
         if not window:
             return "No observations yet."
         if n_participants > 15:
@@ -231,7 +235,7 @@ class WorldState:
         return d
 
     def compute_score_statistics(self, tick: int) -> dict:
-        entries = [e for e in self._log if e.tick == tick]
+        entries = self._log_by_tick.get(tick, [])
         if not entries:
             return {}
         scores = [e.score_after for e in entries]
@@ -241,7 +245,7 @@ class WorldState:
         skew = float(np.mean(((np.array(scores) - mean) / (std + 1e-8)) ** 3)) if n > 2 else 0.0
         above = sum(1 for s in scores if s >= 0.7)
 
-        prev_entries = [e for e in self._log if e.tick == tick - 1]
+        prev_entries = self._log_by_tick.get(tick - 1, [])
         autocorr = None
         if prev_entries and len(prev_entries) == len(entries):
             prev_scores = [e.score_after for e in prev_entries]
@@ -275,26 +279,23 @@ def _load_anchors():
     _anchor_vecs = model.encode(high + low)
 
 
-@functools.lru_cache(maxsize=512)
-def _embed_cached(text: str):
-    return _get_embed().encode([text])[0]
+_anchor_high_mask: Optional[np.ndarray] = None
 
 
 def _compute_signal_from_vec(vec) -> tuple[float, float]:
+    """Vectorized cosine similarity against all anchors."""
+    global _anchor_high_mask
     _load_anchors()
-    sims = np.array([_cosine(vec, a) for a in _anchor_vecs])
-    high_mask = np.array([l == "high" for l in _anchor_labels])
-    high_sim = float(np.mean(sims[high_mask]))
-    low_sim  = float(np.mean(sims[~high_mask]))
+    if _anchor_high_mask is None:
+        _anchor_high_mask = np.array([l == "high" for l in _anchor_labels])
+    # Vectorized: cosine sims for all anchors at once
+    norms = np.linalg.norm(_anchor_vecs, axis=1) * (np.linalg.norm(vec) + 1e-8)
+    sims = _anchor_vecs @ vec / norms
+    high_sim = float(np.mean(sims[_anchor_high_mask]))
+    low_sim  = float(np.mean(sims[~_anchor_high_mask]))
     signal = float(np.clip((high_sim - low_sim + 1.0) / 2.0, 0.0, 1.0))
     se = float(np.std(sims) / math.sqrt(len(sims)))
     return signal, se
-
-
-def embed_score(response: str) -> tuple[float, float]:
-    _load_anchors()
-    vec = _get_embed().encode([response])[0]
-    return _compute_signal_from_vec(vec)
 
 
 def embed_score_batch(responses: list[str]) -> list[tuple[float, float]]:
@@ -407,15 +408,18 @@ def _load_codebook():
     _codebook_vecs = model.encode(_codebook_phrases)
 
 
-def extract_interventions(observer_id: str, response: str, tick: int) -> list[Intervention]:
+def extract_interventions(observer_id: str, response: str, tick: int, precomputed_vec=None) -> list[Intervention]:
     _load_codebook()
-    vec = _get_embed().encode([response])[0]
+    vec = precomputed_vec if precomputed_vec is not None else _get_embed().encode([response])[0]
     triggered = {}
-    for key, anchor_vec, phrase in zip(_codebook_keys, _codebook_vecs, _codebook_phrases):
-        sim = _cosine(vec, anchor_vec)
-        if sim >= INTERVENTION_THRESHOLD:
-            if key not in triggered or sim > triggered[key][0]:
-                triggered[key] = (sim, phrase)
+    # Vectorized cosine similarity against codebook
+    norms = np.linalg.norm(_codebook_vecs, axis=1) * (np.linalg.norm(vec) + 1e-8)
+    sims = _codebook_vecs @ vec / norms
+    for idx, (key, phrase) in enumerate(zip(_codebook_keys, _codebook_phrases)):
+        s = float(sims[idx])
+        if s >= INTERVENTION_THRESHOLD:
+            if key not in triggered or s > triggered[key][0]:
+                triggered[key] = (s, phrase)
 
     ivs = []
     for key, (sim, phrase) in triggered.items():
@@ -605,8 +609,7 @@ class ParticipantAgent:
         return f"{summary_block}\n\n{base}"
 
     async def step(self, tick: int, stimulus: str, world_state: WorldState, max_tokens: int = 256) -> str:
-        await self._maybe_update_persona_summary(tick)
-
+        # Persona summaries handled at tick level (concurrent pre-phase)
         nudge = world_state.participant_nudges()
         nudge_note = f" {nudge}" if nudge else ""
         # [Fix 6] Score NOT included in participant prompt
@@ -728,33 +731,6 @@ class ObserverAgent:
         self.analyses.append(response)
         return extract_interventions(self.agent_id, response, tick)
 
-    async def observe(self, tick: int, world_state: WorldState, n_participants: int) -> list[Intervention]:
-        """Legacy v2 method — kept for backward compatibility."""
-        window = world_state.observer_prompt_window(tick, n_participants)
-        active = ", ".join(iv.description for iv in world_state.active_interventions) or "none"
-        stats = world_state.compute_score_statistics(tick)
-        stats_note = _format_stats(stats)
-
-        prompt = (
-            f"[Tick {tick}] Observation window (last {world_state.k} ticks):\n"
-            f"{window}\n{stats_note}\n\n"
-            f"Active interventions: {active}\n\n"
-            f"Analyse the dynamics at both individual and population level. "
-            f"Recommend any new interventions if warranted."
-        )
-        response = await _resilient_agent_turn(
-            agent_id=self.agent_id,
-            backend=self.cfg["backend"],
-            system_prompt=self.cfg["system"],
-            user_message=prompt,
-            history=self.history[-self.history_window:],
-            max_tokens=self.max_tokens,
-        )
-        logger.info(f"[{self.agent_id}] {response[:120]}...")
-        self.history.append({"role": "assistant", "content": response})
-        self.analyses.append(response)
-        return extract_interventions(self.agent_id, response, tick)
-
 
 # ── Tick orchestration ────────────────────────────────────────────────────────
 
@@ -778,6 +754,12 @@ async def run_tick(
     """
     n = len(participants)
     is_observer_tick = (tick % world_state.k == 0)
+
+    # -- Pre-phase: persona summaries (concurrent, swarm GPU) ──────────────
+    # Run before Phase A so they don't block inside Phase B's asyncio.gather
+    await asyncio.gather(*[
+        p._maybe_update_persona_summary(tick) for p in participants
+    ])
 
     # -- Phase A -- batch stimulus generation (1 call instead of N) [Opt 1]
     stimuli = await environment.batch_decide(
