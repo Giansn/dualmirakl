@@ -1,17 +1,24 @@
 import os
 import asyncio
+from pathlib import Path
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from sentence_transformers import SentenceTransformer
 import httpx
 
 app = FastAPI()
 
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+_proj_dir = Path(__file__).parent
+
 AUTHORITY = os.getenv("AUTHORITY_URL", "http://localhost:8000/v1")
 SWARM     = os.getenv("SWARM_URL",     "http://localhost:8001/v1")
 
 # e5-small-v2 loaded once at startup — CPU inference ~2-5ms per call
-_embed = SentenceTransformer("/per.volume/huggingface/hub/e5-small-v2")
+_embed_path = os.path.join(os.getenv("HF_HOME", "/per.volume/huggingface"), "hub", "e5-small-v2")
+_embed = SentenceTransformer(_embed_path)
 
 client = httpx.AsyncClient(
     http2=True,
@@ -55,6 +62,12 @@ async def models():
         {"id": "swarm", "object": "model"},
         {"id": "e5-small-v2", "object": "model"},
     ]}
+
+@app.get("/", response_class=HTMLResponse)
+async def ui():
+    html_file = _proj_dir / "interface.html"
+    return HTMLResponse(html_file.read_text(encoding="utf-8"))
+
 
 @app.get("/health")
 async def health():
