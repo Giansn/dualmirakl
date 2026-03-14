@@ -2,12 +2,13 @@ name: Build & Push Docker Image
 
 on:
   push:
-    branches: [runpod]
+    branches: [main, runpod]
     paths:
       - Dockerfile
       - docker-post-start.sh
       - requirements.txt
       - .dockerignore
+  workflow_dispatch:
 
 jobs:
   build:
