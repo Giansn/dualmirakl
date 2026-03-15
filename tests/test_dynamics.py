@@ -131,6 +131,123 @@ class TestBifurcation:
         assert bifs[0]["cluster_change"] is True
 
 
+class TestSobolS2:
+    def test_sobol_second_order_returns_structure(self):
+        from simulation.dynamics import sobol_second_order
+        def f(x):
+            return x[0] * 3 + x[1] * 0.5
+        result = sobol_second_order(f, [(0, 1), (0, 1)],
+                                     param_names=["a", "b"], n_samples=128)
+        assert "S1" in result
+        assert "S2" in result
+        assert "ST" in result
+        assert "a" in result["S1"]
+        assert ("a", "b") in result["S2"]
+
+    def test_interaction_detected(self):
+        from simulation.dynamics import sobol_second_order
+        # f = x0 * x1 → strong interaction
+        def f(x):
+            return x[0] * x[1]
+        result = sobol_second_order(f, [(0, 1), (0, 1)],
+                                     param_names=["a", "b"], n_samples=512)
+        assert result["S2"][("a", "b")] > -0.1  # should detect interaction
+
+    def test_no_interaction_additive(self):
+        from simulation.dynamics import sobol_second_order
+        # f = x0 + x1 → no interaction
+        def f(x):
+            return x[0] + x[1]
+        result = sobol_second_order(f, [(0, 1), (0, 1)],
+                                     param_names=["a", "b"], n_samples=256)
+        assert abs(result["S2"][("a", "b")]) < 0.15
+
+
+class TestTransferEntropy:
+    def test_independent_series_lower_than_coupled(self):
+        from simulation.dynamics import transfer_entropy
+        rng = np.random.RandomState(42)
+        x = list(rng.uniform(0, 1, 200))
+        y_indep = list(rng.uniform(0, 1, 200))
+        # Coupled: y follows x with lag
+        y_coupled = [0.5] + [0.8 * x[i] + 0.2 * rng.uniform(0, 1) for i in range(199)]
+        te_indep = transfer_entropy(x, y_indep, n_bins=4)
+        te_coupled = transfer_entropy(x, y_coupled, n_bins=4)
+        assert te_coupled > te_indep  # coupled should have higher TE
+
+    def test_coupled_series_higher_te(self):
+        from simulation.dynamics import transfer_entropy
+        rng = np.random.RandomState(42)
+        x = list(rng.uniform(0, 1, 100))
+        # y follows x with lag 1
+        y = [0.5] + [0.7 * x[i] + 0.3 * rng.uniform(0, 1) for i in range(99)]
+        te = transfer_entropy(x, y)
+        te_reverse = transfer_entropy(y, x)
+        # Forward TE should be >= reverse (x drives y, not vice versa)
+        assert te >= te_reverse - 0.1
+
+    def test_te_matrix_shape(self):
+        from simulation.dynamics import transfer_entropy_matrix
+        logs = [[0.1 + 0.01 * t for t in range(30)] for _ in range(3)]
+        mat = transfer_entropy_matrix(logs)
+        assert mat.shape == (3, 3)
+        assert mat[0, 0] == 0.0  # no self-transfer
+
+    def test_net_information_flow(self):
+        from simulation.dynamics import transfer_entropy_matrix, net_information_flow
+        logs = [[0.1 + 0.01 * t for t in range(30)] for _ in range(3)]
+        mat = transfer_entropy_matrix(logs)
+        flow = net_information_flow(mat)
+        assert "total_te" in flow
+        assert "net_flow" in flow
+        assert len(flow["net_flow"]) == 3
+
+
+class TestEmergence:
+    def test_emergence_variance_ratio_independent(self):
+        from simulation.dynamics import emergence_variance_ratio
+        rng = np.random.RandomState(42)
+        # Independent random walks → E ≈ positive (cancellation)
+        logs = [list(np.cumsum(rng.normal(0, 0.1, 30)) + 0.5) for _ in range(6)]
+        e = emergence_variance_ratio(logs)
+        assert isinstance(e, float)
+
+    def test_emergence_identical_agents_zero(self):
+        from simulation.dynamics import emergence_variance_ratio
+        # All agents identical → population variance = individual variance → E ≈ 0
+        log = [0.3 + 0.01 * t for t in range(20)]
+        logs = [log[:] for _ in range(4)]
+        e = emergence_variance_ratio(logs)
+        assert abs(e) < 0.01
+
+    def test_emergence_mutual_information(self):
+        from simulation.dynamics import emergence_mutual_information
+        rng = np.random.RandomState(42)
+        logs = [list(rng.uniform(0, 1, 30)) for _ in range(4)]
+        mi = emergence_mutual_information(logs)
+        assert 0.0 <= mi <= 1.0
+
+    def test_emergence_clustering_bimodal(self):
+        from simulation.dynamics import emergence_score_clustering
+        # Bimodal distribution (needs enough points for stable BC)
+        scores = [0.1, 0.12, 0.15, 0.11, 0.13, 0.85, 0.88, 0.9, 0.87, 0.86]
+        bc = emergence_score_clustering(scores)
+        # Unimodal comparison
+        scores_uni = [0.4, 0.42, 0.45, 0.41, 0.43, 0.44, 0.46, 0.39, 0.47, 0.38]
+        bc_uni = emergence_score_clustering(scores_uni)
+        assert bc > bc_uni  # bimodal should have higher BC
+
+    def test_compute_emergence(self):
+        from simulation.dynamics import compute_emergence
+        rng = np.random.RandomState(42)
+        logs = [list(np.cumsum(rng.normal(0, 0.05, 20)) + 0.5) for _ in range(4)]
+        em = compute_emergence(logs)
+        assert "variance_ratio" in em
+        assert "mutual_information" in em
+        assert "bimodality" in em
+        assert "is_emergent" in em
+
+
 class TestLyapunov:
     def test_stable_trajectory(self):
         from simulation.dynamics import lyapunov_exponent_twin

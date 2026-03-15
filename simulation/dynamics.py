@@ -584,10 +584,471 @@ def estimate_system_lyapunov(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# (D) SOBOL SECOND-ORDER INTERACTION INDICES
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# First-order S_i measures individual parameter contributions.
+# Second-order S_ij measures the INTERACTION effect — variance explained
+# by the joint effect of parameters i and j that is NOT captured by
+# their individual effects.
+#
+#   S_ij = Var(E[Y|X_i, X_j]) / Var(Y) - S_i - S_j
+#
+#   S_ij >> 0: synergistic interaction — combined effect exceeds sum of parts
+#   S_ij ≈ 0: additive — parameters act independently
+#   S_ij < 0:  antagonistic — combined effect less than sum
+#
+# This quantifies whether the system produces outcomes that neither
+# parameter predicts alone (superadditivity).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def sobol_second_order(
+    func,
+    bounds: list[tuple[float, float]],
+    param_names: Optional[list[str]] = None,
+    n_samples: int = 1024,
+    seed: int = 42,
+) -> dict:
+    """
+    Compute Sobol first-order AND second-order interaction indices.
+
+    Uses the Saltelli (2002) estimator. Cost: N(2k+2) evaluations.
+
+    Returns:
+        {
+            "S1": {param_name: float},         # first-order
+            "S2": {(name_i, name_j): float},   # second-order interactions
+            "ST": {param_name: float},          # total-order
+        }
+    """
+    rng = np.random.RandomState(seed)
+    k = len(bounds)
+    names = param_names or [f"p{i}" for i in range(k)]
+
+    def _sample(n):
+        raw = rng.uniform(size=(n, k))
+        return np.array([
+            [lo + raw[j, i] * (hi - lo) for i, (lo, hi) in enumerate(bounds)]
+            for j in range(n)
+        ])
+
+    A = _sample(n_samples)
+    B = _sample(n_samples)
+    y_A = np.array([func(A[j]) for j in range(n_samples)])
+    y_B = np.array([func(B[j]) for j in range(n_samples)])
+    f0_sq = np.mean(y_A) * np.mean(y_B)
+    var_y = np.var(np.concatenate([y_A, y_B]))
+
+    if var_y < 1e-12:
+        return {
+            "S1": {names[i]: 0.0 for i in range(k)},
+            "S2": {},
+            "ST": {names[i]: 0.0 for i in range(k)},
+        }
+
+    # First-order and total-order indices
+    S1 = {}
+    ST = {}
+    y_AB = {}  # cache AB_i evaluations for S2
+
+    for i in range(k):
+        AB_i = A.copy()
+        AB_i[:, i] = B[:, i]
+        y_AB[i] = np.array([func(AB_i[j]) for j in range(n_samples)])
+
+        # S1: Jansen estimator
+        s1 = float(np.mean(y_B * (y_AB[i] - y_A)) / var_y)
+        S1[names[i]] = max(0.0, min(1.0, s1))
+
+        # ST: total-order (1 - S~i)
+        BA_i = B.copy()
+        BA_i[:, i] = A[:, i]
+        y_BA_i = np.array([func(BA_i[j]) for j in range(n_samples)])
+        st = float(0.5 * np.mean((y_A - y_BA_i) ** 2) / var_y)
+        ST[names[i]] = max(0.0, min(1.0, st))
+
+    # Second-order interaction indices
+    S2 = {}
+    for i in range(k):
+        for j in range(i + 1, k):
+            # AB_ij: take A, replace columns i AND j with B
+            AB_ij = A.copy()
+            AB_ij[:, i] = B[:, i]
+            AB_ij[:, j] = B[:, j]
+            y_AB_ij = np.array([func(AB_ij[m]) for m in range(n_samples)])
+
+            # S_ij = V_ij / V(Y) - S_i - S_j
+            v_ij = float(np.mean(y_B * (y_AB_ij - y_A)) / var_y)
+            s_ij = v_ij - S1[names[i]] - S1[names[j]]
+            S2[(names[i], names[j])] = round(s_ij, 4)
+
+    return {"S1": S1, "S2": S2, "ST": ST}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# (E) TRANSFER ENTROPY
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Transfer entropy T_{X→Y} measures the directed information flow from
+# process X to process Y:
+#
+#   T_{X→Y} = H(Y_t | Y_{t-1}^{(k)}) - H(Y_t | Y_{t-1}^{(k)}, X_{t-1}^{(l)})
+#
+# where H is conditional Shannon entropy and k, l are history lengths.
+#
+#   T > 0: X provides information about Y's future beyond Y's own past
+#          (the coupling is informative — the interaction carries signal)
+#   T = 0: X and Y are conditionally independent given Y's past
+#
+# In the simulation context:
+#   T_{environment→participant}: how much does knowing the platform state
+#     reduce uncertainty about the user's FUTURE score?
+#   T_{participant_i→participant_j}: directed peer influence (with coupling)
+#
+# Implementation: histogram-based discrete entropy estimation.
+# No external dependencies (pyunicorn/dit not needed).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _discretize(series: np.ndarray, n_bins: int = 8) -> np.ndarray:
+    """Discretize a continuous series into n_bins equal-width bins."""
+    mn, mx = np.min(series), np.max(series)
+    if mx - mn < 1e-10:
+        return np.zeros(len(series), dtype=int)
+    return np.clip(
+        ((series - mn) / (mx - mn) * n_bins).astype(int),
+        0, n_bins - 1
+    )
+
+
+def _joint_entropy(*arrays: np.ndarray) -> float:
+    """Compute joint Shannon entropy H(X, Y, ...) from discretized arrays."""
+    # Combine arrays into joint state tuples
+    n = len(arrays[0])
+    states = np.column_stack(arrays)
+    # Count unique joint states
+    _, counts = np.unique(states, axis=0, return_counts=True)
+    probs = counts / n
+    return float(-np.sum(probs * np.log2(probs + 1e-15)))
+
+
+def _conditional_entropy(target: np.ndarray, *conditions: np.ndarray) -> float:
+    """Compute H(target | conditions) = H(target, conditions) - H(conditions)."""
+    h_joint = _joint_entropy(target, *conditions)
+    h_cond = _joint_entropy(*conditions) if conditions else 0.0
+    return h_joint - h_cond
+
+
+def transfer_entropy(
+    source: list[float],
+    target: list[float],
+    k: int = 1,
+    l: int = 1,
+    n_bins: int = 8,
+) -> float:
+    """
+    Compute transfer entropy T_{source→target}.
+
+    T = H(Y_t | Y_{t-1:t-k}) - H(Y_t | Y_{t-1:t-k}, X_{t-1:t-l})
+
+    Args:
+        source: time series X (e.g., environment stimuli or another agent's scores)
+        target: time series Y (e.g., participant scores)
+        k: target history length (how many past Y values to condition on)
+        l: source history length (how many past X values to include)
+        n_bins: discretization bins
+
+    Returns:
+        Transfer entropy in bits. T > 0 means source → target information flow.
+    """
+    n = min(len(source), len(target))
+    delay = max(k, l)
+    if n <= delay + 1:
+        return 0.0
+
+    src = np.array(source[:n])
+    tgt = np.array(target[:n])
+    src_d = _discretize(src, n_bins)
+    tgt_d = _discretize(tgt, n_bins)
+
+    # Build lagged arrays
+    y_t = tgt_d[delay:]  # target at time t
+    y_hist = np.column_stack([tgt_d[delay - i - 1: n - i - 1] for i in range(k)])  # Y_{t-1:t-k}
+    x_hist = np.column_stack([src_d[delay - i - 1: n - i - 1] for i in range(l)])  # X_{t-1:t-l}
+
+    # T = H(Y_t | Y_hist) - H(Y_t | Y_hist, X_hist)
+    h_y_given_yhist = _conditional_entropy(y_t, *[y_hist[:, i] for i in range(k)])
+    h_y_given_both = _conditional_entropy(
+        y_t,
+        *[y_hist[:, i] for i in range(k)],
+        *[x_hist[:, i] for i in range(l)]
+    )
+
+    te = h_y_given_yhist - h_y_given_both
+    return float(max(0.0, te))  # clip negative noise
+
+
+def transfer_entropy_matrix(
+    score_logs: list[list[float]],
+    k: int = 1,
+    l: int = 1,
+    n_bins: int = 8,
+) -> np.ndarray:
+    """
+    Compute pairwise transfer entropy matrix for all agents.
+
+    Returns N×N matrix where TE[i,j] = T_{agent_i → agent_j}.
+    Diagonal is zero (no self-transfer).
+    Asymmetric: TE[i,j] ≠ TE[j,i] in general (directed information flow).
+    """
+    n = len(score_logs)
+    te_matrix = np.zeros((n, n))
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            te_matrix[i, j] = transfer_entropy(
+                score_logs[i], score_logs[j], k=k, l=l, n_bins=n_bins
+            )
+
+    return te_matrix
+
+
+def net_information_flow(te_matrix: np.ndarray) -> dict:
+    """
+    Summarize directed information flow from the TE matrix.
+
+    Returns:
+        {
+            "total_te": float,          # sum of all TE values
+            "mean_te": float,           # average TE
+            "max_pair": (int, int),     # most informative directed pair
+            "max_te": float,            # TE of that pair
+            "net_flow": [float],        # per agent: outgoing - incoming TE
+                                        #   positive = net information source
+                                        #   negative = net information sink
+            "asymmetry": float,         # mean |TE[i,j] - TE[j,i]| — directedness
+        }
+    """
+    n = te_matrix.shape[0]
+    total = float(np.sum(te_matrix))
+    n_pairs = n * (n - 1) if n > 1 else 1
+    mean = total / n_pairs
+
+    max_idx = np.unravel_index(np.argmax(te_matrix), te_matrix.shape)
+
+    # Net flow per agent: outgoing - incoming
+    outgoing = np.sum(te_matrix, axis=1)  # row sums = what i sends
+    incoming = np.sum(te_matrix, axis=0)  # col sums = what i receives
+    net = outgoing - incoming
+
+    # Asymmetry: mean directedness
+    asym_vals = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            asym_vals.append(abs(te_matrix[i, j] - te_matrix[j, i]))
+    asymmetry = float(np.mean(asym_vals)) if asym_vals else 0.0
+
+    return {
+        "total_te": round(total, 4),
+        "mean_te": round(mean, 4),
+        "max_pair": (int(max_idx[0]), int(max_idx[1])),
+        "max_te": round(float(te_matrix[max_idx]), 4),
+        "net_flow": [round(float(f), 4) for f in net],
+        "asymmetry": round(asymmetry, 4),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# (F) EMERGENCE INDEX
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Measures how much population-level structure exceeds what individual
+# trajectories predict independently.
+#
+# Three complementary metrics:
+#
+# 1. Variance ratio:
+#      E_var = 1 - Var(population_mean_trajectory) / mean(Var(individual_trajectories))
+#      E_var > 0: population behaves differently than individuals predict
+#      E_var = 0: population = average of independent agents
+#
+# 2. Mutual information excess:
+#      E_mi = I(X_1; X_2; ...; X_N) - sum(H(X_i))
+#      Measures shared structure beyond individual entropy
+#
+# 3. Correlation dimension:
+#      Ratio of multi-agent phase space dimensionality to single-agent
+#      dimensionality. Lower ratio = more collective structure.
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def emergence_variance_ratio(score_logs: list[list[float]]) -> float:
+    """
+    Variance-based emergence index.
+
+    Compares the variance of the population mean trajectory against the
+    mean variance of individual trajectories.
+
+    E = 1 - Var(mean_trajectory) / mean(Var(individual))
+
+    E > 0: population-level smoothing — agents partially cancel out,
+           indicating correlated behavior that produces emergent regularity.
+    E ≈ 0: no emergence — population = sum of independent parts.
+    E < 0: super-variance — population fluctuates MORE than individuals,
+           indicating amplifying feedback (possible chaos).
+    """
+    if not score_logs or len(score_logs) < 2:
+        return 0.0
+
+    # Align lengths
+    min_len = min(len(log) for log in score_logs)
+    if min_len < 3:
+        return 0.0
+
+    logs = np.array([log[:min_len] for log in score_logs])  # (N, T)
+
+    # Population mean trajectory
+    pop_mean = np.mean(logs, axis=0)  # (T,)
+    var_pop = np.var(pop_mean)
+
+    # Mean individual variance
+    individual_vars = np.var(logs, axis=1)  # (N,)
+    mean_ind_var = np.mean(individual_vars)
+
+    if mean_ind_var < 1e-12:
+        return 0.0
+
+    return float(1.0 - var_pop / mean_ind_var)
+
+
+def emergence_mutual_information(
+    score_logs: list[list[float]],
+    n_bins: int = 8,
+) -> float:
+    """
+    Information-theoretic emergence index.
+
+    Computes the total correlation (multi-information):
+      TC = sum(H(X_i)) - H(X_1, X_2, ..., X_N)
+
+    TC > 0: agents share information — their joint state is more
+            structured than independent agents would produce.
+    TC = 0: agents are statistically independent.
+
+    Higher TC indicates stronger emergent coupling.
+    Normalized by sum(H(X_i)) to give a value in [0, 1].
+    """
+    if not score_logs or len(score_logs) < 2:
+        return 0.0
+
+    min_len = min(len(log) for log in score_logs)
+    if min_len < 10:
+        return 0.0
+
+    # Use the final portion of trajectories (post-transient)
+    tail_start = max(0, min_len - min(min_len, 30))
+    tails = [np.array(log[tail_start:min_len]) for log in score_logs]
+
+    # Discretize each agent's trajectory
+    discretized = [_discretize(t, n_bins) for t in tails]
+
+    # Sum of individual entropies
+    sum_h = sum(_joint_entropy(d) for d in discretized)
+
+    if sum_h < 1e-10:
+        return 0.0
+
+    # Joint entropy H(X_1, ..., X_N)
+    h_joint = _joint_entropy(*discretized)
+
+    # Total correlation = sum(H_i) - H_joint
+    tc = sum_h - h_joint
+
+    # Normalize to [0, 1]
+    return float(np.clip(tc / sum_h, 0.0, 1.0))
+
+
+def emergence_score_clustering(
+    final_scores: list[float],
+    n_expected_clusters: int = 1,
+) -> float:
+    """
+    Structural emergence index based on score distribution clustering.
+
+    Measures whether the final score distribution shows more structure
+    (modes, clusters) than expected from independent agents.
+
+    Uses the gap between observed cluster count and expected.
+    Also computes bimodality coefficient (BC):
+      BC = (skewness^2 + 1) / (kurtosis + 3 * (n-1)^2 / ((n-2)(n-3)))
+      BC > 5/9 ≈ 0.555 suggests bimodality (population splitting).
+    """
+    if len(final_scores) < 4:
+        return 0.0
+
+    s = np.array(final_scores)
+    n = len(s)
+
+    # Bimodality coefficient
+    mean = np.mean(s)
+    std = np.std(s)
+    if std < 1e-10:
+        return 0.0
+
+    skew = float(np.mean(((s - mean) / std) ** 3))
+    kurt = float(np.mean(((s - mean) / std) ** 4))
+
+    # Adjusted BC (Pfister et al. 2013)
+    bc_num = skew ** 2 + 1
+    bc_den = kurt + 3.0 * ((n - 1) ** 2) / ((n - 2) * (n - 3)) if n > 3 else kurt + 3.0
+    bc = bc_num / bc_den if bc_den > 0 else 0.0
+
+    return float(bc)
+
+
+def compute_emergence(
+    score_logs: list[list[float]],
+    final_scores: Optional[list[float]] = None,
+) -> dict:
+    """
+    Compute all emergence metrics for a simulation run.
+
+    Returns:
+        {
+            "variance_ratio": float,   # population vs individual variance
+            "mutual_information": float, # total correlation (normalized)
+            "bimodality": float,        # bimodality coefficient
+            "is_emergent": bool,        # any metric above threshold
+        }
+    """
+    if final_scores is None:
+        final_scores = [log[-1] for log in score_logs if log]
+
+    e_var = emergence_variance_ratio(score_logs)
+    e_mi = emergence_mutual_information(score_logs)
+    e_bc = emergence_score_clustering(final_scores)
+
+    return {
+        "variance_ratio": round(e_var, 4),
+        "mutual_information": round(e_mi, 4),
+        "bimodality": round(e_bc, 4),
+        "is_emergent": bool(e_mi > 0.05 or e_bc > 0.555 or abs(e_var) > 0.3),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
     print("\n== (A) Coupled Score Dynamics ==\n")
 
     # Demonstrate coupling effect
@@ -641,3 +1102,71 @@ if __name__ == "__main__":
         result = estimate_system_lyapunov(logs)
         print(f"  kappa={kappa_val:.1f}: max_lambda={result['max_lyapunov']:.4f}  "
               f"regime={result['regime']}  per_agent={result['per_agent']}")
+
+    print("\n== (D) Sobol S2 Interaction Indices ==\n")
+
+    from simulation.sim_loop import update_score
+
+    def objective(x):
+        alpha, dampening, susceptibility, resilience = x
+        rng_obj = np.random.RandomState(42)
+        score = 0.3
+        for t in range(20):
+            signal = float(np.clip(0.5 + 0.3 * math.sin(t * 0.5) + rng_obj.normal(0, 0.1), 0, 1))
+            score = update_score(score, signal, dampening, alpha,
+                                 susceptibility=susceptibility, resilience=resilience)
+        return score
+
+    s2_result = sobol_second_order(
+        objective,
+        bounds=[(0.1, 0.4), (0.3, 1.0), (0.2, 1.0), (0.0, 0.6)],
+        param_names=["alpha", "dampening", "susceptibility", "resilience"],
+        n_samples=256,
+    )
+    print("  First-order (S1):")
+    for name, val in s2_result["S1"].items():
+        print(f"    {name:>15s}: {val:.4f}")
+    print("  Interactions (S2):")
+    for pair, val in sorted(s2_result["S2"].items(), key=lambda x: -abs(x[1])):
+        marker = " ***" if abs(val) > 0.01 else ""
+        print(f"    {str(pair):>40s}: {val:+.4f}{marker}")
+
+    print("\n== (E) Transfer Entropy ==\n")
+
+    rng = np.random.RandomState(42)
+    logs_te = []
+    scores_te = [float(rng.uniform(0.1, 0.5)) for _ in range(4)]
+    for _ in range(4):
+        logs_te.append([])
+    for t in range(60):
+        signals = [float(np.clip(0.5 + 0.3 * math.sin(t * 0.5 + i * 0.7) + rng.normal(0, 0.1), 0, 1))
+                   for i in range(4)]
+        scores_te = coupled_batch_update(scores_te, signals, kappa=0.2, alpha=0.15)
+        for i, s in enumerate(scores_te):
+            logs_te[i].append(s)
+
+    te_mat = transfer_entropy_matrix(logs_te)
+    flow = net_information_flow(te_mat)
+    print(f"  Total TE: {flow['total_te']}  Mean: {flow['mean_te']}  Asymmetry: {flow['asymmetry']}")
+    print(f"  Max pair: agent_{flow['max_pair'][0]}→agent_{flow['max_pair'][1]} = {flow['max_te']} bits")
+    print(f"  Net flow: {flow['net_flow']}  (positive=source, negative=sink)")
+
+    print("\n== (F) Emergence Index ==\n")
+
+    for kappa_val in [0.0, 0.2, 0.5]:
+        rng = np.random.RandomState(42)
+        logs_em = []
+        scores_em = [float(rng.uniform(0.1, 0.5)) for _ in range(6)]
+        for _ in range(6):
+            logs_em.append([])
+        for t in range(40):
+            signals = [float(np.clip(0.5 + 0.3 * math.sin(t * 0.5 + i * 0.7) + rng.normal(0, 0.1), 0, 1))
+                       for i in range(6)]
+            scores_em = coupled_batch_update(scores_em, signals, kappa=kappa_val, alpha=0.15)
+            for i, s in enumerate(scores_em):
+                logs_em[i].append(s)
+
+        em = compute_emergence(logs_em)
+        print(f"  kappa={kappa_val:.1f}: var_ratio={em['variance_ratio']:.3f}  "
+              f"MI={em['mutual_information']:.3f}  bimodality={em['bimodality']:.3f}  "
+              f"emergent={em['is_emergent']}")
