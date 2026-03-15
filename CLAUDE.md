@@ -15,7 +15,8 @@ bash chmod.sh                  # set +x on all scripts
 bash audit_env.sh              # check GPU, CUDA, model files, ports
 python orchestrator.py         # dual health check + test query
 python -m simulation.sim_loop  # run simulation (interactive CLI)
-python -m pytest tests/ -v     # run test suite (29 tests, no vLLM needed)
+python -m pytest tests/ -v     # run test suite (53 tests, no vLLM needed)
+python simulation/dynamics.py  # demo coupled dynamics + Lyapunov estimation
 ```
 
 Logs: `logs/authority.log`, `logs/swarm.log`, `logs/gateway.log`
@@ -55,27 +56,74 @@ The served name is always `authority` or `swarm` — no other code changes neede
 
 ## Simulation (sim_loop.py)
 
-Four-phase tick architecture:
-- **Phase A** (sequential): environment generates stimuli per participant → authority
+### Tick Architecture
+
+Optimized four-phase tick with batch stimulus, C+D overlap, and concurrent persona summaries:
+
+- **Pre-phase**: persona summaries for all participants (concurrent, swarm GPU, every PERSONA_SUMMARY_INTERVAL ticks)
+- **Phase A** (batched): environment generates stimuli for all N participants in one call → authority
 - **Phase B** (concurrent): participants respond via asyncio.gather → swarm
-- **Phase C** (CPU): batch embedding → EMA score update (e5-small-v2, no GPU)
-- **Phase D** (every K ticks, sequential): observer_a analyses → observer_b intervenes → authority
+- **Phase C** (CPU): batch embedding → score update with heterogeneous agent modifiers (e5-small-v2, no GPU)
+- **Phase D** (every K ticks): overlapped with Phase C on observer ticks — observer_a analyses (authority GPU) runs concurrently with embedding (CPU), then observer_b intervenes sequentially
 
-Key defaults (tuned for throughput): `max_tokens=192`, `alpha=0.15`, `K=4`, `history_window=4`.
-All params configurable via `SIM_*` env vars in `.env` or interactive CLI prompts.
+### Score Dynamics
 
-Data export: results auto-saved to `data/{run_id}/` as JSON (config, trajectories, observations, compliance, interventions).
+Two score update modes (selectable via `score_mode` parameter):
+- **EMA** (default): `S(t+1) = S(t) + d·α·(signal - S)`. Linear, analytically tractable for SA.
+- **Logistic**: sigmoid-transformed signal, saturates at extremes. `logistic_k` controls steepness.
+
+Agent modifiers applied per-participant:
+- `susceptibility` ~ Beta(2,3): scales signal strength (higher = more affected by stimuli)
+- `resilience` ~ Beta(2,5): baseline dampening (higher = resistant to score change)
+
+Both injected into participant system prompt as personality traits and exported in results.
+
+### Coupled Dynamics (dynamics.py)
+
+Optional inter-agent coupling for emergent group behavior:
+```
+S_i(t+1) = S_i(t) + d·α·(signal_i - S_i) + κ·g(S̄ - S_i)
+```
+- `κ > 0`: conformity (peer pressure), `κ < 0`: polarization
+- Three coupling functions: linear, sigmoid, threshold
+- `coupled_batch_update()` as drop-in replacement for Phase C
+
+### Analysis Tools (dynamics.py)
+
+**Phase portrait**: extract (score, velocity, acceleration) from trajectories. `find_fixed_points()` detects attractors.
+
+**Bifurcation analysis**: `bifurcation_sweep(param, values, base_params)` sweeps any parameter with synthetic objective, `detect_bifurcation_points()` flags qualitative transitions.
+
+**Lyapunov exponent λ**: quantifies sensitivity to initial conditions.
+- `lyapunov_exponent_twin()`: twin trajectory divergence rate
+- `lyapunov_from_timeseries()`: Rosenstein (1993) method, works on existing output
+- `estimate_system_lyapunov()`: population-level regime classification (chaotic/stable/marginal)
+
+### Sensitivity Analysis
+
+Three-stage calibration pipeline (no vLLM needed — uses synthetic objective):
+1. **Morris screening** → rank 7 parameters by influence (μ*), drop negligible ones
+2. **History Matching** (history_matching.py) → iterative NROY space reduction via POM targets
+3. **Sobol first-order** → quantify variance contribution on the narrowed space
+
+Parameters: alpha, K, threshold, dampening, susceptibility, resilience, logistic_k.
+
+### Neutrality
+
+Engagement anchors and calibration targets are domain-specific placeholders. They must be replaced with empirically grounded values before using results for any claims. The simulation engine is domain-neutral — theory enters via configuration, not hardcoded assumptions.
 
 ## Key Files
 
-- `orchestrator.py` — `agent_turn(agent_id, backend, system_prompt, user_message, history, max_tokens)`: single agent turn via httpx HTTP/2 client. `chat()`, `dual_query()`, `health_check()`.
+- `orchestrator.py` — `agent_turn()`: single agent turn via httpx HTTP/2 client. `chat()`, `dual_query()`, `health_check()`.
 - `gateway.py` — FastAPI; serves web UI at `/`; routes `/v1/chat/completions` by model name; `/v1/embeddings` via CPU e5-small-v2. CORS enabled.
-- `interface.html` — single-file chat UI with RAG, compression, streaming, PDF+OCR, simulation panel. Served by gateway at root.
-- `simulation/sim_loop.py` — complete v3 simulation loop with all fixes (sequential observers, batch embedding, persona summaries, compliance checks, data export, sensitivity analysis).
-- `simulation/agent_rolesv3.py` — agent role definitions, `BACKEND_CONFIG`, engagement anchors, intervention codebook, compliance patterns. English + German variants.
+- `interface.html` — single-file chat UI with RAG, compression, streaming, PDF+OCR, simulation panel.
+- `simulation/sim_loop.py` — v3 simulation loop: batched Phase A, C+D overlap, heterogeneous agents, dual score modes, data export, SA framework.
+- `simulation/agent_rolesv3.py` — agent role definitions, `BACKEND_CONFIG`, engagement anchors (domain-specific, replaceable), intervention codebook, compliance patterns. English + German.
+- `simulation/dynamics.py` — coupled ODE score dynamics (mean-field coupling), phase portrait extraction, bifurcation sweep/detection, Lyapunov exponent estimation (twin + Rosenstein).
+- `simulation/history_matching.py` — iterative NROY parameter space reduction, POM pattern targets, Latin Hypercube sampling, implausibility measure.
 - `models/authority.env` — authority slot: MODEL, QUANT_FLAGS, MAX_MODEL_LEN=8192, MAX_NUM_SEQS=12, prefix caching + chunked prefill.
 - `models/swarm.env` — swarm slot: nemotron-nano-30b NVFP4, MAX_MODEL_LEN=8192, MAX_NUM_SEQS=12.
-- `tests/test_sim_loop.py` — 29 tests + duration estimator. Run without vLLM servers.
+- `tests/` — 53 tests across sim_loop, dynamics, and history matching. No vLLM required.
 
 ## Deployment
 
@@ -95,5 +143,5 @@ Data export: results auto-saved to `data/{run_id}/` as JSON (config, trajectorie
 ## Planned
 
 - **Swarm reranker**: chunk reranking between e5-small-v2 retrieval and authority context injection.
-- **FLAME GPU 2**: population-scale simulation runs.
-- **NumPyro state model**: probabilistic score transitions.
+- **FLAME GPU 2**: population-scale simulation runs (N > 1000, LLMs become calibration tool, not runtime engine).
+- **NumPyro causal model**: Bayesian DAG for agent parameter posteriors — build from qualitative data when theoretical framework is empirically grounded.
