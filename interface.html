@@ -517,6 +517,11 @@ async function handleFile(event) {
     S.attachedFile = {name:file.name, text};
     tx.textContent=`Embedding ${file.name}\u2026`;
     await embedStore(text, S.cid||'global', 'document');
+    // Also push to server-side document store for simulation world context
+    tx.textContent=`Storing for simulation\u2026`;
+    try {
+      await fetch(`${url.emb()}/v1/documents`,{method:'POST',headers:url.hdrs(),body:JSON.stringify({text,name:file.name,role:'world_context',append:true})});
+    } catch(e) { console.warn('Server doc store failed (sim context unavailable):', e); }
     tx.textContent=`\u{1F4CE} ${file.name} (${(text.length/1000).toFixed(1)}k chars${trunc?', truncated':''})`;
     document.getElementById('uploadChip').classList.add('act');
   } catch(e) {

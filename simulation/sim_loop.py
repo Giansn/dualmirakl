@@ -53,6 +53,33 @@ DEFAULT_EMBED_PATH = os.environ.get(
 )
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0  # seconds
+CONTEXT_FILE = os.environ.get(
+    "SIM_CONTEXT_FILE",
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "context", "world_context.json"),
+)
+
+
+# ── World context from uploaded documents ─────────────────────────────────────
+
+def load_world_context() -> Optional[str]:
+    """
+    Load document context uploaded via the web interface.
+
+    Returns the summary text (max ~3000 chars) from context/world_context.json,
+    or None if no documents have been uploaded.
+
+    This text gets injected into environment and observer agent prompts
+    so the simulation is grounded in the uploaded data.
+    """
+    ctx_path = Path(CONTEXT_FILE)
+    if not ctx_path.exists():
+        return None
+    try:
+        ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
+        summary = ctx.get("summary", "").strip()
+        return summary if summary else None
+    except Exception:
+        return None
 
 
 # ── Reproducibility ───────────────────────────────────────────────────────────
@@ -500,10 +527,17 @@ class EnvironmentAgent:
     DDA: score >= 0.8 -> stabilising, >= 0.5 -> variation, < 0.5 -> baseline.
     """
 
-    def __init__(self, history_window: int = 4):
+    def __init__(self, history_window: int = 4, world_context: Optional[str] = None):
         self.cfg = AGENT_ROLES["environment"]
         self.history: list[dict] = []
         self.history_window = history_window
+        self.world_context = world_context
+
+    def _system_prompt(self) -> str:
+        base = self.cfg["system"]
+        if self.world_context:
+            return f"[World Context]\n{self.world_context}\n\n{base}"
+        return base
 
     async def decide(self, participant: "ParticipantAgent", world_state: WorldState, max_tokens: int = 128) -> str:
         constraints = world_state.environment_constraints()
@@ -526,7 +560,7 @@ class EnvironmentAgent:
         response = await _resilient_agent_turn(
             agent_id="environment",
             backend=self.cfg["backend"],
-            system_prompt=self.cfg["system"],
+            system_prompt=self._system_prompt(),
             user_message=prompt,
             history=self.history[-self.history_window:],
             max_tokens=max_tokens,
@@ -566,7 +600,7 @@ class EnvironmentAgent:
         response = await _resilient_agent_turn(
             agent_id="environment",
             backend=self.cfg["backend"],
-            system_prompt=self.cfg["system"],
+            system_prompt=self._system_prompt(),
             user_message=prompt,
             history=self.history[-self.history_window:],
             max_tokens=batch_max,
@@ -712,13 +746,21 @@ class ObserverAgent:
     [Fix 2] Split into analyse() (A) and intervene() (B).
     """
 
-    def __init__(self, agent_id: str, role: str, history_window: int = 4, max_tokens: int = 256):
+    def __init__(self, agent_id: str, role: str, history_window: int = 4,
+                 max_tokens: int = 256, world_context: Optional[str] = None):
         self.agent_id = agent_id
         self.cfg = AGENT_ROLES[role]
         self.history: list[dict] = []
         self.history_window = history_window
         self.max_tokens = max_tokens
         self.analyses: list[str] = []
+        self.world_context = world_context
+
+    def _system_prompt(self) -> str:
+        base = self.cfg["system"]
+        if self.world_context:
+            return f"[World Context]\n{self.world_context}\n\n{base}"
+        return base
 
     async def analyse(self, tick: int, world_state: WorldState, n_participants: int) -> str:
         """[Fix 2] Observer A: analysis only. No codebook extraction."""
@@ -738,7 +780,7 @@ class ObserverAgent:
         response = await _resilient_agent_turn(
             agent_id=self.agent_id,
             backend=self.cfg["backend"],
-            system_prompt=self.cfg["system"],
+            system_prompt=self._system_prompt(),
             user_message=prompt,
             history=self.history[-self.history_window:],
             max_tokens=self.max_tokens,
@@ -784,7 +826,7 @@ class ObserverAgent:
         response = await _resilient_agent_turn(
             agent_id=self.agent_id,
             backend=self.cfg["backend"],
-            system_prompt=self.cfg["system"],
+            system_prompt=self._system_prompt(),
             user_message=prompt,
             history=self.history[-self.history_window:],
             max_tokens=self.max_tokens,
@@ -925,18 +967,25 @@ async def run_simulation(
 
     t_start = time.monotonic()
 
+    # Load world context from uploaded documents (if any)
+    world_context = load_world_context()
+    if world_context:
+        logger.info(f"World context loaded ({len(world_context)} chars)")
+
     set_seed(seed)
     world_state = WorldState(k=k)
-    environment = EnvironmentAgent(history_window=history_window)
+    environment = EnvironmentAgent(history_window=history_window, world_context=world_context)
     participants = [
         ParticipantAgent(f"participant_{i}", history_window=history_window)
         for i in range(n_participants)
     ]
     observers = [
         ObserverAgent("observer_a", "observer_a",
-                      history_window=history_window, max_tokens=max_tokens),
+                      history_window=history_window, max_tokens=max_tokens,
+                      world_context=world_context),
         ObserverAgent("observer_b", "observer_b",
-                      history_window=history_window, max_tokens=max_tokens),
+                      history_window=history_window, max_tokens=max_tokens,
+                      world_context=world_context),
     ]
 
     try:

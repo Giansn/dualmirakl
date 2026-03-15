@@ -81,10 +81,192 @@ async def health():
     return s
 
 
-# ── Simulation API ───────────────────────────────────────────────────────────
+# ── Document Context Store ────────────────────────────────────────────────────
+#
+# Uploaded documents are chunked, embedded via e5-small-v2, and stored as a
+# temporary JSON file that the simulation can read as world context.
+#
+# Flow:
+#   interface.html → POST /v1/documents → gateway chunks + embeds → world_context.json
+#   sim_loop.py → reads world_context.json → injects into agent prompts
+#
+# The context file persists until cleared or overwritten by a new upload.
+# ──────────────────────────────────────────────────────────────────────────────
 
 import json
 from datetime import datetime, timezone
+
+_context_dir = _proj_dir / "context"
+_context_file = _context_dir / "world_context.json"
+
+
+def _chunk_text(text: str, chunk_size: int = 400) -> list[str]:
+    """Split text into sentence-boundary-aware chunks."""
+    import re
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks, current = [], ""
+    for s in sentences:
+        if len(current) + len(s) > chunk_size and current:
+            chunks.append(current.strip())
+            current = s
+        else:
+            current = f"{current} {s}" if current else s
+    if current.strip():
+        chunks.append(current.strip())
+    return chunks
+
+
+@app.post("/v1/documents")
+async def upload_document(req: Request):
+    """
+    Receive document text, chunk it, embed via e5-small-v2, and store
+    as world_context.json for the simulation to use.
+
+    Body: {"text": "...", "name": "file.pdf", "role": "world_context"}
+
+    The context file contains:
+    {
+        "documents": [
+            {"name": "...", "uploaded_at": "...", "chunks": [
+                {"text": "...", "embedding": [...], "index": 0}, ...
+            ]}
+        ],
+        "summary": "concatenated top-level text for agent injection",
+        "n_chunks": int,
+        "n_documents": int,
+    }
+    """
+    body = await req.json()
+    text = body.get("text", "")
+    name = body.get("name", "unnamed")
+    role = body.get("role", "world_context")
+    append = body.get("append", True)
+
+    if not text.strip():
+        return {"error": "No text provided"}
+
+    _context_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load existing context if appending
+    existing = {"documents": [], "summary": "", "n_chunks": 0, "n_documents": 0}
+    if append and _context_file.exists():
+        try:
+            existing = json.loads(_context_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    # Chunk and embed
+    chunks = _chunk_text(text, chunk_size=400)
+    loop = asyncio.get_event_loop()
+    vectors = await loop.run_in_executor(None, _embed.encode, chunks)
+
+    doc_entry = {
+        "name": name,
+        "role": role,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "n_chunks": len(chunks),
+        "chunks": [
+            {
+                "text": chunk,
+                "embedding": vec.tolist(),
+                "index": i,
+            }
+            for i, (chunk, vec) in enumerate(zip(chunks, vectors))
+        ],
+    }
+
+    existing["documents"].append(doc_entry)
+    existing["n_documents"] = len(existing["documents"])
+    existing["n_chunks"] = sum(d["n_chunks"] for d in existing["documents"])
+
+    # Build summary: first 3000 chars of all documents (for direct agent injection)
+    all_text = "\n\n".join(
+        "\n".join(c["text"] for c in d["chunks"])
+        for d in existing["documents"]
+    )
+    existing["summary"] = all_text[:3000]
+
+    _context_file.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return {
+        "status": "stored",
+        "document": name,
+        "n_chunks": len(chunks),
+        "total_chunks": existing["n_chunks"],
+        "total_documents": existing["n_documents"],
+        "context_file": str(_context_file),
+    }
+
+
+@app.get("/v1/documents")
+async def list_documents():
+    """List all uploaded documents in the context store."""
+    if not _context_file.exists():
+        return {"documents": [], "n_chunks": 0, "n_documents": 0}
+    ctx = json.loads(_context_file.read_text(encoding="utf-8"))
+    return {
+        "documents": [
+            {"name": d["name"], "role": d.get("role", "world_context"),
+             "n_chunks": d["n_chunks"], "uploaded_at": d.get("uploaded_at")}
+            for d in ctx.get("documents", [])
+        ],
+        "n_chunks": ctx.get("n_chunks", 0),
+        "n_documents": ctx.get("n_documents", 0),
+    }
+
+
+@app.delete("/v1/documents")
+async def clear_documents():
+    """Clear all uploaded documents."""
+    if _context_file.exists():
+        _context_file.unlink()
+    return {"status": "cleared"}
+
+
+@app.post("/v1/documents/query")
+async def query_documents(req: Request):
+    """
+    Semantic search over uploaded documents using e5-small-v2.
+
+    Body: {"query": "...", "top_k": 5, "threshold": 0.5}
+    Returns: most relevant chunks with similarity scores.
+    """
+    body = await req.json()
+    query = body.get("query", "")
+    top_k = body.get("top_k", 5)
+    threshold = body.get("threshold", 0.5)
+
+    if not query or not _context_file.exists():
+        return {"results": []}
+
+    ctx = json.loads(_context_file.read_text(encoding="utf-8"))
+
+    # Embed query
+    loop = asyncio.get_event_loop()
+    q_vec = (await loop.run_in_executor(None, _embed.encode, [query]))[0]
+
+    # Search all chunks
+    import numpy as _np
+    results = []
+    for doc in ctx.get("documents", []):
+        for chunk in doc.get("chunks", []):
+            c_vec = _np.array(chunk["embedding"])
+            sim = float(_np.dot(q_vec, c_vec) / (
+                _np.linalg.norm(q_vec) * _np.linalg.norm(c_vec) + 1e-8
+            ))
+            if sim >= threshold:
+                results.append({
+                    "text": chunk["text"],
+                    "score": round(sim, 4),
+                    "document": doc["name"],
+                    "chunk_index": chunk["index"],
+                })
+
+    results.sort(key=lambda x: -x["score"])
+    return {"results": results[:top_k], "query": query}
+
+
+# ── Simulation API ───────────────────────────────────────────────────────────
 
 _sim_state = {"status": "idle", "tick": 0, "n_ticks": 0, "started_at": None, "run_dir": None}
 
