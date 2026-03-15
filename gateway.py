@@ -268,7 +268,13 @@ async def query_documents(req: Request):
 
 # ── Simulation API ───────────────────────────────────────────────────────────
 
-_sim_state = {"status": "idle", "tick": 0, "n_ticks": 0, "started_at": None, "run_dir": None}
+_sim_state = {
+    "status": "idle", "tick": 0, "n_ticks": 0,
+    "started_at": None, "run_dir": None,
+    "events": [],  # [{tick, type, detail}]
+    "scores": [],  # latest scores per agent
+    "pct": 0,
+}
 
 
 @app.get("/simulation/preflight")
@@ -306,6 +312,10 @@ async def sim_start(req: Request):
 
     _sim_state["status"] = "running"
     _sim_state["tick"] = 0
+    _sim_state["n_ticks"] = body.get("n_ticks", 12)
+    _sim_state["pct"] = 0
+    _sim_state["scores"] = []
+    _sim_state["events"] = []
     _sim_state["started_at"] = datetime.now(timezone.utc).isoformat()
     _sim_state["run_dir"] = None
 
@@ -318,6 +328,18 @@ async def sim_start(req: Request):
 
         async def _sim():
             try:
+                def _on_tick(info):
+                    _sim_state["tick"] = info["tick"]
+                    _sim_state["n_ticks"] = info["n_ticks"]
+                    _sim_state["pct"] = info["pct"]
+                    _sim_state["scores"] = info["scores"]
+                    for ev in info["events"]:
+                        _sim_state["events"].append({
+                            "tick": info["tick"],
+                            "pct": info["pct"],
+                            **ev,
+                        })
+
                 participants, world_state = await run_simulation(
                     n_ticks=body.get("n_ticks", 12),
                     n_participants=body.get("n_participants", 4),
@@ -327,6 +349,7 @@ async def sim_start(req: Request):
                     seed=body.get("seed", 42),
                     score_mode=body.get("score_mode", "ema"),
                     logistic_k=body.get("logistic_k", 6.0),
+                    on_tick=_on_tick,
                 )
                 # Run dynamics analysis on results
                 from simulation.dynamics import analyze_simulation

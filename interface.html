@@ -177,7 +177,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);color:var(--t0);heigh
 .rp-test-btn{width:100%;padding:7px;background:var(--ad);border:1px solid rgba(110,231,183,.2);border-radius:var(--rax);color:var(--a);font-family:'Outfit',sans-serif;font-size:12px;cursor:pointer;margin-top:4px}
 
 /* SIMULATION PANEL */
-.sim-panel{position:fixed;top:50px;right:20px;width:300px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);z-index:98;box-shadow:0 8px 32px rgba(0,0,0,.4);display:none;flex-direction:column;animation:fi .2s ease}
+.sim-panel{position:fixed;top:50px;right:20px;width:340px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);z-index:98;box-shadow:0 8px 32px rgba(0,0,0,.4);display:none;flex-direction:column;animation:fi .2s ease;max-height:80vh;overflow:hidden}
 .sim-panel.open{display:flex}
 .sim-hd{padding:12px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between}
 .sim-hd h4{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}
@@ -187,6 +187,25 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);color:var(--t0);heigh
 .sim-row .sim-lbl{color:var(--t1)}
 .sim-row .sim-val{color:var(--t0)}
 .sim-val.idle{color:var(--t2)}.sim-val.running{color:var(--w);animation:pulse 1.2s infinite}
+/* Progress bar */
+.sim-progress{margin:10px 0;position:relative}
+.sim-pbar-bg{width:100%;height:24px;background:var(--bg2);border-radius:12px;overflow:hidden;border:1px solid var(--bd)}
+.sim-pbar-fill{height:100%;background:linear-gradient(90deg,var(--a),#34d399);border-radius:12px;transition:width .4s ease;min-width:0}
+.sim-pbar-fill.done{background:linear-gradient(90deg,var(--a),#5ddba8)}
+.sim-pct{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--t0);text-shadow:0 1px 3px rgba(0,0,0,.5)}
+/* Scores row */
+.sim-scores{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0;font-family:'JetBrains Mono',monospace;font-size:10px}
+.sim-score-chip{padding:2px 6px;background:var(--bg2);border:1px solid var(--bd);border-radius:3px;color:var(--t1)}
+.sim-score-chip.high{border-color:rgba(248,113,113,.3);color:var(--r)}
+.sim-score-chip.mid{border-color:rgba(251,191,36,.3);color:var(--w)}
+/* Event log */
+.sim-events{max-height:200px;overflow-y:auto;margin:8px 0;padding:0}
+.sim-ev{display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid var(--bg2);font-size:10.5px;font-family:'JetBrains Mono',monospace}
+.sim-ev:last-child{border-bottom:none}
+.sim-ev-pct{color:var(--t2);min-width:32px;text-align:right}
+.sim-ev-dot{width:6px;height:6px;border-radius:50%;margin-top:4px;flex-shrink:0}
+.sim-ev-dot.intervention{background:var(--r)}.sim-ev-dot.observer{background:var(--a)}.sim-ev-dot.persona{background:var(--e)}.sim-ev-dot.compliance{background:var(--w)}
+.sim-ev-txt{color:var(--t1);flex:1}
 .sim-start{width:100%;padding:8px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);border-radius:var(--rax);color:var(--w);font-family:'Outfit',sans-serif;font-size:12px;font-weight:500;cursor:pointer;transition:all .2s;margin-top:4px}
 .sim-start:hover{background:rgba(251,191,36,.2)}
 .sim-start:disabled{opacity:.4;cursor:not-allowed}
@@ -403,10 +422,16 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);color:var(--t0);heigh
 <!-- SIMULATION PANEL -->
 <div class="sim-panel" id="simPanel">
   <div class="sim-hd">
-    <h4><span class="sd"></span> Simulation</h4>
+    <h4><span class="sd" id="simDot"></span> Simulation</h4>
     <button class="spc" onclick="toggleSimPanel()">&times;</button>
   </div>
   <div class="sim-bd">
+    <div class="sim-progress" id="simProgressWrap" style="display:none">
+      <div class="sim-pbar-bg">
+        <div class="sim-pbar-fill" id="simPbarFill" style="width:0%"></div>
+      </div>
+      <span class="sim-pct" id="simPct">0%</span>
+    </div>
     <div class="sim-row">
       <span class="sim-lbl">Status</span>
       <span class="sim-val idle" id="simStatus">idle</span>
@@ -415,6 +440,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);color:var(--t0);heigh
       <span class="sim-lbl">Tick</span>
       <span class="sim-val" id="simTick">&mdash;</span>
     </div>
+    <div class="sim-scores" id="simScores"></div>
+    <div class="sim-events" id="simEvents"></div>
     <div class="sim-row">
       <span class="sim-lbl">Last run</span>
       <span class="sim-val" id="simLastRun">&mdash;</span>
@@ -841,17 +868,53 @@ function toggleSimPanel() {
   btn.classList.toggle('act-sim', panel.classList.contains('open'));
 }
 
+function renderSimScores(scores) {
+  const el = document.getElementById('simScores');
+  if (!scores || !scores.length) { el.innerHTML = ''; return; }
+  el.innerHTML = scores.map((s, i) => {
+    const cls = s >= 0.7 ? 'high' : s >= 0.5 ? 'mid' : '';
+    return `<span class="sim-score-chip ${cls}">p${i} ${s.toFixed(2)}</span>`;
+  }).join('');
+}
+
+function renderSimEvents(events) {
+  const el = document.getElementById('simEvents');
+  if (!events || !events.length) { el.innerHTML = ''; return; }
+  // Show last 8 events
+  const recent = events.slice(-8);
+  el.innerHTML = recent.map(ev => {
+    const dotCls = ev.type || 'observer';
+    const icon = ev.type === 'intervention' ? '\u25c8' : ev.type === 'persona' ? '\u27f3' : ev.type === 'compliance' ? '!' : '\u25cb';
+    return `<div class="sim-ev">
+      <span class="sim-ev-pct">${ev.pct}%</span>
+      <span class="sim-ev-dot ${dotCls}"></span>
+      <span class="sim-ev-txt">${icon} ${ev.detail || ev.type}</span>
+    </div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
 async function startSimulation() {
   if (S.simRunning) return;
   const btn = document.getElementById('simStartBtn');
   const statusEl = document.getElementById('simStatus');
-  const tickEl = document.getElementById('simTick');
+  const progWrap = document.getElementById('simProgressWrap');
+  const pbarFill = document.getElementById('simPbarFill');
+  const pctEl = document.getElementById('simPct');
+  const dot = document.getElementById('simDot');
 
   btn.disabled = true;
   S.simRunning = true;
   S.simTick = 0;
   statusEl.textContent = 'starting\u2026';
   statusEl.className = 'sim-val running';
+  progWrap.style.display = '';
+  pbarFill.style.width = '0%';
+  pbarFill.className = 'sim-pbar-fill';
+  pctEl.textContent = '0%';
+  dot.style.background = 'var(--w)';
+  document.getElementById('simEvents').innerHTML = '';
+  document.getElementById('simScores').innerHTML = '';
 
   try {
     const gwUrl = url.gw();
@@ -867,12 +930,13 @@ async function startSimulation() {
     }
 
     statusEl.textContent = 'running';
-    // Start polling for status
-    S.simPollId = setInterval(pollSimStatus, 2000);
+    S.simPollId = setInterval(pollSimStatus, 1500);
 
   } catch (e) {
     statusEl.textContent = 'error: ' + e.message;
     statusEl.className = 'sim-val idle';
+    progWrap.style.display = 'none';
+    dot.style.background = 'var(--r)';
     S.simRunning = false;
     btn.disabled = false;
   }
@@ -890,20 +954,32 @@ async function pollSimStatus() {
     const lastRunEl = document.getElementById('simLastRun');
     const linkEl = document.getElementById('simResultLink');
     const btn = document.getElementById('simStartBtn');
+    const pbarFill = document.getElementById('simPbarFill');
+    const pctEl = document.getElementById('simPct');
+    const progWrap = document.getElementById('simProgressWrap');
+    const dot = document.getElementById('simDot');
 
-    if (d.tick !== undefined) {
-      S.simTick = d.tick;
-      tickEl.textContent = d.tick + (d.total_ticks ? ` / ${d.total_ticks}` : '');
-    }
+    const pct = d.pct || 0;
+    const tick = d.tick || 0;
+    const nTicks = d.n_ticks || 12;
 
-    if (d.status === 'running' || d.status === 'in_progress') {
-      statusEl.textContent = `running (tick ${S.simTick})`;
+    pbarFill.style.width = pct + '%';
+    pctEl.textContent = pct + '%';
+    tickEl.textContent = `${tick} / ${nTicks}`;
+    renderSimScores(d.scores);
+    renderSimEvents(d.events);
+
+    if (d.status === 'running') {
+      statusEl.textContent = `tick ${tick}/${nTicks}`;
       statusEl.className = 'sim-val running';
-    } else if (d.status === 'completed' || d.status === 'done' || d.status === 'idle') {
+    } else if (d.status === 'completed') {
       if (S.simRunning) {
-        // Just finished
         statusEl.textContent = 'completed';
         statusEl.className = 'sim-val idle';
+        pbarFill.style.width = '100%';
+        pbarFill.className = 'sim-pbar-fill done';
+        pctEl.textContent = '100%';
+        dot.style.background = 'var(--a)';
         S.simRunning = false;
         S.simLastRun = new Date().toISOString();
         lastRunEl.textContent = fmtT(S.simLastRun);
@@ -911,13 +987,11 @@ async function pollSimStatus() {
         btn.disabled = false;
         clearInterval(S.simPollId);
         S.simPollId = null;
-      } else {
-        statusEl.textContent = d.status;
-        statusEl.className = 'sim-val idle';
       }
-    } else if (d.status === 'error') {
-      statusEl.textContent = 'error';
+    } else if (d.status && d.status.startsWith('error')) {
+      statusEl.textContent = d.status;
       statusEl.className = 'sim-val idle';
+      dot.style.background = 'var(--r)';
       S.simRunning = false;
       btn.disabled = false;
       clearInterval(S.simPollId);
@@ -934,13 +1008,35 @@ async function viewSimResults() {
     const r = await fetch(`${gwUrl}/simulation/results`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    // Display results in a new chat
     newChat();
     const chat = getChat();
     chat.title = 'Simulation Results';
+
+    // Format a readable summary instead of raw JSON
+    let summary = '**Simulation Results**\n\n';
+    if (d.config?.config) {
+      const c = d.config.config;
+      summary += `**Config:** ${c.n_ticks} ticks, ${c.n_participants} agents, K=${c.k}, \u03b1=${c.alpha}, ${c.score_mode}\n`;
+      summary += `**Duration:** ${d.config.duration_s}s\n\n`;
+    }
+    if (d.trajectories) {
+      summary += '**Final Scores:**\n';
+      for (const [id, t] of Object.entries(d.trajectories)) {
+        const bar = '\u2588'.repeat(Math.round(t.final_score * 20)) + '\u2591'.repeat(20 - Math.round(t.final_score * 20));
+        summary += `  ${id}: ${bar} ${t.final_score.toFixed(3)} (sus=${t.susceptibility?.toFixed(2)||'?'} res=${t.resilience?.toFixed(2)||'?'})\n`;
+      }
+      summary += '\n';
+    }
+    if (d.dynamics_analysis) {
+      const da = d.dynamics_analysis;
+      if (da.lyapunov) summary += `**Regime:** ${da.lyapunov.regime} (\u03bb=${da.lyapunov.max_lyapunov})\n`;
+      if (da.emergence) summary += `**Emergence:** MI=${da.emergence.mutual_information} bimodality=${da.emergence.bimodality} ${da.emergence.is_emergent ? '\u2713 emergent' : ''}\n`;
+      if (da.transfer_entropy) summary += `**Info flow:** total TE=${da.transfer_entropy.total_te} asymmetry=${da.transfer_entropy.asymmetry}\n`;
+    }
+
     chat.messages.push({
       role: 'assistant',
-      content: '**Simulation Results**\n\n```\n' + JSON.stringify(d, null, 2) + '\n```',
+      content: summary,
       ts: new Date().toISOString(),
       badges: [{t: 'bdg-t', l: 'sim'}]
     });

@@ -1159,6 +1159,7 @@ async def run_simulation(
     persona_summary_interval: int = PERSONA_SUMMARY_INTERVAL,
     score_mode: str = "ema",
     logistic_k: float = 6.0,
+    on_tick: Optional[callable] = None,
 ) -> tuple[list[ParticipantAgent], WorldState]:
     """
     Run the stratified multi-agent simulation.
@@ -1233,6 +1234,28 @@ async def run_simulation(
 
             event_str = "  " + "  ".join(events) if events else ""
             print(f"  T{tick:<3d} {bar}  {scores_str}{event_str}")
+
+            # Progress callback for gateway/UI
+            if on_tick:
+                pct = int(tick / n_ticks * 100)
+                tick_events = []
+                if is_observer:
+                    if new_ivs:
+                        for iv in new_ivs:
+                            tick_events.append({"type": "intervention", "detail": iv.type})
+                    else:
+                        tick_events.append({"type": "observer", "detail": "no intervention needed"})
+                if is_persona:
+                    tick_events.append({"type": "persona", "detail": "persona summary refresh"})
+                if compliance_this_tick:
+                    tick_events.append({"type": "compliance", "detail": f"{len(compliance_this_tick)} violations"})
+                on_tick({
+                    "tick": tick,
+                    "n_ticks": n_ticks,
+                    "pct": pct,
+                    "scores": [round(p.behavioral_score, 3) for p in participants],
+                    "events": tick_events,
+                })
 
     finally:
         _cfg.INTERVENTION_THRESHOLD = _original_threshold
