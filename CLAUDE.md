@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 bash start_authority.sh        # GPU 0, port 8000
 bash start_swarm.sh            # GPU 1, port 8001
-bash start_gateway.sh          # CPU, port 9000 — embedding + proxy + web UI
+bash start_gateway.sh          # CPU, port 9000 — embedding + proxy + web UI + sim API
 bash start_all.sh              # all three with health polling
 bash stop_all.sh               # kill all vLLM processes
 bash pull_models.sh            # download models to $HF_HOME via huggingface-cli
@@ -15,19 +15,19 @@ bash chmod.sh                  # set +x on all scripts
 bash audit_env.sh              # check GPU, CUDA, model files, ports
 python orchestrator.py         # dual health check + test query
 python -m simulation.sim_loop  # run simulation (interactive CLI)
-python -m pytest tests/ -v     # run test suite (53 tests, no vLLM needed)
-python simulation/dynamics.py  # demo coupled dynamics + Lyapunov estimation
+python -m pytest tests/ -v     # run test suite (73 tests, no vLLM needed)
+python simulation/dynamics.py  # demo all dynamics analysis (A-H)
 ```
 
 Logs: `logs/authority.log`, `logs/swarm.log`, `logs/gateway.log`
-Sim output: `data/{run_id}/` (config, trajectories, observations, compliance, interventions)
+Sim output: `data/{run_id}/` — config, trajectories, observations, compliance, interventions, dynamics_analysis
 
 ## Architecture
 
 ```
 GPU 0 — authority slot  :8000   (environment + observer_a + observer_b)
 GPU 1 — swarm slot      :8001   (participant agents)
-CPU   — gateway         :9000   (e5-small-v2 embedding + proxy + web UI)
+CPU   — gateway         :9000   (e5-small-v2 embedding + proxy + web UI + sim API + doc store)
 ```
 
 ### GPU Load Balance
@@ -52,7 +52,7 @@ The served name is always `authority` or `swarm` — no other code changes neede
 
 - **Authority** — reasoning model; environment stimulus generation, observer analysis/intervention.
 - **Swarm** — persona model; participant responses, persona summaries, compression (chat UI).
-- **Embedding (e5-small-v2)** — 384-dim CPU embedding; behavioral scoring, RAG retrieval.
+- **Embedding (e5-small-v2)** — 384-dim CPU embedding; behavioral scoring, RAG retrieval, document search.
 
 ## Simulation (sim_loop.py)
 
@@ -88,23 +88,28 @@ S_i(t+1) = S_i(t) + d·α·(signal_i - S_i) + κ·g(S̄ - S_i)
 - Three coupling functions: linear, sigmoid, threshold
 - `coupled_batch_update()` as drop-in replacement for Phase C
 
-### Analysis Tools (dynamics.py)
+### Analysis Toolkit (dynamics.py — modules A through H)
 
-**Phase portrait**: extract (score, velocity, acceleration) from trajectories. `find_fixed_points()` detects attractors.
+| Module | Function | What it measures |
+|--------|----------|-----------------|
+| **(A)** Coupled ODE | `coupled_batch_update()` | Inter-agent influence via mean-field κ |
+| **(B)** Bifurcation | `bifurcation_sweep()` | Qualitative transitions when sweeping parameters |
+| **(C)** Lyapunov | `estimate_system_lyapunov()` | Chaos detection (λ > 0 = chaotic) |
+| **(D)** Sobol S2 | `sobol_second_order()` | Superadditive parameter interactions |
+| **(E)** Transfer entropy | `transfer_entropy_matrix()` | Directed information flow between agents |
+| **(F)** Emergence | `compute_emergence()` | Population-level structure beyond individuals |
+| **(G-pre)** Attractor basins | `map_attractor_basins()` | Stable states and their catchment areas |
+| **(G)** Stochastic resonance | `stochastic_resonance_curve()` | Optimal noise for intervention effectiveness |
+| **(H)** WorldState bridge | `analyze_simulation()` | Runs full suite on simulation output |
 
-**Bifurcation analysis**: `bifurcation_sweep(param, values, base_params)` sweeps any parameter with synthetic objective, `detect_bifurcation_points()` flags qualitative transitions.
-
-**Lyapunov exponent λ**: quantifies sensitivity to initial conditions.
-- `lyapunov_exponent_twin()`: twin trajectory divergence rate
-- `lyapunov_from_timeseries()`: Rosenstein (1993) method, works on existing output
-- `estimate_system_lyapunov()`: population-level regime classification (chaotic/stable/marginal)
+`analyze_from_json()` loads exported trajectories for post-hoc analysis.
 
 ### Sensitivity Analysis
 
 Three-stage calibration pipeline (no vLLM needed — uses synthetic objective):
 1. **Morris screening** → rank 7 parameters by influence (μ*), drop negligible ones
 2. **History Matching** (history_matching.py) → iterative NROY space reduction via POM targets
-3. **Sobol first-order** → quantify variance contribution on the narrowed space
+3. **Sobol first + second order** → quantify variance contribution and interactions on narrowed space
 
 Parameters: alpha, K, threshold, dampening, susceptibility, resilience, logistic_k.
 
@@ -112,24 +117,61 @@ Parameters: alpha, K, threshold, dampening, susceptibility, resilience, logistic
 
 Engagement anchors and calibration targets are domain-specific placeholders. They must be replaced with empirically grounded values before using results for any claims. The simulation engine is domain-neutral — theory enters via configuration, not hardcoded assumptions.
 
+## Document → Simulation Bridge
+
+Upload PDFs via web interface → gateway chunks + embeds via e5-small-v2 → stored as `context/world_context.json` → sim_loop reads on startup → injected into environment and observer system prompts as `[World Context]`. Participants do NOT see uploaded context (maintains domain blindness).
+
+Gateway document API:
+- `POST /v1/documents` — upload text, chunk, embed, store (append mode)
+- `GET /v1/documents` — list uploaded documents
+- `DELETE /v1/documents` — clear all
+- `POST /v1/documents/query` — semantic search over stored chunks
+
+### Preflight & Context Detection
+
+Two checks at different lifecycle points:
+
+**Preflight** (`GET /simulation/preflight`) — on instance/pod arrival. Checks infrastructure: vLLM servers, embedding model, output dir, context file. Blocks if critical.
+
+**Detection** (`GET /simulation/detect`) — when user starts a simulation. Scans world_context.json for 5 categories: scenario_description, population_characteristics, outcome_criteria, intervention_rules, temporal_structure. Reports what's present, what's missing, and WHY each missing piece matters for result validity. Non-blocking — user decides.
+
+`POST /simulation/start` includes detection warnings in response.
+
+## Gateway API Summary
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/` | GET | Web interface (interface.html) |
+| `/health` | GET | vLLM + embedding health check |
+| `/v1/chat/completions` | POST | Proxy to authority/swarm by model name |
+| `/v1/embeddings` | POST | CPU e5-small-v2 embedding |
+| `/v1/models` | GET | List available models |
+| `/v1/documents` | POST/GET/DELETE | Document context store |
+| `/v1/documents/query` | POST | Semantic search over documents |
+| `/simulation/preflight` | GET | Infrastructure check |
+| `/simulation/detect` | GET | World context detection |
+| `/simulation/start` | POST | Start sim run (background thread) |
+| `/simulation/status` | GET | Current sim state |
+| `/simulation/results` | GET | All output JSON including dynamics analysis |
+
 ## Key Files
 
-- `orchestrator.py` — `agent_turn()`: single agent turn via httpx HTTP/2 client. `chat()`, `dual_query()`, `health_check()`.
-- `gateway.py` — FastAPI; serves web UI at `/`; routes `/v1/chat/completions` by model name; `/v1/embeddings` via CPU e5-small-v2. CORS enabled.
-- `interface.html` — single-file chat UI with RAG, compression, streaming, PDF+OCR, simulation panel.
-- `simulation/sim_loop.py` — v3 simulation loop: batched Phase A, C+D overlap, heterogeneous agents, dual score modes, data export, SA framework.
-- `simulation/agent_rolesv3.py` — agent role definitions, `BACKEND_CONFIG`, engagement anchors (domain-specific, replaceable), intervention codebook, compliance patterns. English + German.
-- `simulation/dynamics.py` — coupled ODE score dynamics (mean-field coupling), phase portrait extraction, bifurcation sweep/detection, Lyapunov exponent estimation (twin + Rosenstein).
-- `simulation/history_matching.py` — iterative NROY parameter space reduction, POM pattern targets, Latin Hypercube sampling, implausibility measure.
-- `models/authority.env` — authority slot: MODEL, QUANT_FLAGS, MAX_MODEL_LEN=8192, MAX_NUM_SEQS=12, prefix caching + chunked prefill.
+- `orchestrator.py` (106 lines) — `agent_turn()`: single agent turn via httpx HTTP/2 client.
+- `gateway.py` (394 lines) — FastAPI; web UI, chat/embed proxy, document store, simulation API. CORS enabled.
+- `interface.html` (966 lines) — single-file chat UI with RAG, compression, streaming, PDF+OCR, simulation panel.
+- `simulation/sim_loop.py` (1439 lines) — v3 simulation loop: batched Phase A, C+D overlap, heterogeneous agents, dual score modes, world context injection, preflight/detection, data export, SA framework.
+- `simulation/dynamics.py` (1706 lines) — 8-module analysis toolkit: coupled ODE, bifurcation, Lyapunov, Sobol S2, transfer entropy, emergence, attractor basins, stochastic resonance, WorldState bridge.
+- `simulation/history_matching.py` (440 lines) — iterative NROY parameter space reduction, POM pattern targets, Latin Hypercube sampling.
+- `simulation/agent_rolesv3.py` (753 lines) — agent roles, `BACKEND_CONFIG`, engagement anchors (replaceable), intervention codebook, compliance patterns. English + German.
+- `models/authority.env` — authority slot: MAX_MODEL_LEN=8192, MAX_NUM_SEQS=12, prefix caching + chunked prefill.
 - `models/swarm.env` — swarm slot: nemotron-nano-30b NVFP4, MAX_MODEL_LEN=8192, MAX_NUM_SEQS=12.
-- `tests/` — 53 tests across sim_loop, dynamics, and history matching. No vLLM required.
+- `tests/` — 73 tests across sim_loop, dynamics, and history matching. No vLLM required.
 
 ## Deployment
 
 **RunPod**: Docker image `giansn/dualmirakl:runpod-cu128`. Post-start hook clones repo to `/per.volume/dualmirakl/`, runs `autostart.sh`. Models on persistent volume.
 
-**Docker Compose**: `docker compose up -d` starts authority/swarm/gateway services. `docker compose run sim` runs simulation. Models mounted via `models_cache` volume.
+**Docker Compose**: `docker compose up -d` starts authority/swarm/gateway services. `docker compose run --profile simulation sim` runs simulation. Models mounted via `models_cache` volume.
 
 **Entrypoint modes**: Set `ENTRYPOINT_MODE` env var: `all` (default), `authority`, `swarm`, `gateway`, `sim`, `shell`.
 
