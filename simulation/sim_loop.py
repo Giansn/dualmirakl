@@ -935,7 +935,7 @@ class ParticipantAgent:
         # [Fix 9] Compliance check
         violations = check_compliance(response, "participant")
         if violations:
-            print(f"  [COMPLIANCE] {self.agent_id} tick={tick} violations: {violations}")
+            logger.debug(f"[COMPLIANCE] {self.agent_id} tick={tick} violations: {violations}")
             world_state._compliance_log.append({
                 "tick": tick, "agent": self.agent_id,
                 "role": "participant", "violations": violations,
@@ -992,12 +992,12 @@ class ObserverAgent:
             history=self.history[-self.history_window:],
             max_tokens=self.max_tokens,
         )
-        print(f"[{self.agent_id} ANALYSIS] {response[:120]}...")
+        logger.debug(f"[{self.agent_id} ANALYSIS] {response[:120]}...")
 
         # [Fix 9] observer_a must NOT contain intervention keywords
         violations = check_compliance(response, "observer_a")
         if violations:
-            print(f"  [COMPLIANCE] {self.agent_id} used intervention keywords: {violations}")
+            logger.debug(f"[COMPLIANCE] {self.agent_id} used intervention keywords: {violations}")
             world_state._compliance_log.append({
                 "tick": tick, "agent": self.agent_id,
                 "role": "observer_a", "violations": violations,
@@ -1038,7 +1038,7 @@ class ObserverAgent:
             history=self.history[-self.history_window:],
             max_tokens=self.max_tokens,
         )
-        print(f"[{self.agent_id} INTERVENTION] {response[:120]}...")
+        logger.debug(f"[{self.agent_id} INTERVENTION] {response[:120]}...")
         self.history.append({"role": "assistant", "content": response})
         self.analyses.append(response)
         return extract_interventions(self.agent_id, response, tick)
@@ -1084,7 +1084,7 @@ async def run_tick(
     for p in participants:
         violations = check_compliance(stimuli.get(p.agent_id, ""), "environment")
         if violations:
-            print(f"  [COMPLIANCE] environment tick={tick} violations: {violations}")
+            logger.debug(f"[COMPLIANCE] environment tick={tick} violations: {violations}")
             world_state._compliance_log.append({
                 "tick": tick, "agent": "environment",
                 "role": "environment", "violations": violations,
@@ -1103,7 +1103,7 @@ async def run_tick(
 
     if is_observer_tick:
         # Start embedding (CPU) and observer_a (authority GPU) simultaneously
-        print(f"\n[Tick {tick}] Observer cycle (C+D overlapped)...")
+        logger.debug(f"[Tick {tick}] Observer cycle (C+D overlapped)...")
         obs_a, obs_b = observers[0], observers[1]
 
         async def _phase_c():
@@ -1195,33 +1195,61 @@ async def run_simulation(
                       world_context=world_context),
     ]
 
+    # Compact header
+    detection = detect_missing_context()
+    ctx_status = f"{detection['n_documents']} docs" if detection["has_context"] else "no context"
+    if detection["missing"]:
+        ctx_status += f" | missing: {', '.join(m['category'] for m in detection['missing'])}"
+    print(f"\n\u2500\u2500 sim v3 | {n_ticks} ticks | {n_participants} agents | K={k} | {score_mode} \u2500\u2500")
+    print(f"  context: {ctx_status}")
+
     try:
         for tick in range(1, n_ticks + 1):
-            pct = tick / n_ticks * 100
-            print(f"\n\u2500\u2500 Tick {tick}/{n_ticks}  ({pct:.0f}%) \u2500\u2500")
+            ivs_before = len(world_state.active_interventions)
             await run_tick(tick, environment, participants, observers, world_state,
                           alpha, max_tokens, score_mode, logistic_k)
-            for p in participants:
-                s, r = p.susceptibility, p.resilience
-                print(f"  {p.agent_id}: score={p.behavioral_score:.3f} (sus={s:.2f} res={r:.2f})")
-            stats = world_state.compute_score_statistics(tick)
-            if stats:
-                print(
-                    f"  [POM] mean={stats['mean']:.3f} \u03c3={stats['std']:.3f} "
-                    f"skew={stats['skewness']:.2f} above_0.7={stats['n_above_threshold']}"
-                )
+
+            # Compact tick line
+            bar_filled = int(tick / n_ticks * 12)
+            bar = "\u2588" * bar_filled + "\u2591" * (12 - bar_filled)
+            scores_str = " ".join(f".{int(p.behavioral_score*100):02d}" for p in participants)
+
+            # Events
+            events = []
+            is_observer = (tick % k == 0)
+            is_persona = (tick % persona_summary_interval == 0 and tick > 0)
+            new_ivs = world_state.active_interventions[ivs_before:]
+            if is_observer:
+                if new_ivs:
+                    iv_names = ", ".join(iv.type.split("_")[0] for iv in new_ivs)
+                    events.append(f"\u25c8 {iv_names}")
+                else:
+                    events.append("\u25c8 no intervention")
+            if is_persona:
+                events.append("\u27f3 persona")
+            compliance_this_tick = [c for c in world_state.compliance_report() if c["tick"] == tick]
+            if compliance_this_tick:
+                events.append(f"! {len(compliance_this_tick)} violations")
+
+            event_str = "  " + "  ".join(events) if events else ""
+            print(f"  T{tick:<3d} {bar}  {scores_str}{event_str}")
+
     finally:
         _cfg.INTERVENTION_THRESHOLD = _original_threshold
         _cfg.PERSONA_SUMMARY_INTERVAL = _original_interval
 
     duration_s = time.monotonic() - t_start
 
-    # [Fix 9] Compliance report
+    # Compact summary
+    stats = world_state.compute_score_statistics(n_ticks)
     compliance = world_state.compliance_report()
+    summary_parts = [f"{duration_s:.1f}s"]
+    if stats:
+        summary_parts.append(f"mean=.{int(stats['mean']*100):02d}")
+        summary_parts.append(f"\u03c3=.{int(stats['std']*100):02d}")
+        summary_parts.append(f"{stats['n_above_threshold']}/{stats['n_total']} above 0.7")
     if compliance:
-        print(f"\n\u2500\u2500 Compliance violations: {len(compliance)} \u2500\u2500")
-        for v in compliance:
-            print(f"  [T{v['tick']}] {v['agent']} ({v['role']}): {v['violations']}")
+        summary_parts.append(f"{len(compliance)} violations")
 
     # Export results
     run_config = {
@@ -1233,7 +1261,8 @@ async def run_simulation(
         "score_mode": score_mode, "logistic_k": logistic_k,
     }
     run_dir = export_results(participants, world_state, run_config, duration_s)
-    print(f"\n\u2500\u2500 Results exported to {run_dir} \u2500\u2500")
+    print(f"\n  \u2500\u2500 done {' | '.join(summary_parts)} \u2500\u2500")
+    print(f"  \u2500\u2500 {run_dir} \u2500\u2500")
 
     return participants, world_state
 
@@ -1405,34 +1434,14 @@ if __name__ == "__main__":
         score_mode     = _prompt("Score mode",              _e("SIM_SCORE_MODE", "ema"),        str,   "ema|logistic")
         logistic_k     = _prompt("Logistic steepness k",    float(_e("SIM_LOGISTIC_K", "6.0")), float, "3.0\u201310.0")
 
-        print(
-            f"\n  n_ticks={n_ticks} | n_participants={n_participants} | K={k} | "
-            f"alpha={alpha} | history_window={history_window} | "
-            f"max_tokens={max_tokens} | seed={seed} | "
-            f"score_mode={score_mode} | logistic_k={logistic_k}\n"
-        )
-
         async def main():
             try:
-                participants, world_state = await run_simulation(
+                await run_simulation(
                     n_ticks=n_ticks, n_participants=n_participants,
                     k=k, alpha=alpha, history_window=history_window,
                     max_tokens=max_tokens, seed=seed,
                     score_mode=score_mode, logistic_k=logistic_k,
                 )
-                print("\n\u2500\u2500 Final scores \u2500\u2500")
-                for p in participants:
-                    print(f"  {p.agent_id}: {p.behavioral_score:.3f}")
-                print(f"\n\u2500\u2500 Full log: {len(world_state.full_log())} entries \u2500\u2500")
-
-                final_stats = world_state.compute_score_statistics(n_ticks)
-                if final_stats:
-                    print(f"\n\u2500\u2500 POM Summary \u2500\u2500")
-                    print(f"  Mean: {final_stats['mean']:.3f}")
-                    print(f"  Std:  {final_stats['std']:.3f}")
-                    print(f"  Skew: {final_stats['skewness']:.2f}")
-                    if final_stats.get("autocorrelation_lag1") is not None:
-                        print(f"  Lag-1 autocorrelation: {final_stats['autocorrelation_lag1']:.3f}")
             finally:
                 await close_client()
 

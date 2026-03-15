@@ -67,7 +67,6 @@ async def agent_turn(
         messages.extend(history)
     messages.append({"role": "user", "content": user_message})
     response = await chat(backend, messages, max_tokens=max_tokens)
-    print(f"[{agent_id}] {response[:120]}...")
     return response
 
 
