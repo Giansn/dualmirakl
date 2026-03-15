@@ -82,6 +82,213 @@ def load_world_context() -> Optional[str]:
         return None
 
 
+# ── World context detection ───────────────────────────────────────────────────
+#
+# Two separate checks:
+#   1. detect_missing_context() — called when user starts a simulation.
+#      Inspects world_context.json, reports what's present and what's missing,
+#      explains WHY each missing piece matters for result validity.
+#      Returns warnings but does NOT block the simulation.
+#
+#   2. preflight_check() — called on instance/pod startup.
+#      Checks infrastructure: vLLM servers reachable, models loaded,
+#      embedding model available, ports open. Blocks if critical.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Expected context categories and why they matter
+CONTEXT_REQUIREMENTS: dict[str, dict] = {
+    "scenario_description": {
+        "keywords": ["scenario", "situation", "setting", "context", "environment",
+                     "case study", "use case", "domain"],
+        "why": (
+            "Without a scenario description, the environment agent generates "
+            "generic stimuli with no domain grounding. Agents interact in a "
+            "vacuum — results cannot be mapped to any real-world setting."
+        ),
+    },
+    "population_characteristics": {
+        "keywords": ["population", "participant", "demographic", "age", "group",
+                     "cohort", "sample", "user", "student", "adolescent"],
+        "why": (
+            "Without population data, all simulated participants are generic. "
+            "Heterogeneous agent parameters (susceptibility, resilience) have "
+            "no empirical basis — individual differences are random noise "
+            "rather than calibrated to a real population."
+        ),
+    },
+    "outcome_criteria": {
+        "keywords": ["outcome", "criteria", "threshold", "metric", "measure",
+                     "indicator", "score", "prevalence", "rate", "target"],
+        "why": (
+            "Without outcome criteria, there is no way to validate whether "
+            "simulation results are plausible. History Matching targets "
+            "default to wide non-constraining ranges — calibration produces "
+            "no information."
+        ),
+    },
+    "intervention_rules": {
+        "keywords": ["intervention", "rule", "policy", "constraint", "boundary",
+                     "limit", "guideline", "protocol", "response"],
+        "why": (
+            "Without intervention rules, observer agents rely entirely on "
+            "generic codebook phrases. Interventions fire based on embedding "
+            "similarity rather than domain-appropriate decision criteria."
+        ),
+    },
+    "temporal_structure": {
+        "keywords": ["time", "duration", "period", "phase", "stage", "session",
+                     "day", "week", "hour", "tick", "timeline"],
+        "why": (
+            "Without temporal structure, each tick is abstract — there is no "
+            "mapping between simulation ticks and real-world time. Observer "
+            "frequency (K) and persona summary intervals have no empirical "
+            "anchor."
+        ),
+    },
+}
+
+
+def detect_missing_context() -> dict:
+    """
+    Inspect world context for missing information categories.
+
+    Called when user starts a simulation. Returns what's present, what's
+    missing, and why each missing piece matters.
+
+    Does NOT block the simulation — the user decides whether to proceed
+    or upload more documents first.
+
+    Returns:
+        {
+            "has_context": bool,
+            "n_documents": int,
+            "context_length": int,
+            "present": [{"category": str, "matched_keywords": [str]}],
+            "missing": [{"category": str, "why": str}],
+            "warnings": [str],
+            "can_proceed": True,  # always True — detection only, not blocking
+        }
+    """
+    ctx_path = Path(CONTEXT_FILE)
+    result = {
+        "has_context": False,
+        "n_documents": 0,
+        "context_length": 0,
+        "present": [],
+        "missing": [],
+        "warnings": [],
+        "can_proceed": True,
+    }
+
+    if not ctx_path.exists():
+        result["warnings"].append("No documents uploaded. Simulation will run without world context.")
+        for cat, spec in CONTEXT_REQUIREMENTS.items():
+            result["missing"].append({"category": cat, "why": spec["why"]})
+        return result
+
+    try:
+        ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
+    except Exception:
+        result["warnings"].append("world_context.json is corrupted. Simulation will run without context.")
+        for cat, spec in CONTEXT_REQUIREMENTS.items():
+            result["missing"].append({"category": cat, "why": spec["why"]})
+        return result
+
+    summary = ctx.get("summary", "").lower()
+    result["has_context"] = bool(summary.strip())
+    result["n_documents"] = ctx.get("n_documents", 0)
+    result["context_length"] = len(ctx.get("summary", ""))
+
+    if not summary.strip():
+        result["warnings"].append("Documents uploaded but summary is empty.")
+        for cat, spec in CONTEXT_REQUIREMENTS.items():
+            result["missing"].append({"category": cat, "why": spec["why"]})
+        return result
+
+    # Scan for each category
+    for cat, spec in CONTEXT_REQUIREMENTS.items():
+        matched = [kw for kw in spec["keywords"] if kw in summary]
+        if matched:
+            result["present"].append({"category": cat, "matched_keywords": matched})
+        else:
+            result["missing"].append({"category": cat, "why": spec["why"]})
+
+    if result["missing"]:
+        missing_names = [m["category"] for m in result["missing"]]
+        result["warnings"].append(
+            f"Missing context categories: {', '.join(missing_names)}. "
+            f"Results may lack domain grounding in these areas."
+        )
+
+    if result["context_length"] < 200:
+        result["warnings"].append(
+            "Context is very short (<200 chars). Consider uploading more "
+            "detailed documents for better agent grounding."
+        )
+
+    return result
+
+
+# ── Preflight check (instance startup) ────────────────────────────────────────
+
+async def preflight_check() -> dict:
+    """
+    Infrastructure check — called on pod/instance arrival.
+
+    Verifies that the simulation can run:
+    - vLLM servers reachable (authority, swarm)
+    - Embedding model loadable
+    - Required Python modules importable
+    - Output directory writable
+
+    Returns:
+        {
+            "ready": bool,
+            "checks": [{"name": str, "status": "ok"|"fail", "detail": str}],
+        }
+    """
+    checks = []
+
+    # Check orchestrator connectivity
+    try:
+        from orchestrator import health_check
+        status = await health_check()
+        for name, st in status.items():
+            ok = st == "up"
+            checks.append({"name": f"vllm_{name}", "status": "ok" if ok else "fail", "detail": st})
+    except Exception as e:
+        checks.append({"name": "vllm_connectivity", "status": "fail", "detail": str(e)})
+
+    # Check embedding model
+    try:
+        _get_embed()
+        checks.append({"name": "embedding_model", "status": "ok", "detail": DEFAULT_EMBED_PATH})
+    except Exception as e:
+        checks.append({"name": "embedding_model", "status": "fail", "detail": str(e)})
+
+    # Check output directory writable
+    try:
+        out_dir = Path(os.environ.get("SIM_OUTPUT_DIR", "data"))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        test_file = out_dir / ".write_test"
+        test_file.write_text("ok")
+        test_file.unlink()
+        checks.append({"name": "output_dir", "status": "ok", "detail": str(out_dir)})
+    except Exception as e:
+        checks.append({"name": "output_dir", "status": "fail", "detail": str(e)})
+
+    # Check context file access
+    ctx_exists = Path(CONTEXT_FILE).exists()
+    checks.append({
+        "name": "world_context",
+        "status": "ok" if ctx_exists else "warn",
+        "detail": "loaded" if ctx_exists else "no documents uploaded yet",
+    })
+
+    ready = all(c["status"] != "fail" for c in checks)
+    return {"ready": ready, "checks": checks}
+
+
 # ── Reproducibility ───────────────────────────────────────────────────────────
 
 _rng: Optional[np.random.RandomState] = None

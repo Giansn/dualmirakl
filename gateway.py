@@ -271,6 +271,27 @@ async def query_documents(req: Request):
 _sim_state = {"status": "idle", "tick": 0, "n_ticks": 0, "started_at": None, "run_dir": None}
 
 
+@app.get("/simulation/preflight")
+async def sim_preflight():
+    """
+    Infrastructure check — call on instance/pod arrival.
+    Verifies vLLM servers, embedding model, output dir, context file.
+    """
+    from simulation.sim_loop import preflight_check
+    return await preflight_check()
+
+
+@app.get("/simulation/detect")
+async def sim_detect():
+    """
+    World context detection — call before user starts a simulation.
+    Reports what context is present/missing and why each matters.
+    Does NOT block — user decides whether to proceed or upload more.
+    """
+    from simulation.sim_loop import detect_missing_context
+    return detect_missing_context()
+
+
 @app.post("/simulation/start")
 async def sim_start(req: Request):
     """Start a simulation run. Accepts config overrides in POST body."""
@@ -278,6 +299,10 @@ async def sim_start(req: Request):
         return {"error": "Simulation already running", "status": _sim_state}
 
     body = await req.json() if req.headers.get("content-type") == "application/json" else {}
+
+    # Run detection (non-blocking) and include warnings in response
+    from simulation.sim_loop import detect_missing_context
+    detection = detect_missing_context()
 
     _sim_state["status"] = "running"
     _sim_state["tick"] = 0
@@ -340,7 +365,11 @@ async def sim_start(req: Request):
 
     threading.Thread(target=_run, daemon=True).start()
 
-    return {"status": "started", "config": body}
+    return {
+        "status": "started",
+        "config": body,
+        "context_detection": detection,
+    }
 
 
 @app.get("/simulation/status")
