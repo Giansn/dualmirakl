@@ -1041,6 +1041,193 @@ def compute_emergence(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# (G-pre) ATTRACTOR BASIN MAPPING
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Maps the "landscape" of the score dynamics: which initial conditions
+# converge to which stable states (attractors).
+#
+# Method: grid sweep of initial scores → run coupled update to convergence
+# → classify final state → report basin sizes and boundaries.
+#
+# The basins reveal:
+#   - How many stable states exist (e.g., "healthy" ≈ 0.2, "compulsive" ≈ 0.75)
+#   - The "ridge" between basins (unstable boundary — small perturbation
+#     determines which attractor an agent falls into)
+#   - How parameters shift basin sizes (intervention = expanding the healthy basin)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class Attractor:
+    """A detected attractor with its basin of attraction."""
+    center: float         # mean final score of agents in this basin
+    basin_low: float      # lowest initial score that converges here
+    basin_high: float     # highest initial score that converges here
+    basin_size: float     # fraction of initial condition space
+    n_converged: int      # number of grid points that converged here
+    stability: float      # mean |velocity| at convergence (lower = more stable)
+
+
+def map_attractor_basins(
+    alpha: float = 0.15,
+    dampening: float = 1.0,
+    susceptibility: float = 0.5,
+    resilience: float = 0.1,
+    kappa: float = 0.0,
+    score_mode: str = "ema",
+    logistic_k: float = 6.0,
+    n_grid: int = 100,
+    n_ticks: int = 80,
+    n_agents: int = 6,
+    convergence_threshold: float = 0.005,
+    cluster_gap: float = 0.1,
+    seed: int = 42,
+) -> dict:
+    """
+    Map attractor basins by sweeping initial conditions.
+
+    For each point on a grid of initial scores [0.01, 0.99]:
+    1. Initialize n_agents at that score (+ small perturbation)
+    2. Run coupled dynamics for n_ticks with synthetic signal
+    3. Record final score
+    4. Classify into attractors via clustering
+
+    Returns:
+        {
+            "attractors": [Attractor],
+            "grid_initial": [float],    # initial scores
+            "grid_final": [float],      # where each converged
+            "grid_basin": [int],        # which attractor each belongs to
+            "n_attractors": int,
+            "basin_boundary": [float],  # initial scores at basin edges
+        }
+    """
+    rng = np.random.RandomState(seed)
+    grid = np.linspace(0.01, 0.99, n_grid)
+    finals = []
+
+    for s0 in grid:
+        # Initialize agents near this starting score
+        scores = [float(np.clip(s0 + rng.normal(0, 0.02), 0.01, 0.99))
+                  for _ in range(n_agents)]
+        susceptibilities = [susceptibility] * n_agents
+        resiliences = [resilience] * n_agents
+
+        for t in range(n_ticks):
+            signals = [
+                float(np.clip(0.5 + 0.25 * math.sin(t * 0.4 + i * 0.5) + rng.normal(0, 0.08), 0, 1))
+                for i in range(n_agents)
+            ]
+            scores = coupled_batch_update(
+                scores, signals, dampening=dampening, alpha=alpha,
+                kappa=kappa, susceptibilities=susceptibilities,
+                resiliences=resiliences, score_mode=score_mode,
+                logistic_k=logistic_k,
+            )
+
+        finals.append(float(np.mean(scores)))
+
+    finals = np.array(finals)
+
+    # Cluster finals into attractors
+    sorted_finals = np.sort(finals)
+    clusters = [[sorted_finals[0]]]
+
+    for f in sorted_finals[1:]:
+        if f - clusters[-1][-1] > cluster_gap:
+            clusters.append([f])
+        else:
+            clusters[-1].append(f)
+
+    # Build attractor objects
+    attractors = []
+    basin_assignments = np.zeros(n_grid, dtype=int)
+
+    for cl_idx, cluster in enumerate(clusters):
+        center = float(np.mean(cluster))
+        # Find which grid points converged to this cluster
+        members = np.abs(finals - center) < cluster_gap
+        basin_assignments[members] = cl_idx
+
+        member_initials = grid[members]
+        if len(member_initials) == 0:
+            continue
+
+        # Compute stability: how fast are scores still changing at the end?
+        stability = float(np.std(cluster))
+
+        attractors.append(Attractor(
+            center=round(center, 4),
+            basin_low=round(float(member_initials.min()), 4),
+            basin_high=round(float(member_initials.max()), 4),
+            basin_size=round(float(len(member_initials)) / n_grid, 4),
+            n_converged=int(len(member_initials)),
+            stability=round(stability, 4),
+        ))
+
+    # Find basin boundaries (where assignment changes)
+    boundaries = []
+    for i in range(1, n_grid):
+        if basin_assignments[i] != basin_assignments[i - 1]:
+            boundaries.append(round(float((grid[i] + grid[i - 1]) / 2), 4))
+
+    return {
+        "attractors": attractors,
+        "grid_initial": [round(float(g), 4) for g in grid],
+        "grid_final": [round(float(f), 4) for f in finals],
+        "grid_basin": basin_assignments.tolist(),
+        "n_attractors": len(attractors),
+        "basin_boundaries": boundaries,
+    }
+
+
+def attractor_shift_analysis(
+    param_name: str,
+    param_values: list[float],
+    base_params: dict,
+    n_grid: int = 50,
+    n_ticks: int = 60,
+) -> dict:
+    """
+    How do attractors shift as a parameter changes?
+
+    Sweeps a parameter and maps basins at each value. Tracks:
+    - Number of attractors (bifurcation = change in count)
+    - Basin sizes (intervention effectiveness = healthy basin grows)
+    - Attractor positions (do stable states shift?)
+    """
+    results = []
+
+    for pval in param_values:
+        params = {**base_params, param_name: pval}
+        basins = map_attractor_basins(
+            alpha=params.get("alpha", 0.15),
+            dampening=params.get("dampening", 1.0),
+            susceptibility=params.get("susceptibility", 0.5),
+            resilience=params.get("resilience", 0.1),
+            kappa=params.get("kappa", 0.0),
+            score_mode=params.get("score_mode", "ema"),
+            logistic_k=params.get("logistic_k", 6.0),
+            n_grid=n_grid, n_ticks=n_ticks,
+        )
+        results.append({
+            "param_value": round(pval, 4),
+            "n_attractors": basins["n_attractors"],
+            "attractors": [
+                {"center": a.center, "basin_size": a.basin_size, "stability": a.stability}
+                for a in basins["attractors"]
+            ],
+            "boundaries": basins["basin_boundaries"],
+        })
+
+    return {
+        "param_name": param_name,
+        "sweep": results,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # (G) STOCHASTIC RESONANCE ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════════
 #
@@ -1251,6 +1438,128 @@ def intervention_response_profile(
         "mean_latency": round(float(np.mean([r["response_latency"] for r in results if r["response_latency"] is not None])), 1) if any(r["response_latency"] is not None for r in results) else None,
         "fraction_recovering": round(sum(1 for r in results if r["recovering"]) / len(results), 2) if results else 0.0,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# (H) WORLDSTATE → DYNAMICS BRIDGE
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Connects simulation output (WorldState or exported JSON) to the full
+# dynamics analysis suite. Single entry point for post-hoc analysis.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def analyze_simulation(
+    score_logs: list[list[float]],
+    final_scores: Optional[list[float]] = None,
+    run_config: Optional[dict] = None,
+    perturbed_logs: Optional[list[list[float]]] = None,
+) -> dict:
+    """
+    Run the complete dynamics analysis suite on simulation output.
+
+    Accepts score_logs directly (from ParticipantAgent.score_log) or
+    loaded from exported trajectories.json.
+
+    Returns a comprehensive analysis dict suitable for JSON export.
+    """
+    if final_scores is None:
+        final_scores = [log[-1] for log in score_logs if log]
+
+    config = run_config or {}
+
+    # (C) Lyapunov
+    lyapunov = estimate_system_lyapunov(
+        score_logs,
+        method="twin" if perturbed_logs else "timeseries",
+        perturbed_logs=perturbed_logs,
+    )
+
+    # (E) Transfer entropy
+    te_mat = transfer_entropy_matrix(score_logs, n_bins=6)
+    te_flow = net_information_flow(te_mat)
+
+    # (F) Emergence
+    emergence = compute_emergence(score_logs, final_scores)
+
+    # (B) Fixed points
+    fixed = find_fixed_points(score_logs)
+
+    # Phase trajectories (summary stats, not full data)
+    phase_stats = []
+    for log in score_logs:
+        pts = extract_phase_trajectory(log)
+        if pts:
+            velocities = [abs(p.velocity) for p in pts]
+            phase_stats.append({
+                "mean_velocity": round(float(np.mean(velocities)), 4),
+                "max_velocity": round(float(max(velocities)), 4),
+                "final_score": round(pts[-1].score, 4),
+            })
+
+    result = {
+        "lyapunov": lyapunov,
+        "transfer_entropy": te_flow,
+        "emergence": emergence,
+        "fixed_points": fixed,
+        "phase_stats": phase_stats,
+        "n_agents": len(score_logs),
+        "n_ticks": min(len(log) for log in score_logs) if score_logs else 0,
+    }
+
+    # (G-pre) Basin mapping (only with config — needs parameter values)
+    if config:
+        basins = map_attractor_basins(
+            alpha=config.get("alpha", 0.15),
+            dampening=config.get("dampening", 1.0),
+            susceptibility=config.get("susceptibility", 0.5),
+            resilience=config.get("resilience", 0.1),
+            kappa=config.get("kappa", 0.0),
+            score_mode=config.get("score_mode", "ema"),
+            logistic_k=config.get("logistic_k", 6.0),
+            n_grid=50, n_ticks=60,
+        )
+        result["attractor_basins"] = {
+            "n_attractors": basins["n_attractors"],
+            "attractors": [
+                {"center": a.center, "basin_size": a.basin_size,
+                 "basin_low": a.basin_low, "basin_high": a.basin_high,
+                 "stability": a.stability}
+                for a in basins["attractors"]
+            ],
+            "boundaries": basins["basin_boundaries"],
+        }
+
+    return result
+
+
+def analyze_from_json(trajectories_path: str, config_path: Optional[str] = None) -> dict:
+    """
+    Load simulation output from exported JSON and run full analysis.
+
+    Args:
+        trajectories_path: path to trajectories.json
+        config_path: optional path to config.json (for basin mapping)
+
+    Returns:
+        Full analysis dict from analyze_simulation()
+    """
+    import json
+    from pathlib import Path
+
+    with open(trajectories_path) as f:
+        trajectories = json.load(f)
+
+    score_logs = [t["score_log"] for t in trajectories.values()]
+    final_scores = [t["final_score"] for t in trajectories.values()]
+
+    config = None
+    if config_path:
+        with open(config_path) as f:
+            meta = json.load(f)
+            config = meta.get("config", meta)
+
+    return analyze_simulation(score_logs, final_scores, config)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

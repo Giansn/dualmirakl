@@ -248,6 +248,54 @@ class TestEmergence:
         assert "is_emergent" in em
 
 
+class TestAttractorBasins:
+    def test_map_basins_runs(self):
+        from simulation.dynamics import map_attractor_basins
+        result = map_attractor_basins(n_grid=20, n_ticks=30, n_agents=3)
+        assert result["n_attractors"] >= 1
+        assert len(result["grid_initial"]) == 20
+        assert len(result["grid_final"]) == 20
+
+    def test_basins_cover_space(self):
+        from simulation.dynamics import map_attractor_basins
+        result = map_attractor_basins(n_grid=30, n_ticks=40)
+        # Total basin sizes should sum to ~1.0
+        total = sum(a.basin_size for a in result["attractors"])
+        assert 0.5 < total <= 1.0  # allow some unassigned points
+
+    def test_attractor_shift_analysis(self):
+        from simulation.dynamics import attractor_shift_analysis
+        result = attractor_shift_analysis(
+            "alpha", [0.1, 0.2, 0.3],
+            base_params={"dampening": 1.0, "susceptibility": 0.5,
+                         "resilience": 0.1, "logistic_k": 6.0,
+                         "score_mode": "ema", "kappa": 0.0},
+            n_grid=20, n_ticks=30,
+        )
+        assert len(result["sweep"]) == 3
+        assert all("n_attractors" in s for s in result["sweep"])
+
+
+class TestAnalyzeBridge:
+    def test_analyze_simulation(self):
+        from simulation.dynamics import analyze_simulation
+        rng = np.random.RandomState(42)
+        logs = [list(np.cumsum(rng.normal(0, 0.03, 30)) + 0.4) for _ in range(4)]
+        result = analyze_simulation(logs, run_config={"alpha": 0.15})
+        assert "lyapunov" in result
+        assert "transfer_entropy" in result
+        assert "emergence" in result
+        assert "fixed_points" in result
+        assert "attractor_basins" in result
+
+    def test_analyze_simulation_no_config(self):
+        from simulation.dynamics import analyze_simulation
+        logs = [[0.3 + 0.01 * t for t in range(20)] for _ in range(3)]
+        result = analyze_simulation(logs)
+        assert "lyapunov" in result
+        assert "attractor_basins" not in result  # no config = no basin mapping
+
+
 class TestStochasticResonance:
     def test_sr_curve_runs(self):
         from simulation.dynamics import stochastic_resonance_curve

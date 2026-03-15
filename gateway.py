@@ -79,3 +79,105 @@ async def health():
         except Exception as e:
             s[name] = f"down ({e})"
     return s
+
+
+# ── Simulation API ───────────────────────────────────────────────────────────
+
+import json
+from datetime import datetime, timezone
+
+_sim_state = {"status": "idle", "tick": 0, "n_ticks": 0, "started_at": None, "run_dir": None}
+
+
+@app.post("/simulation/start")
+async def sim_start(req: Request):
+    """Start a simulation run. Accepts config overrides in POST body."""
+    if _sim_state["status"] == "running":
+        return {"error": "Simulation already running", "status": _sim_state}
+
+    body = await req.json() if req.headers.get("content-type") == "application/json" else {}
+
+    _sim_state["status"] = "running"
+    _sim_state["tick"] = 0
+    _sim_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    _sim_state["run_dir"] = None
+
+    # Run simulation in background thread (doesn't block gateway)
+    import threading
+
+    def _run():
+        import asyncio as _aio
+        from simulation.sim_loop import run_simulation, close_client
+
+        async def _sim():
+            try:
+                participants, world_state = await run_simulation(
+                    n_ticks=body.get("n_ticks", 12),
+                    n_participants=body.get("n_participants", 4),
+                    k=body.get("k", 4),
+                    alpha=body.get("alpha", 0.15),
+                    max_tokens=body.get("max_tokens", 192),
+                    seed=body.get("seed", 42),
+                    score_mode=body.get("score_mode", "ema"),
+                    logistic_k=body.get("logistic_k", 6.0),
+                )
+                # Run dynamics analysis on results
+                from simulation.dynamics import analyze_simulation
+                score_logs = [p.score_log for p in participants]
+                config = {
+                    "alpha": body.get("alpha", 0.15),
+                    "kappa": body.get("kappa", 0.0),
+                    "score_mode": body.get("score_mode", "ema"),
+                    "logistic_k": body.get("logistic_k", 6.0),
+                }
+                analysis = analyze_simulation(score_logs, run_config=config)
+
+                # Save analysis alongside simulation output
+                from simulation.sim_loop import OUTPUT_DIR
+                data_dir = Path(OUTPUT_DIR)
+                # Find the most recent run dir
+                run_dirs = sorted(data_dir.iterdir(), reverse=True) if data_dir.exists() else []
+                if run_dirs:
+                    run_dir = run_dirs[0]
+                    (run_dir / "dynamics_analysis.json").write_text(
+                        json.dumps(analysis, indent=2, default=str)
+                    )
+                    _sim_state["run_dir"] = str(run_dir)
+
+                _sim_state["status"] = "completed"
+                _sim_state["tick"] = body.get("n_ticks", 12)
+            except Exception as e:
+                _sim_state["status"] = f"error: {e}"
+            finally:
+                try:
+                    await close_client()
+                except Exception:
+                    pass
+
+        _aio.run(_sim())
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return {"status": "started", "config": body}
+
+
+@app.get("/simulation/status")
+async def sim_status():
+    return _sim_state
+
+
+@app.get("/simulation/results")
+async def sim_results():
+    if _sim_state["status"] != "completed" or not _sim_state["run_dir"]:
+        return {"error": "No completed simulation", "status": _sim_state["status"]}
+
+    run_dir = Path(_sim_state["run_dir"])
+    results = {}
+
+    for fname in ["config.json", "trajectories.json", "observations.json",
+                   "compliance.json", "interventions.json", "dynamics_analysis.json"]:
+        fpath = run_dir / fname
+        if fpath.exists():
+            results[fname.replace(".json", "")] = json.loads(fpath.read_text())
+
+    return results
