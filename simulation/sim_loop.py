@@ -311,9 +311,41 @@ def update_score(
     signal: float,
     dampening: float = 1.0,
     alpha: float = 0.2,
+    mode: str = "ema",
+    logistic_k: float = 6.0,
+    susceptibility: float = 1.0,
+    resilience: float = 0.0,
 ) -> float:
-    delta = alpha * (signal - current)
-    return float(np.clip(current + delta * dampening, 0.0, 1.0))
+    """
+    Score update with two modes and heterogeneous agent modifiers.
+
+    Modes:
+      ema      — linear EMA: Score += d * α * (signal - score). Analytically
+                 tractable, suitable for SA sweeps.
+      logistic — sigmoid-transformed signal: captures saturation at extremes.
+                 Clinically motivated: deeply engaged users resist both
+                 intervention (hard to push below 0.8) and further escalation
+                 (ceiling effect). k controls steepness.
+
+    Agent modifiers (heterogeneous agents):
+      susceptibility — scales raw signal before update (higher = more affected
+                       by stimuli). Default 1.0 = no modification.
+      resilience     — additive dampening (higher = more resistant to score
+                       change). Applied multiplicatively with intervention
+                       dampening: effective_d = dampening * (1 - resilience).
+    """
+    # Apply susceptibility: modulates how strongly signal affects this agent
+    effective_signal = current + susceptibility * (signal - current)
+
+    if mode == "logistic":
+        midpoint = 0.5
+        effective_signal = 1.0 / (1.0 + np.exp(-logistic_k * (effective_signal - midpoint)))
+
+    # Apply resilience: baseline resistance to score change
+    effective_dampening = dampening * (1.0 - resilience)
+
+    delta = alpha * (effective_signal - current)
+    return float(np.clip(current + delta * effective_dampening, 0.0, 1.0))
 
 
 # ── Sensitivity analysis ─────────────────────────────────────────────────────
@@ -561,8 +593,19 @@ class EnvironmentAgent:
 class ParticipantAgent:
     """
     Reacts to environment stimuli (Phase B). N instances, concurrent.
-    [Fix 6] Score NOT leaked to participant.
-    [Fix 7] Persona summary injected every PERSONA_SUMMARY_INTERVAL ticks.
+
+    Heterogeneous agent parameters (sampled at init):
+      susceptibility ∈ [0,1] — how strongly platform stimuli affect engagement signal.
+        High susceptibility = signal has more pull on score.
+        Sampled from Beta(2, 3) → mode ≈ 0.33, most agents moderately susceptible.
+      resilience ∈ [0,1] — baseline resistance to score change.
+        High resilience = dampened score updates (resistant to both escalation
+        and intervention). Sampled from Beta(2, 5) → mode ≈ 0.2, most agents
+        have low-to-moderate resilience.
+
+    These map to Griffiths (2005) individual difference factors: susceptibility
+    captures vulnerability to salience/mood-modification, resilience captures
+    capacity for self-regulation/conflict-resolution.
     """
 
     def __init__(self, agent_id: str, history_window: int = 4):
@@ -570,7 +613,10 @@ class ParticipantAgent:
         self.cfg = AGENT_ROLES["participant"]
         self.history: list[dict] = []
         self.history_window = history_window
-        self.behavioral_score: float = float(_get_rng().uniform(0.1, 0.5))
+        rng = _get_rng()
+        self.behavioral_score: float = float(rng.uniform(0.1, 0.5))
+        self.susceptibility: float = float(rng.beta(2.0, 3.0))
+        self.resilience: float = float(rng.beta(2.0, 5.0))
         self.score_log: list[float] = []
         self.last_stimulus: str = "nothing yet"
         self.last_response: str = ""
@@ -598,15 +644,32 @@ class ParticipantAgent:
         )
 
     def _build_system_prompt(self) -> str:
-        """[Fix 7] Prepend persona summary if available."""
+        """Prepend persona traits + summary if available."""
         base = self.cfg["system"]
-        if not self.persona_summary:
-            return base
-        summary_block = PERSONA_SUMMARY_TEMPLATE.format(
-            interval=PERSONA_SUMMARY_INTERVAL,
-            summary=self.persona_summary,
-        )
-        return f"{summary_block}\n\n{base}"
+
+        # Inject heterogeneous personality traits
+        if self.susceptibility > 0.6:
+            trait = "You are easily drawn in by engaging content and tend to lose track of time."
+        elif self.susceptibility < 0.3:
+            trait = "You are generally measured and deliberate in how you engage."
+        else:
+            trait = ""
+
+        if self.resilience > 0.5:
+            trait += " You are good at setting boundaries and stepping back when needed."
+        elif self.resilience < 0.2:
+            trait += " You sometimes find it hard to disengage once you are involved."
+
+        parts = []
+        if self.persona_summary:
+            parts.append(PERSONA_SUMMARY_TEMPLATE.format(
+                interval=PERSONA_SUMMARY_INTERVAL,
+                summary=self.persona_summary,
+            ))
+        if trait.strip():
+            parts.append(trait.strip())
+        parts.append(base)
+        return "\n\n".join(parts)
 
     async def step(self, tick: int, stimulus: str, world_state: WorldState, max_tokens: int = 256) -> str:
         # Persona summaries handled at tick level (concurrent pre-phase)
@@ -742,6 +805,8 @@ async def run_tick(
     world_state: WorldState,
     alpha: float = 0.2,
     max_tokens: int = 256,
+    score_mode: str = "ema",
+    logistic_k: float = 6.0,
 ) -> None:
     """
     Execute one tick with three throughput optimizations:
@@ -812,7 +877,12 @@ async def run_tick(
     # -- Score update (always after embedding completes) ────────────────────
     for participant, response, (signal, signal_se) in zip(participants, responses, signals_and_ses):
         score_before = participant.behavioral_score
-        participant.behavioral_score = update_score(score_before, signal, dampening, alpha)
+        participant.behavioral_score = update_score(
+            score_before, signal, dampening, alpha,
+            mode=score_mode, logistic_k=logistic_k,
+            susceptibility=participant.susceptibility,
+            resilience=participant.resilience,
+        )
         participant.score_log.append(participant.behavioral_score)
         world_state.log(ObsEntry(
             tick=tick,
@@ -838,6 +908,8 @@ async def run_simulation(
     seed: int = 42,
     intervention_threshold: float = INTERVENTION_THRESHOLD,
     persona_summary_interval: int = PERSONA_SUMMARY_INTERVAL,
+    score_mode: str = "ema",
+    logistic_k: float = 6.0,
 ) -> tuple[list[ParticipantAgent], WorldState]:
     """
     Run the stratified multi-agent simulation.
@@ -871,9 +943,11 @@ async def run_simulation(
         for tick in range(1, n_ticks + 1):
             pct = tick / n_ticks * 100
             print(f"\n\u2500\u2500 Tick {tick}/{n_ticks}  ({pct:.0f}%) \u2500\u2500")
-            await run_tick(tick, environment, participants, observers, world_state, alpha, max_tokens)
+            await run_tick(tick, environment, participants, observers, world_state,
+                          alpha, max_tokens, score_mode, logistic_k)
             for p in participants:
-                print(f"  {p.agent_id}: score={p.behavioral_score:.3f}")
+                s, r = p.susceptibility, p.resilience
+                print(f"  {p.agent_id}: score={p.behavioral_score:.3f} (sus={s:.2f} res={r:.2f})")
             stats = world_state.compute_score_statistics(tick)
             if stats:
                 print(
@@ -900,6 +974,7 @@ async def run_simulation(
         "max_tokens": max_tokens, "seed": seed,
         "intervention_threshold": intervention_threshold,
         "persona_summary_interval": persona_summary_interval,
+        "score_mode": score_mode, "logistic_k": logistic_k,
     }
     run_dir = export_results(participants, world_state, run_config, duration_s)
     print(f"\n\u2500\u2500 Results exported to {run_dir} \u2500\u2500")
@@ -938,12 +1013,14 @@ def export_results(
     }
     (run_dir / "config.json").write_text(json.dumps(meta, indent=2))
 
-    # Score trajectories
+    # Score trajectories + agent parameters
     trajectories = {}
     for p in participants:
         trajectories[p.agent_id] = {
             "initial_score": p.score_log[0] if p.score_log else p.behavioral_score,
             "final_score": p.behavioral_score,
+            "susceptibility": round(p.susceptibility, 4),
+            "resilience": round(p.resilience, 4),
             "score_log": [round(s, 4) for s in p.score_log],
         }
     (run_dir / "trajectories.json").write_text(json.dumps(trajectories, indent=2))
@@ -995,11 +1072,15 @@ def run_sensitivity_analysis(
         (1.0, 6.0),    # K (cast to int)
         (0.60, 0.85),  # intervention threshold
         (0.3, 1.0),    # dampening coefficient
+        (0.2, 1.0),    # susceptibility
+        (0.0, 0.6),    # resilience
+        (3.0, 10.0),   # logistic_k (steepness)
     ]
-    param_names = ["alpha", "K", "threshold", "dampening"]
+    param_names = ["alpha", "K", "threshold", "dampening",
+                   "susceptibility", "resilience", "logistic_k"]
 
     def objective(x: np.ndarray) -> float:
-        alpha, k_float, threshold, dampening = x
+        alpha, k_float, threshold, dampening, susceptibility, resilience, logistic_k = x
         rng = np.random.RandomState(42)
         scores = []
         score = 0.3
@@ -1007,8 +1088,10 @@ def run_sensitivity_analysis(
             signal = 0.5 + 0.3 * math.sin(t * 0.5) + rng.normal(0, 0.1)
             signal = max(0.0, min(1.0, signal))
             d = dampening if (t % max(1, int(k_float)) == 0) else 1.0
-            score = score + d * alpha * (signal - score)
-            score = max(0.0, min(1.0, score))
+            score = update_score(score, signal, d, alpha,
+                                 mode="logistic", logistic_k=logistic_k,
+                                 susceptibility=susceptibility,
+                                 resilience=resilience)
             scores.append(score)
         return float(np.mean(scores))
 
@@ -1063,11 +1146,14 @@ if __name__ == "__main__":
         history_window = _prompt("History window (turns)",  int(_e("SIM_HISTORY_WINDOW", "4")), int,   "1\u201312")
         max_tokens     = _prompt("Context size (tokens)",   int(_e("SIM_MAX_TOKENS", "192")),   int,   "64\u20138192")
         seed           = _prompt("Random seed",             int(_e("SIM_SEED", "42")),          int,   "any int")
+        score_mode     = _prompt("Score mode",              _e("SIM_SCORE_MODE", "ema"),        str,   "ema|logistic")
+        logistic_k     = _prompt("Logistic steepness k",    float(_e("SIM_LOGISTIC_K", "6.0")), float, "3.0\u201310.0")
 
         print(
             f"\n  n_ticks={n_ticks} | n_participants={n_participants} | K={k} | "
             f"alpha={alpha} | history_window={history_window} | "
-            f"max_tokens={max_tokens} | seed={seed}\n"
+            f"max_tokens={max_tokens} | seed={seed} | "
+            f"score_mode={score_mode} | logistic_k={logistic_k}\n"
         )
 
         async def main():
@@ -1076,6 +1162,7 @@ if __name__ == "__main__":
                     n_ticks=n_ticks, n_participants=n_participants,
                     k=k, alpha=alpha, history_window=history_window,
                     max_tokens=max_tokens, seed=seed,
+                    score_mode=score_mode, logistic_k=logistic_k,
                 )
                 print("\n\u2500\u2500 Final scores \u2500\u2500")
                 for p in participants:

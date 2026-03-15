@@ -140,16 +140,15 @@ class TestWorldState:
 # ── Score math tests ──────────────────────────────────────────────────────────
 
 class TestScoreMath:
-    def test_update_score_basic(self):
+    def test_update_score_ema_basic(self):
         from simulation.sim_loop import update_score
-        # Score 0.3, signal 0.7, alpha 0.2, no dampening
-        new = update_score(0.3, 0.7, dampening=1.0, alpha=0.2)
+        new = update_score(0.3, 0.7, dampening=1.0, alpha=0.2, mode="ema")
         expected = 0.3 + 0.2 * (0.7 - 0.3)
         assert abs(new - expected) < 1e-6
 
-    def test_update_score_dampened(self):
+    def test_update_score_ema_dampened(self):
         from simulation.sim_loop import update_score
-        new = update_score(0.3, 0.7, dampening=0.5, alpha=0.2)
+        new = update_score(0.3, 0.7, dampening=0.5, alpha=0.2, mode="ema")
         expected = 0.3 + 0.5 * 0.2 * (0.7 - 0.3)
         assert abs(new - expected) < 1e-6
 
@@ -157,6 +156,38 @@ class TestScoreMath:
         from simulation.sim_loop import update_score
         assert update_score(0.99, 1.0, alpha=0.5) <= 1.0
         assert update_score(0.01, 0.0, alpha=0.5) >= 0.0
+
+    def test_update_score_logistic_saturates(self):
+        from simulation.sim_loop import update_score
+        # Logistic mode: signal near 1.0 should saturate (ceiling effect)
+        high = update_score(0.85, 0.95, alpha=0.2, mode="logistic", logistic_k=6.0)
+        low = update_score(0.15, 0.05, alpha=0.2, mode="logistic", logistic_k=6.0)
+        # Both should change less than EMA would (saturation)
+        ema_high = update_score(0.85, 0.95, alpha=0.2, mode="ema")
+        assert abs(high - 0.85) <= abs(ema_high - 0.85) + 0.01
+
+    def test_update_score_logistic_vs_ema(self):
+        from simulation.sim_loop import update_score
+        # At midpoint (0.5), logistic should behave similar to EMA
+        ema = update_score(0.5, 0.6, alpha=0.2, mode="ema")
+        log = update_score(0.5, 0.6, alpha=0.2, mode="logistic", logistic_k=6.0)
+        # Both should increase, but not identically
+        assert log > 0.5
+        assert ema > 0.5
+
+    def test_update_score_susceptibility(self):
+        from simulation.sim_loop import update_score
+        # Higher susceptibility = larger score change
+        low_sus = update_score(0.3, 0.8, alpha=0.2, susceptibility=0.3)
+        high_sus = update_score(0.3, 0.8, alpha=0.2, susceptibility=0.9)
+        assert high_sus > low_sus
+
+    def test_update_score_resilience(self):
+        from simulation.sim_loop import update_score
+        # Higher resilience = smaller score change
+        low_res = update_score(0.3, 0.8, alpha=0.2, resilience=0.1)
+        high_res = update_score(0.3, 0.8, alpha=0.2, resilience=0.7)
+        assert low_res > high_res
 
     def test_cosine_similarity(self):
         from simulation.sim_loop import _cosine
@@ -200,8 +231,20 @@ class TestAgentClasses:
         p = ParticipantAgent("p_0", history_window=4)
         assert p.agent_id == "p_0"
         assert 0.1 <= p.behavioral_score <= 0.5
+        assert 0.0 <= p.susceptibility <= 1.0
+        assert 0.0 <= p.resilience <= 1.0
         assert p.history == []
         assert p.persona_summary == ""
+
+    def test_participant_heterogeneity(self):
+        from simulation.sim_loop import ParticipantAgent, set_seed
+        set_seed(42)
+        agents = [ParticipantAgent(f"p_{i}") for i in range(10)]
+        susceptibilities = [a.susceptibility for a in agents]
+        resiliences = [a.resilience for a in agents]
+        # With 10 agents, we should see variation (not all identical)
+        assert max(susceptibilities) - min(susceptibilities) > 0.1
+        assert max(resiliences) - min(resiliences) > 0.05
 
     def test_environment_init(self):
         from simulation.sim_loop import EnvironmentAgent
