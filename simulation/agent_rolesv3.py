@@ -4,7 +4,7 @@ Agent role definitions and embedding vocabularies — v3.
 Implements all improvements identified in the v2 analysis:
   [Fix 1]  Prompts: concrete behavioral instructions, no simulation jargon
   [Fix 2]  Observer separation: A = analysis-only, B = interventions from A's output
-  [Fix 3]  Anchors: theory-grounded (Griffiths 2005 addiction criteria + DSM-5 ICD)
+  [Fix 3]  Anchors: domain-specific behavioral signal phrases (replaceable)
   [Fix 4]  Backend: configurable via BACKEND_CONFIG (no hardcoded strings)
   [Fix 5]  Intervention threshold: defined here, consumed by sim_loop.py
   [Fix 6]  DDA: explicitly in environment prompt with concrete score examples
@@ -544,42 +544,17 @@ AGENT_ROLES_DE: dict[str, dict] = {
 # BEHAVIORAL SIGNAL ANCHORS [Fix 3, Fix 11]
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# [Fix 3] Theory-grounded anchor set for problematic media use / digital
-#   engagement research. Based on:
-#     - Griffiths (2005) six-component addiction model:
-#       salience, mood modification, tolerance, withdrawal, conflict, relapse
-#     - DSM-5 Internet Gaming Disorder (IGD) criteria
-#     - Bergen Social Media Addiction Scale (Andreassen et al. 2012)
-#   Each anchor targets a specific criterion rather than a generic pole.
+# Domain-specific anchor phrases for embedding-based behavioral scoring.
+# The scoring signal is the cosine distance between agent responses and
+# these anchors — "high" anchors pull the score up, "low" anchors pull down.
 #
-# [Fix 11] 10 anchors per pole (SA-optimised): SE = σ/√20 ≈ 0.045.
-#   For domain adaptation, replace with construct-specific phrases.
+# IMPORTANT: These anchors define what the simulation considers "high" vs
+# "low" engagement. They are domain-specific and MUST be replaced or
+# validated against your own theoretical framework and data before using
+# results for any empirical claims. The current set is a working placeholder.
 #
-# ── Domain adaptation guide ───────────────────────────────────────────────────
-#
-#   Social Work (CANS, child welfare):
-#     high = ["I feel overwhelmed by what is being asked of me",
-#             "I cannot manage this situation alone", ...]
-#     low  = ["I have people I can turn to", "I feel capable of handling this", ...]
-#
-#   Healthcare (empathic communication, cf. PEC framework):
-#     high = ["I moved on without addressing the patient's concern",
-#             "I interrupted before they finished", ...]
-#     low  = ["I made sure they felt heard", "I checked whether they understood", ...]
-#
-#   Counseling (therapeutic alliance, cf. WAI):
-#     high = ["I did not want to say any more", "The conversation felt unsafe", ...]
-#     low  = ["I felt understood and respected", "I was comfortable opening up", ...]
-#
-#   Education (deep learning engagement):
-#     high = ["I just wanted the answer without thinking",
-#             "I did not try to understand, only to finish", ...]
-#     low  = ["I made a connection to something I already knew",
-#             "I asked a follow-up question to understand better", ...]
-#
-#   Crisis intervention (de-escalation):
-#     high = ["I feel more agitated now", "The situation is getting worse", ...]
-#     low  = ["I feel calmer", "I can think more clearly now", ...]
+# 10 anchors per pole: SE = σ/√20 ≈ 0.045.
+# For domain adaptation, replace with construct-specific phrases.
 #
 # ── Sensitivity analysis ──────────────────────────────────────────────────────
 # Sobol S_i for each anchor: run 1024-sample sweep in sim_loop.py.
@@ -588,39 +563,39 @@ AGENT_ROLES_DE: dict[str, dict] = {
 
 ENGAGEMENT_ANCHORS: dict[str, list[str]] = {
     "high": [
-        # Salience / preoccupation (Griffiths 2005)
+        # Preoccupation
         "I kept thinking about it even when I was doing something else",
         "It took up more of my attention than I wanted",
-        # Mood modification / compulsive use (DSM-5 IGD criterion 2)
+        # Compulsive use
         "I used it to escape from how I was feeling",
         "I felt better while I was engaged, so I kept going",
-        # Tolerance (IGD criterion 3)
+        # Escalation
         "I needed more of it than before to get the same effect",
         "What used to satisfy me no longer felt like enough",
-        # Conflict / loss of control (Griffiths 2005; Bergen scale)
+        # Loss of control
         "I kept going even though I knew I should stop",
         "I could not pull myself away even when I tried",
-        # Withdrawal discomfort (IGD criterion 4)
+        # Discomfort on stopping
         "I felt restless and irritable when I could not engage",
-        # Relapse / continued use despite consequences (IGD criterion 7)
+        # Return after quit attempt
         "I went back to it even after deciding I would stop",
     ],
     "low": [
-        # Deliberate disengagement / autonomy
+        # Deliberate disengagement
         "I chose to stop and found it straightforward",
         "I stepped away deliberately and felt comfortable doing so",
-        # Alternative activities / balance (Bergen scale reverse)
+        # Alternative activities
         "I turned my attention to something else without difficulty",
         "I found other activities just as satisfying",
-        # Reflection and self-regulation
+        # Self-regulation
         "I noticed what I was doing and decided to pause",
         "I made a conscious choice about how much time to spend",
-        # Absence of withdrawal / controlled use
+        # Comfortable disengagement
         "I did not feel anxious or unsettled when I disengaged",
         "I engaged briefly and then moved on without any urge to return",
-        # Positive boundary maintenance
+        # Boundary maintenance
         "I maintained the boundary I had set for myself",
-        # No conflict / no preoccupation
+        # Present in other activities
         "I was present in other areas of my life without distraction",
     ],
 }

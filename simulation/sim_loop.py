@@ -603,9 +603,9 @@ class ParticipantAgent:
         and intervention). Sampled from Beta(2, 5) → mode ≈ 0.2, most agents
         have low-to-moderate resilience.
 
-    These map to Griffiths (2005) individual difference factors: susceptibility
-    captures vulnerability to salience/mood-modification, resilience captures
-    capacity for self-regulation/conflict-resolution.
+    These capture individual differences: susceptibility modulates how
+    strongly stimuli affect the agent, resilience modulates capacity for
+    self-regulation.
     """
 
     def __init__(self, agent_id: str, history_window: int = 4):

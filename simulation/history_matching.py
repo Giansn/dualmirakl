@@ -308,35 +308,36 @@ def trajectory_monotonicity(score_logs: list[list[float]]) -> float:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONVENIENCE — default targets for media addiction simulation
+# CONVENIENCE — placeholder targets (replace with empirical data)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def default_targets() -> list[PatternTarget]:
     """
-    Default POM targets based on media addiction literature.
+    Placeholder POM targets — replace with empirically derived values.
 
-    Prevalence: 15-25% of adolescents show problematic use (Griffiths 2005,
-    WHO ICD-11 prevalence estimates).
-    Mean score: population average should be low-to-moderate (0.25-0.45).
-    Spread: there should be meaningful individual differences (std 0.10-0.30).
-    Monotonicity: trajectories should show mixed trends (0.3-0.7), not
-    all-increasing or all-stable.
+    These are structurally neutral defaults that check for basic simulation
+    validity (non-degenerate output) rather than encoding any specific
+    theoretical expectation about what the "correct" outcome should be.
+
+    You MUST replace these with targets derived from your own data before
+    using History Matching for calibration. Otherwise the calibration
+    process will enforce these arbitrary ranges as ground truth.
     """
     return [
         PatternTarget(
-            "prevalence", 0.15, 0.25, tolerance=0.05,
+            "prevalence", 0.05, 0.50, tolerance=0.10,
             extractor=lambda scores: fraction_above_threshold(scores, 0.7),
         ),
         PatternTarget(
-            "mean_score", 0.25, 0.45, tolerance=0.05,
+            "mean_score", 0.10, 0.70, tolerance=0.10,
             extractor=lambda scores: mean_final_score(scores),
         ),
         PatternTarget(
-            "score_spread", 0.10, 0.30, tolerance=0.03,
+            "score_spread", 0.05, 0.40, tolerance=0.05,
             extractor=lambda scores: score_std(scores),
         ),
         PatternTarget(
-            "monotonicity", 0.30, 0.70, tolerance=0.10,
+            "monotonicity", 0.20, 0.80, tolerance=0.15,
             extractor=lambda logs: trajectory_monotonicity(logs),
         ),
     ]
