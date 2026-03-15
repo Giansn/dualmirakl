@@ -1041,6 +1041,219 @@ def compute_emergence(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# (G) STOCHASTIC RESONANCE ANALYSIS
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# In nonlinear systems, an optimal noise level can maximize signal detection.
+# Too little noise → weak signals (interventions) are lost in determinism.
+# Too much noise → everything drowns in randomness.
+# At the resonance peak, stochastic variation amplifies the system's
+# response to interventions.
+#
+# In the simulation:
+#   - Noise = LLM temperature (controls stochasticity of agent responses)
+#   - Signal = intervention effect (score change after observer intervention)
+#   - SNR = mean(|score_change_with_intervention|) / std(score_change_baseline)
+#
+# The SR curve plots SNR vs. temperature. A peak indicates stochastic
+# resonance — a principled way to set temperature rather than convention.
+#
+# Implementation: synthetic objective that models temperature as noise
+# amplitude on the behavioral signal, then measures intervention response.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def stochastic_resonance_curve(
+    temperature_values: Optional[list[float]] = None,
+    n_agents: int = 8,
+    n_ticks: int = 40,
+    intervention_tick: int = 20,
+    intervention_dampening: float = 0.6,
+    alpha: float = 0.15,
+    kappa: float = 0.0,
+    n_trials: int = 10,
+    seed: int = 42,
+) -> dict:
+    """
+    Compute the stochastic resonance curve: SNR vs. temperature.
+
+    For each temperature value:
+    1. Run n_trials simulations with intervention at intervention_tick
+    2. Run n_trials simulations WITHOUT intervention (baseline)
+    3. Measure intervention response = |score_with - score_without| at final tick
+    4. SNR = mean(response) / std(baseline_final_scores)
+
+    A peak in SNR indicates the optimal noise level for intervention
+    effectiveness.
+
+    Args:
+        temperature_values: noise levels to sweep (default: 0.0 to 1.5)
+        n_agents: agents per trial
+        n_ticks: total simulation ticks
+        intervention_tick: when the intervention fires
+        intervention_dampening: dampening factor d applied at intervention
+        alpha: EMA learning rate
+        kappa: coupling strength
+        n_trials: repetitions per temperature (different seeds)
+        seed: base seed
+
+    Returns:
+        {
+            "temperatures": [float],
+            "snr": [float],           # signal-to-noise ratio per temperature
+            "mean_response": [float], # mean intervention effect per temperature
+            "baseline_std": [float],  # baseline variability per temperature
+            "peak_temperature": float, # temperature at max SNR
+            "peak_snr": float,
+        }
+    """
+    if temperature_values is None:
+        temperature_values = [round(t * 0.1, 2) for t in range(0, 16)]
+
+    from simulation.sim_loop import update_score
+
+    snr_list = []
+    response_list = []
+    baseline_std_list = []
+
+    for temp in temperature_values:
+        responses = []
+        baselines = []
+
+        for trial in range(n_trials):
+            trial_rng = np.random.RandomState(seed + trial)
+
+            # Initialize agents
+            scores_base = [float(trial_rng.uniform(0.1, 0.5)) for _ in range(n_agents)]
+            scores_intv = [s for s in scores_base]  # same initial conditions
+            susceptibilities = [float(trial_rng.beta(2, 3)) for _ in range(n_agents)]
+            resiliences = [float(trial_rng.beta(2, 5)) for _ in range(n_agents)]
+
+            for t in range(n_ticks):
+                # Temperature modulates signal noise amplitude
+                noise_scale = 0.05 + temp * 0.15  # maps temperature to noise level
+                signals = [
+                    float(np.clip(
+                        0.5 + 0.3 * math.sin(t * 0.5 + i * 0.7)
+                        + trial_rng.normal(0, noise_scale),
+                        0.0, 1.0
+                    ))
+                    for i in range(n_agents)
+                ]
+
+                # Dampening: apply intervention effect after intervention_tick
+                d_base = 1.0
+                d_intv = intervention_dampening if t >= intervention_tick else 1.0
+
+                # Update baseline (no intervention)
+                scores_base = coupled_batch_update(
+                    scores_base, signals, dampening=d_base, alpha=alpha,
+                    kappa=kappa, susceptibilities=susceptibilities,
+                    resiliences=resiliences,
+                )
+
+                # Update intervention arm
+                scores_intv = coupled_batch_update(
+                    scores_intv, signals, dampening=d_intv, alpha=alpha,
+                    kappa=kappa, susceptibilities=susceptibilities,
+                    resiliences=resiliences,
+                )
+
+            # Measure intervention response
+            for sb, si in zip(scores_base, scores_intv):
+                responses.append(abs(sb - si))
+                baselines.append(sb)
+
+        mean_response = float(np.mean(responses))
+        std_baseline = float(np.std(baselines))
+        snr = mean_response / (std_baseline + 1e-10)
+
+        snr_list.append(round(snr, 4))
+        response_list.append(round(mean_response, 4))
+        baseline_std_list.append(round(std_baseline, 4))
+
+    # Find peak
+    peak_idx = int(np.argmax(snr_list))
+
+    return {
+        "temperatures": temperature_values,
+        "snr": snr_list,
+        "mean_response": response_list,
+        "baseline_std": baseline_std_list,
+        "peak_temperature": temperature_values[peak_idx],
+        "peak_snr": snr_list[peak_idx],
+    }
+
+
+def intervention_response_profile(
+    score_logs_with_intervention: list[list[float]],
+    score_logs_baseline: list[list[float]],
+    intervention_tick: int,
+) -> dict:
+    """
+    Compute the intervention response profile from paired simulation runs.
+
+    For each agent, measures:
+    - Pre-intervention divergence (should be ~0 before intervention tick)
+    - Response magnitude (divergence after intervention)
+    - Response latency (ticks until divergence exceeds threshold)
+    - Recovery (does divergence shrink over time?)
+
+    Use with actual simulation output (not synthetic).
+    """
+    n_agents = min(len(score_logs_with_intervention), len(score_logs_baseline))
+    results = []
+
+    for i in range(n_agents):
+        log_iv = score_logs_with_intervention[i]
+        log_bl = score_logs_baseline[i]
+        min_len = min(len(log_iv), len(log_bl))
+
+        if min_len <= intervention_tick + 1:
+            continue
+
+        # Pre-intervention divergence (should be near zero)
+        pre_div = [abs(log_iv[t] - log_bl[t]) for t in range(min(intervention_tick, min_len))]
+
+        # Post-intervention divergence
+        post_div = [abs(log_iv[t] - log_bl[t]) for t in range(intervention_tick, min_len)]
+
+        # Response magnitude: max divergence post-intervention
+        magnitude = max(post_div) if post_div else 0.0
+
+        # Response latency: first tick where divergence > 0.01
+        latency = None
+        for k, d in enumerate(post_div):
+            if d > 0.01:
+                latency = k
+                break
+
+        # Recovery: does divergence decrease in the second half?
+        if len(post_div) >= 4:
+            first_half = np.mean(post_div[:len(post_div) // 2])
+            second_half = np.mean(post_div[len(post_div) // 2:])
+            recovering = bool(second_half < first_half * 0.8)
+        else:
+            recovering = False
+
+        results.append({
+            "agent_idx": i,
+            "pre_divergence_mean": round(float(np.mean(pre_div)), 4) if pre_div else 0.0,
+            "response_magnitude": round(magnitude, 4),
+            "response_latency": latency,
+            "recovering": recovering,
+        })
+
+    return {
+        "n_agents": len(results),
+        "profiles": results,
+        "mean_magnitude": round(float(np.mean([r["response_magnitude"] for r in results])), 4) if results else 0.0,
+        "mean_latency": round(float(np.mean([r["response_latency"] for r in results if r["response_latency"] is not None])), 1) if any(r["response_latency"] is not None for r in results) else None,
+        "fraction_recovering": round(sum(1 for r in results if r["recovering"]) / len(results), 2) if results else 0.0,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # CLI
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1170,3 +1383,15 @@ if __name__ == "__main__":
         print(f"  kappa={kappa_val:.1f}: var_ratio={em['variance_ratio']:.3f}  "
               f"MI={em['mutual_information']:.3f}  bimodality={em['bimodality']:.3f}  "
               f"emergent={em['is_emergent']}")
+
+    print("\n== (G) Stochastic Resonance ==\n")
+
+    sr = stochastic_resonance_curve(
+        temperature_values=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4],
+        n_agents=6, n_ticks=30, intervention_tick=15, n_trials=5,
+    )
+    for i, t in enumerate(sr["temperatures"]):
+        bar = "#" * int(sr["snr"][i] * 20)
+        print(f"  T={t:.1f}: SNR={sr['snr'][i]:.3f}  response={sr['mean_response'][i]:.3f}  "
+              f"noise={sr['baseline_std'][i]:.3f}  {bar}")
+    print(f"\n  Peak: T={sr['peak_temperature']:.2f}  SNR={sr['peak_snr']:.3f}")

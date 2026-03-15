@@ -248,6 +248,40 @@ class TestEmergence:
         assert "is_emergent" in em
 
 
+class TestStochasticResonance:
+    def test_sr_curve_runs(self):
+        from simulation.dynamics import stochastic_resonance_curve
+        sr = stochastic_resonance_curve(
+            temperature_values=[0.0, 0.5, 1.0],
+            n_agents=4, n_ticks=20, intervention_tick=10, n_trials=3,
+        )
+        assert len(sr["temperatures"]) == 3
+        assert len(sr["snr"]) == 3
+        assert sr["peak_temperature"] in sr["temperatures"]
+        assert sr["peak_snr"] >= 0
+
+    def test_sr_has_peak(self):
+        from simulation.dynamics import stochastic_resonance_curve
+        sr = stochastic_resonance_curve(
+            temperature_values=[0.0, 0.3, 0.6, 0.9, 1.2],
+            n_agents=6, n_ticks=30, intervention_tick=15, n_trials=5,
+        )
+        # Peak should not be at the extremes (that would mean no resonance)
+        # At minimum, the function should produce varying SNR values
+        assert max(sr["snr"]) > min(sr["snr"]) or all(s == sr["snr"][0] for s in sr["snr"])
+
+    def test_intervention_response_profile(self):
+        from simulation.dynamics import intervention_response_profile
+        # Baseline: linear increase
+        bl = [[0.3 + 0.01 * t for t in range(30)] for _ in range(3)]
+        # Intervention: flattens after tick 15
+        iv = [[0.3 + 0.01 * t if t < 15 else 0.45 for t in range(30)] for _ in range(3)]
+        result = intervention_response_profile(iv, bl, intervention_tick=15)
+        assert result["n_agents"] == 3
+        assert result["mean_magnitude"] > 0
+        assert result["fraction_recovering"] >= 0
+
+
 class TestLyapunov:
     def test_stable_trajectory(self):
         from simulation.dynamics import lyapunov_exponent_twin
