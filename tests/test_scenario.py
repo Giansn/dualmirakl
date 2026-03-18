@@ -331,3 +331,56 @@ class TestOscillationDetect:
     def test_too_short(self):
         history = [{"score": 0.2}, {"score": 0.8}]
         assert not oscillation_detect({}, history, window=5, amplitude=0.5)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 4 — SIM_LOOP INTEGRATION TESTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSimLoopScenarioIntegration:
+    def test_run_simulation_accepts_scenario_config(self):
+        """run_simulation() signature includes scenario_config param."""
+        import inspect
+        from simulation.sim_loop import run_simulation
+        sig = inspect.signature(run_simulation)
+        assert "scenario_config" in sig.parameters
+
+    def test_scenario_config_extracts_params(self):
+        """ScenarioConfig params override defaults when provided."""
+        config = ScenarioConfig.load("scenarios/social_dynamics.yaml")
+        assert config.environment.tick_count == 12
+        assert config.participant_count() == 4
+        assert config.scoring_param("alpha") == 0.15
+        assert config.scoring_param("K") == 4
+        assert config.scoring.mode == "ema"
+
+    def test_network_scenario_loads_and_validates(self):
+        config = ScenarioConfig.load("scenarios/network_resilience.yaml")
+        report = config.validate_scenario(strict=False)
+        assert report["valid"], f"Errors: {report['errors']}"
+        assert config.participant_count() == 6
+
+    def test_market_scenario_loads_and_validates(self):
+        config = ScenarioConfig.load("scenarios/market_ecosystem.yaml")
+        report = config.validate_scenario(strict=False)
+        assert report["valid"], f"Errors: {report['errors']}"
+        assert config.participant_count() == 6
+
+    def test_detect_missing_context_with_scenario(self):
+        from simulation.sim_loop import detect_missing_context
+        config = ScenarioConfig.load("scenarios/network_resilience.yaml")
+        result = detect_missing_context(scenario_config=config)
+        # Should use network-specific categories
+        missing_cats = [m["category"] for m in result["missing"]]
+        assert "network_topology" in missing_cats or any(
+            "network" in m["category"] for m in result.get("present", [])
+        )
+
+    def test_detect_missing_context_without_scenario(self):
+        from simulation.sim_loop import detect_missing_context
+        result = detect_missing_context()
+        # Should use default categories
+        missing_cats = [m["category"] for m in result["missing"]]
+        # Default categories include scenario_description
+        assert any("scenario" in c for c in missing_cats)

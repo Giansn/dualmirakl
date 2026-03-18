@@ -1504,17 +1504,44 @@ async def run_simulation(
     on_tick: Optional[callable] = None,
     flame_enabled: Optional[bool] = None,
     flame_config: Optional[dict] = None,
+    scenario_config=None,
 ) -> tuple[list[ParticipantAgent], WorldState]:
     """
     Run the stratified multi-agent simulation.
-    [Fix 5] Exposes intervention_threshold as a run parameter for SA sweeps.
-    [Fix 7] Exposes persona_summary_interval.
+
+    When scenario_config (ScenarioConfig) is provided, params are extracted
+    from the config. Individual params serve as fallbacks / overrides for
+    backward compatibility.
 
     FLAME GPU 2 (optional):
         Set flame_enabled=True (or FLAME_ENABLED=1 env var) to activate
         population dynamics on a 3rd GPU. Requires pyflamegpu + NVIDIA GPU.
         dualmirakl runs normally without it.
     """
+    # ── Extract params from scenario config if provided ───────────────────
+    _scenario_name = None
+    if scenario_config is not None:
+        _scenario_name = scenario_config.meta.name
+        logger.info(f"Running scenario: {_scenario_name}")
+        n_ticks = scenario_config.environment.tick_count
+        n_participants = scenario_config.participant_count()
+        k = int(scenario_config.scoring_param("K", k))
+        alpha = scenario_config.scoring_param("alpha", alpha)
+        score_mode = scenario_config.scoring.mode
+        logistic_k = scenario_config.scoring_param("logistic_k", logistic_k)
+        intervention_threshold = scenario_config.scoring_param("threshold", intervention_threshold)
+        persona_summary_interval = scenario_config.memory.summary_interval
+        # FLAME from config
+        if flame_enabled is None:
+            flame_enabled = scenario_config.flame.enabled
+        if flame_config is None and scenario_config.flame.enabled:
+            flame_config = {
+                "n_population": scenario_config.flame.population_size,
+                "kappa": scenario_config.flame.kappa,
+                "influencer_weight": scenario_config.flame.influencer_weight,
+                "sub_steps": scenario_config.flame.sub_steps,
+            }
+
     # Temporarily override module-level threshold for this run
     import simulation.agent_rolesv3 as _cfg
     _original_threshold = _cfg.INTERVENTION_THRESHOLD
@@ -1532,6 +1559,8 @@ async def run_simulation(
         "persona_summary_interval": persona_summary_interval,
         "score_mode": score_mode, "logistic_k": logistic_k,
     }
+    if _scenario_name:
+        run_config["scenario"] = _scenario_name
 
     # Load world context from uploaded documents (if any)
     world_context = load_world_context()
@@ -1544,7 +1573,20 @@ async def run_simulation(
     # Initialize agent memory store (reuses e5-small-v2 embedding model)
     def _embed_single(text: str) -> np.ndarray:
         return _get_embed().encode([text])[0]
-    world_state.memory = AgentMemoryStore(embed_fn=_embed_single)
+    mem_max = 20
+    mem_dedup = 0.9
+    if scenario_config is not None:
+        mem_max = scenario_config.memory.max_entries_per_agent
+        mem_dedup = scenario_config.memory.dedup_threshold
+    world_state.memory = AgentMemoryStore(
+        embed_fn=_embed_single, max_per_agent=mem_max, dedup_threshold=mem_dedup,
+    )
+
+    # Initialize safety gate from config
+    if scenario_config is not None and scenario_config.safety.enabled:
+        world_state.safety_gate = SafetyGate(
+            allowlist=set(scenario_config.safety.action_allowlist),
+        )
 
     environment = EnvironmentAgent(history_window=history_window, world_context=world_context)
     participants = [
@@ -1574,7 +1616,7 @@ async def run_simulation(
         tracker.init_run(run_config)
 
     # Compact header
-    detection = detect_missing_context()
+    detection = detect_missing_context(scenario_config=scenario_config)
     ctx_status = f"{detection['n_documents']} docs" if detection["has_context"] else "no context"
     if detection["missing"]:
         ctx_status += f" | missing: {', '.join(m['category'] for m in detection['missing'])}"
@@ -1870,9 +1912,20 @@ def _prompt(label: str, default, cast, valid_range: str = "") -> any:
 
 
 if __name__ == "__main__":
+    import sys as _sys
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-    print("\n\u2500\u2500 multi-agent simulation (v3) \u2500\u2500")
+    # Parse --scenario flag from argv before interactive prompts
+    _scenario_path = None
+    _argv = list(_sys.argv[1:])
+    if "--scenario" in _argv:
+        idx = _argv.index("--scenario")
+        if idx + 1 < len(_argv):
+            _scenario_path = _argv[idx + 1]
+            _argv = _argv[:idx] + _argv[idx + 2:]
+
+    print("\n-- multi-agent simulation (v3) --")
     print("Modes: [s]imulation (default) | [m]orris screening | [b]sobol analysis | [o]ptuna optimization\n")
 
     mode = input("  Mode [s/m/b/o]: ").strip().lower() or "s"
@@ -1896,17 +1949,25 @@ if __name__ == "__main__":
         )
 
     else:
+        # Load scenario config if --scenario was provided
+        _scenario_cfg = None
+        if _scenario_path:
+            from simulation.scenario import ScenarioConfig
+            _scenario_cfg = ScenarioConfig.load(_scenario_path)
+            _scenario_cfg.validate_scenario(strict=True)
+            print(f"  scenario: {_scenario_cfg.meta.name} ({_scenario_path})")
+
         # Defaults from env vars (set in .env), overridable via interactive prompt
         _e = lambda k, d: os.environ.get(k, d)
-        n_ticks        = _prompt("Ticks to simulate",      int(_e("SIM_N_TICKS", "12")),       int,   "1\u2013168")
-        n_participants = _prompt("Number of participants",  int(_e("SIM_N_PARTICIPANTS", "4")), int,   "1\u201350")
-        k              = _prompt("Observer frequency K",    int(_e("SIM_OBSERVER_K", "4")),     int,   "1\u2013n_ticks")
-        alpha          = _prompt("EMA alpha",               float(_e("SIM_ALPHA", "0.15")),     float, "0.1\u20130.4")
-        history_window = _prompt("History window (turns)",  int(_e("SIM_HISTORY_WINDOW", "4")), int,   "1\u201312")
-        max_tokens     = _prompt("Context size (tokens)",   int(_e("SIM_MAX_TOKENS", "192")),   int,   "64\u20138192")
+        n_ticks        = _prompt("Ticks to simulate",      int(_e("SIM_N_TICKS", "12")),       int,   "1-168")
+        n_participants = _prompt("Number of participants",  int(_e("SIM_N_PARTICIPANTS", "4")), int,   "1-50")
+        k              = _prompt("Observer frequency K",    int(_e("SIM_OBSERVER_K", "4")),     int,   "1-n_ticks")
+        alpha          = _prompt("EMA alpha",               float(_e("SIM_ALPHA", "0.15")),     float, "0.1-0.4")
+        history_window = _prompt("History window (turns)",  int(_e("SIM_HISTORY_WINDOW", "4")), int,   "1-12")
+        max_tokens     = _prompt("Context size (tokens)",   int(_e("SIM_MAX_TOKENS", "192")),   int,   "64-8192")
         seed           = _prompt("Random seed",             int(_e("SIM_SEED", "42")),          int,   "any int")
         score_mode     = _prompt("Score mode",              _e("SIM_SCORE_MODE", "ema"),        str,   "ema|logistic")
-        logistic_k     = _prompt("Logistic steepness k",    float(_e("SIM_LOGISTIC_K", "6.0")), float, "3.0\u201310.0")
+        logistic_k     = _prompt("Logistic steepness k",    float(_e("SIM_LOGISTIC_K", "6.0")), float, "3.0-10.0")
 
         # FLAME GPU 2 (optional 3rd GPU)
         flame_default = _e("FLAME_ENABLED", "0")
@@ -1921,6 +1982,7 @@ if __name__ == "__main__":
                     max_tokens=max_tokens, seed=seed,
                     score_mode=score_mode, logistic_k=logistic_k,
                     flame_enabled=use_flame,
+                    scenario_config=_scenario_cfg,
                 )
             finally:
                 await close_client()
