@@ -51,6 +51,10 @@ from simulation.action_schema import (
     schema_to_prompt, parse_action, extract_narrative,
 )
 from simulation.agent_memory import AgentMemoryStore
+from simulation.safety import (
+    ObserverMode, SafetyTier, SafetyGate,
+    validate_observer_output, ACTION_SAFETY,
+)
 from orchestrator import agent_turn, close_client
 from simulation.tracking import tracker
 
@@ -497,6 +501,7 @@ class WorldState:
     _compliance_log: list[dict] = field(default_factory=list)
     stream: EventStream = field(default_factory=EventStream)
     memory: Optional[AgentMemoryStore] = field(default=None)
+    safety_gate: SafetyGate = field(default_factory=SafetyGate)
 
     pom_targets: dict = field(default_factory=lambda: {
         "score_distribution": None,
@@ -1088,7 +1093,11 @@ class ObserverAgent:
         return base
 
     async def analyse(self, tick: int, world_state: WorldState, n_participants: int) -> str:
-        """[Fix 2] Observer A: analysis only. No codebook extraction."""
+        """
+        Observer A: analysis only. No codebook extraction.
+        Mode: ANALYSE (externally controlled by orchestrator).
+        Mandatory reasoning gate: structured output must include 'reasoning' field.
+        """
         window = world_state.observer_prompt_window(tick, n_participants)
         active = ", ".join(iv.description for iv in world_state.active_interventions) or "none"
         stats = world_state.compute_score_statistics(tick)
@@ -1124,6 +1133,21 @@ class ObserverAgent:
                 f"[{self.agent_id}] structured: clustering={self._last_parsed.get('clustering')}, "
                 f"concern={self._last_parsed.get('concern_level')}"
             )
+
+        # Mode enforcement: ANALYSE mode compliance gate
+        mode_violations = validate_observer_output(
+            response, ObserverMode.ANALYSE, self._last_parsed,
+        )
+        if mode_violations:
+            logger.debug(f"[MODE] {self.agent_id} ANALYSE violations: {mode_violations}")
+            world_state._compliance_log.append({
+                "tick": tick, "agent": self.agent_id,
+                "role": "observer_a", "violations": mode_violations,
+            })
+            world_state.stream.emit(tick, "D", COMPLIANCE, self.agent_id, {
+                "mode": ObserverMode.ANALYSE.value,
+                "violations": mode_violations,
+            })
 
         # [Fix 9] observer_a must NOT contain intervention keywords
         violations = check_compliance(response, "observer_a")
@@ -1183,8 +1207,34 @@ class ObserverAgent:
         if parsed and parsed.get("action") == "intervene":
             iv_key = parsed.get("intervention_type")
             if iv_key:
+                # Safety gate: check if this intervention is allowed
+                decision = world_state.safety_gate.evaluate_intervention(iv_key)
+                if not decision["allowed"]:
+                    logger.warning(
+                        f"  [{self.agent_id}] BLOCKED by safety gate: {decision['reason']}"
+                    )
+                    world_state.stream.emit(tick, "D", COMPLIANCE, self.agent_id, {
+                        "safety_tier": decision["tier"].value,
+                        "action": decision["action"],
+                        "status": "blocked",
+                        "reason": decision["reason"],
+                    })
+                    return []
+
                 iv_type, description, modifier = _make_intervention(iv_key)
-                logger.info(f"  [{self.agent_id}] STRUCTURED INTERVENTION: {iv_key}")
+                logger.info(
+                    f"  [{self.agent_id}] STRUCTURED INTERVENTION: {iv_key} "
+                    f"(safety={decision['tier'].value})"
+                )
+
+                # Log reviewed actions to event stream
+                if decision["tier"] == SafetyTier.REVIEW:
+                    world_state.stream.emit(tick, "D", COMPLIANCE, self.agent_id, {
+                        "safety_tier": "review",
+                        "action": decision["action"],
+                        "status": "executed",
+                    })
+
                 return [Intervention(
                     type=iv_type, description=description, modifier=modifier,
                     activated_at=tick, source=self.agent_id,
@@ -1193,9 +1243,41 @@ class ObserverAgent:
             logger.info(f"  [{self.agent_id}] structured: no intervention needed")
             return []
 
-        # Fallback: cosine codebook matching (original method)
+        # Fallback: cosine codebook matching with safety gate
         logger.debug(f"[{self.agent_id}] structured parse failed, falling back to cosine codebook")
-        return extract_interventions(self.agent_id, response, tick)
+        raw_ivs = extract_interventions(self.agent_id, response, tick)
+        # Apply safety gate to cosine-extracted interventions
+        approved_ivs = []
+        for iv in raw_ivs:
+            # Map intervention type back to codebook key for safety check
+            codebook_key = next(
+                (k for k, v in {
+                    "pause_prompt": "participant_nudge",
+                    "boundary_warning": "environment_constraint",
+                    "pacing_adjustment": "participant_nudge",
+                    "dynamics_dampening": "score_modifier",
+                }.items() if v == iv.type),
+                iv.type,
+            )
+            decision = world_state.safety_gate.evaluate_intervention(codebook_key)
+            if decision["allowed"]:
+                approved_ivs.append(iv)
+                if decision["tier"] == SafetyTier.REVIEW:
+                    world_state.stream.emit(tick, "D", COMPLIANCE, self.agent_id, {
+                        "safety_tier": "review",
+                        "action": decision["action"],
+                        "status": "executed",
+                    })
+            else:
+                logger.warning(
+                    f"  [{self.agent_id}] BLOCKED by safety gate: {decision['reason']}"
+                )
+                world_state.stream.emit(tick, "D", COMPLIANCE, self.agent_id, {
+                    "safety_tier": decision["tier"].value,
+                    "action": decision["action"],
+                    "status": "blocked",
+                })
+        return approved_ivs
 
 
 # ── Tick orchestration ────────────────────────────────────────────────────────
