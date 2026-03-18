@@ -46,6 +46,10 @@ from simulation.event_stream import (
     STIMULUS, RESPONSE, SCORE, OBSERVATION, INTERVENTION as EV_INTERVENTION,
     COMPLIANCE, FLAME_SNAPSHOT, PERSONA, CONTEXT,
 )
+from simulation.action_schema import (
+    PARTICIPANT_ACTIONS, OBSERVER_A_ACTIONS, OBSERVER_B_ACTIONS,
+    schema_to_prompt, parse_action, extract_narrative,
+)
 from orchestrator import agent_turn, close_client
 from simulation.tracking import tracker
 
@@ -1010,17 +1014,27 @@ class ParticipantAgent:
             f"How do you respond? What do you do?"
         )
 
+        # Inject structured output schema into system prompt
+        system = self._build_system_prompt()
+        system += schema_to_prompt(PARTICIPANT_ACTIONS, "participant")
+
         response = await _resilient_agent_turn(
             agent_id=self.agent_id,
             backend=self.cfg["backend"],
-            system_prompt=self._build_system_prompt(),
+            system_prompt=system,
             user_message=prompt,
             history=self.history[-self.history_window:],
             max_tokens=max_tokens,
         )
 
-        # [Fix 9] Compliance check
-        violations = check_compliance(response, "participant")
+        # Parse structured output; fall back to raw text if parsing fails
+        self._last_parsed = parse_action(response, PARTICIPANT_ACTIONS)
+        if self._last_parsed:
+            logger.debug(f"[{self.agent_id}] structured: action={self._last_parsed.get('action')}")
+
+        # [Fix 9] Compliance check (on narrative or raw text)
+        check_text = extract_narrative(self._last_parsed, response)
+        violations = check_compliance(check_text, "participant")
         if violations:
             logger.debug(f"[COMPLIANCE] {self.agent_id} tick={tick} violations: {violations}")
             world_state._compliance_log.append({
@@ -1071,15 +1085,28 @@ class ObserverAgent:
             f"Analyse participant behaviour and population dynamics. "
             f"Describe what you see \u2014 do NOT recommend any interventions."
         )
+
+        # Inject structured output schema
+        system = self._system_prompt()
+        system += schema_to_prompt(OBSERVER_A_ACTIONS, "observer_a")
+
         response = await _resilient_agent_turn(
             agent_id=self.agent_id,
             backend=self.cfg["backend"],
-            system_prompt=self._system_prompt(),
+            system_prompt=system,
             user_message=prompt,
             history=self.history[-self.history_window:],
             max_tokens=self.max_tokens,
         )
         logger.debug(f"[{self.agent_id} ANALYSIS] {response[:120]}...")
+
+        # Parse structured output
+        self._last_parsed = parse_action(response, OBSERVER_A_ACTIONS)
+        if self._last_parsed:
+            logger.debug(
+                f"[{self.agent_id}] structured: clustering={self._last_parsed.get('clustering')}, "
+                f"concern={self._last_parsed.get('concern_level')}"
+            )
 
         # [Fix 9] observer_a must NOT contain intervention keywords
         violations = check_compliance(response, "observer_a")
@@ -1117,10 +1144,15 @@ class ObserverAgent:
             f"Based on the analyst's findings, decide whether to intervene. "
             f"If yes, state which type using the exact phrases from your instructions."
         )
+
+        # Inject structured output schema
+        system = self._system_prompt()
+        system += schema_to_prompt(OBSERVER_B_ACTIONS, "observer_b")
+
         response = await _resilient_agent_turn(
             agent_id=self.agent_id,
             backend=self.cfg["backend"],
-            system_prompt=self._system_prompt(),
+            system_prompt=system,
             user_message=prompt,
             history=self.history[-self.history_window:],
             max_tokens=self.max_tokens,
@@ -1128,6 +1160,24 @@ class ObserverAgent:
         logger.debug(f"[{self.agent_id} INTERVENTION] {response[:120]}...")
         self.history.append({"role": "assistant", "content": response})
         self.analyses.append(response)
+
+        # Try structured extraction first; fall back to cosine codebook matching
+        parsed = parse_action(response, OBSERVER_B_ACTIONS)
+        if parsed and parsed.get("action") == "intervene":
+            iv_key = parsed.get("intervention_type")
+            if iv_key:
+                iv_type, description, modifier = _make_intervention(iv_key)
+                logger.info(f"  [{self.agent_id}] STRUCTURED INTERVENTION: {iv_key}")
+                return [Intervention(
+                    type=iv_type, description=description, modifier=modifier,
+                    activated_at=tick, source=self.agent_id,
+                )]
+        if parsed and parsed.get("action") == "no_intervention":
+            logger.info(f"  [{self.agent_id}] structured: no intervention needed")
+            return []
+
+        # Fallback: cosine codebook matching (original method)
+        logger.debug(f"[{self.agent_id}] structured parse failed, falling back to cosine codebook")
         return extract_interventions(self.agent_id, response, tick)
 
 
@@ -1198,11 +1248,12 @@ async def run_tick(
         for p in participants
     ])
 
-    # Emit responses to event stream
+    # Emit responses to event stream (with structured data if available)
     for p, resp in zip(participants, responses):
-        world_state.stream.emit(tick, "B", RESPONSE, p.agent_id, {
-            "content": resp,
-        })
+        payload = {"content": resp}
+        if hasattr(p, '_last_parsed') and p._last_parsed:
+            payload["structured"] = p._last_parsed
+        world_state.stream.emit(tick, "B", RESPONSE, p.agent_id, payload)
 
     # -- Phase C+D overlap [Opt 3] ─────────────────────────────────────────
     # Embedding (CPU) and observer_a analysis (authority GPU) use different
@@ -1215,7 +1266,14 @@ async def run_tick(
         obs_a, obs_b = observers[0], observers[1]
 
         async def _phase_c():
-            return embed_score_batch(list(responses))
+            # Use narrative text for embedding when structured output is available
+            texts = [
+                extract_narrative(
+                    getattr(p, '_last_parsed', None), resp
+                )
+                for p, resp in zip(participants, responses)
+            ]
+            return embed_score_batch(texts)
 
         async def _phase_d1():
             return await obs_a.analyse(tick, world_state, n)
@@ -1224,10 +1282,11 @@ async def run_tick(
             _phase_c(), _phase_d1()
         )
 
-        # Emit observer_a analysis to event stream
-        world_state.stream.emit(tick, "D", OBSERVATION, "observer_a", {
-            "content": analysis,
-        })
+        # Emit observer_a analysis to event stream (with structured data)
+        obs_payload = {"content": analysis}
+        if hasattr(obs_a, '_last_parsed') and obs_a._last_parsed:
+            obs_payload["structured"] = obs_a._last_parsed
+        world_state.stream.emit(tick, "D", OBSERVATION, "observer_a", obs_payload)
 
         # Phase D2: observer_b needs observer_a's analysis (must be sequential)
         ivs = await obs_b.intervene(tick, world_state, n, analysis)
@@ -1244,8 +1303,14 @@ async def run_tick(
                 "source": iv.source,
             })
     else:
-        # Non-observer tick: just embeddings
-        signals_and_ses = embed_score_batch(list(responses))
+        # Non-observer tick: just embeddings (use narrative text)
+        texts = [
+            extract_narrative(
+                getattr(p, '_last_parsed', None), resp
+            )
+            for p, resp in zip(participants, responses)
+        ]
+        signals_and_ses = embed_score_batch(texts)
 
     # -- Score update (always after embedding completes) ────────────────────
     for participant, response, (signal, signal_se) in zip(participants, responses, signals_and_ses):
