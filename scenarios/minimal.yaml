@@ -1,0 +1,110 @@
+# Minimal "Hello World" scenario — 2 agents, 3 ticks
+# The smallest possible dualmirakl simulation. Use this to verify
+# your setup works before building a real scenario.
+#
+# Run:      python -m simulation.sim_loop --scenario scenarios/minimal.yaml
+# Validate: python -m simulation.scenario validate scenarios/minimal.yaml
+
+meta:
+  name: "hello-world"
+  version: "1.0"
+  description: "Minimal hello-world scenario for setup verification"
+
+agents:
+  roles:
+    - id: "observer_a"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        You observe a simple interaction between participants.
+        Describe what you see in 1-2 sentences. Do not recommend actions.
+      max_tokens: 128
+
+    - id: "observer_b"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        Based on the analyst's report, decide if any intervention is needed.
+        For this simple scenario, say 'No intervention needed.' unless
+        something unusual is happening.
+      max_tokens: 64
+
+    - id: "environment"
+      slot: "authority"
+      type: "environment"
+      system_prompt: |
+        You present simple, everyday situations to participants.
+        Keep it short — one sentence per stimulus.
+        Follow any pacing instructions given.
+      max_tokens: 64
+
+    - id: "participant_template"
+      slot: "swarm"
+      type: "participant"
+      count: 2
+      system_prompt: |
+        You are {agent_name}. Respond naturally and briefly to
+        what is presented to you. One or two sentences is enough.
+      max_tokens: 64
+
+archetypes:
+  profiles:
+    - id: "default"
+      label: "Default"
+      description: "A typical participant with no special traits"
+      properties: {}
+
+  distribution:
+    default: 1.0
+
+actions:
+  schemas:
+    - "respond"
+  instances:
+    - id: "respond"
+      schema: "respond"
+      prompt_fragment: "How do you respond?"
+
+scoring:
+  mode: "ema"
+  distributions:
+    susceptibility:
+      type: "beta"
+      params: [2, 3]
+    resilience:
+      type: "beta"
+      params: [2, 5]
+  parameters:
+    alpha: 0.15
+    K: 3
+    threshold: 0.5
+    dampening: 1.0
+    coupling_kappa: 0.0
+    logistic_k: 6.0
+
+transitions: []
+
+memory:
+  enabled: false
+  max_entries_per_agent: 5
+  dedup_threshold: 0.9
+  summary_interval: 100
+
+safety:
+  enabled: false
+  action_allowlist: []
+  max_retries_on_invalid: 1
+  fallback_action: "respond"
+
+context_categories:
+  - id: "scenario_description"
+    description: "What is being simulated"
+    required: false
+
+flame:
+  enabled: false
+
+environment:
+  tick_count: 3
+  tick_unit: "step"
+  initial_state: {}
