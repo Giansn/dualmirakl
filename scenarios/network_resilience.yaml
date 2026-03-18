@@ -1,0 +1,216 @@
+# Network Resilience Simulation
+# Models infrastructure nodes as agents responding to load, failures, and cascading effects.
+# Demonstrates dualmirakl as a domain-agnostic framework beyond social dynamics.
+
+meta:
+  name: "network-resilience"
+  version: "1.0"
+  description: "Infrastructure network resilience simulation with cascading failure dynamics"
+
+agents:
+  roles:
+    - id: "observer_a"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        You are a network health analyst monitoring an infrastructure system.
+        Your task is to describe the current state of the network — not to recommend actions.
+
+        For each node, assess:
+        - Is its load increasing, stable, or decreasing?
+        - Is it showing signs of stress (high load, slow response)?
+        - Are failures cascading from neighboring nodes?
+
+        For the network overall:
+        - Is load distributed evenly or concentrated?
+        - Are there emerging bottlenecks or single points of failure?
+        - Is the system trending toward stability or instability?
+
+        Rules:
+        - Ground claims in the data (load levels, response times, failure counts).
+        - Name specific nodes and time steps.
+        - Do NOT recommend interventions. A separate agent handles that.
+        - Keep analysis under 200 words.
+      max_tokens: 512
+
+    - id: "observer_b"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        You are a network operations specialist. Based on the analyst's report,
+        decide whether to intervene. Available actions:
+
+        (1) PAUSE PROMPT — temporarily reduce traffic to a stressed node.
+        Phrase: 'take a pause and reflect' or 'reduce load temporarily'.
+
+        (2) BOUNDARY WARNING — flag that a node is approaching capacity limits.
+        Phrase: 'approaching scenario boundary' or 'flag boundary issue'.
+
+        (3) DYNAMICS DAMPENING — slow down cascading failure propagation.
+        Phrase: 'dampen the behavioural dynamics' or 'reduce score momentum'.
+
+        (4) PACING ADJUSTMENT — reduce the rate of new requests entering the system.
+        Phrase: 'slow down the interaction' or 'adjust the pacing'.
+
+        Decision rules:
+        - No concerning patterns: 'No intervention needed.'
+        - At most ONE intervention per cycle.
+        - Check if existing interventions are working before adding more.
+      max_tokens: 256
+
+    - id: "environment"
+      slot: "authority"
+      type: "environment"
+      system_prompt: |
+        You generate network events and load patterns for infrastructure nodes.
+
+        Each turn you receive:
+        (1) The node's current load level and health status;
+        (2) Its response to the previous event;
+        (3) Any operational constraints;
+        (4) A pacing instruction for event intensity.
+
+        Follow the pacing instruction:
+        - '[HIGH]' — node is overloaded. Generate a stabilising event (maintenance window, load shedding).
+        - '[MODERATE]' — node under moderate load. Introduce a realistic challenge (traffic spike, dependency slowdown).
+        - '[LOW]' — node is idle. Generate routine traffic patterns.
+
+        Rules:
+        - Be specific: name services, protocols, error codes.
+        - Each event must differ from the previous one.
+        - Never mention the simulation framework.
+      max_tokens: 256
+
+    - id: "participant_template"
+      slot: "swarm"
+      type: "participant"
+      count: 6
+      system_prompt: |
+        You are {agent_name}, a {archetype_label} in an infrastructure network.
+        Profile: {archetype_profile}
+
+        You process incoming requests, manage your resources, and respond to events.
+        Your load capacity varies. When overloaded, you may fail, queue requests,
+        or reroute traffic. Your responses affect neighboring nodes.
+
+        Stay in character as a network component. Describe what you do with
+        incoming events: process, queue, reject, failover, or scale.
+        Never mention being an AI or part of a simulation.
+      max_tokens: 128
+
+archetypes:
+  profiles:
+    - id: "edge"
+      label: "Edge Node"
+      description: "High-traffic entry point, first to see load spikes, limited buffer capacity"
+      properties:
+        capacity: "low"
+        exposure: "high"
+        redundancy: "none"
+    - id: "core"
+      label: "Core Router"
+      description: "Central routing node, high capacity, many dependencies"
+      properties:
+        capacity: "high"
+        exposure: "medium"
+        redundancy: "partial"
+    - id: "backend"
+      label: "Backend Service"
+      description: "Compute-heavy service, slow to scale, critical for data processing"
+      properties:
+        capacity: "medium"
+        exposure: "low"
+        redundancy: "full"
+
+  distribution:
+    edge: 0.33
+    core: 0.34
+    backend: 0.33
+
+actions:
+  schemas:
+    - "respond"
+    - "disengage"
+    - "escalate"
+  instances:
+    - id: "process_request"
+      schema: "respond"
+      prompt_fragment: "How do you handle the incoming load?"
+    - id: "failover"
+      schema: "disengage"
+      prompt_fragment: "Do you shed load or failover to a backup?"
+    - id: "scale_up"
+      schema: "escalate"
+      prompt_fragment: "Do you request additional resources?"
+
+scoring:
+  mode: "ema"
+  distributions:
+    susceptibility:
+      type: "beta"
+      params: [3, 2]
+    resilience:
+      type: "beta"
+      params: [2, 3]
+  parameters:
+    alpha: 0.2
+    K: 3
+    threshold: 0.8
+    dampening: 1.0
+    coupling_kappa: 0.15
+    logistic_k: 6.0
+
+transitions:
+  - from: "core"
+    to: "edge"
+    function: "escalation_sustained"
+    params:
+      threshold: 0.9
+      consecutive_ticks: 2
+  - from: "edge"
+    to: "core"
+    function: "recovery_sustained"
+    params:
+      threshold: 0.3
+      consecutive_ticks: 4
+
+memory:
+  enabled: true
+  max_entries_per_agent: 15
+  dedup_threshold: 0.85
+  summary_interval: 8
+
+safety:
+  enabled: true
+  action_allowlist: []
+  max_retries_on_invalid: 2
+  fallback_action: "process_request"
+
+context_categories:
+  - id: "network_topology"
+    description: "Network architecture, node types, and connections"
+    required: true
+  - id: "traffic_patterns"
+    description: "Expected load profiles and peak periods"
+    required: true
+  - id: "failure_modes"
+    description: "Known failure scenarios and their probabilities"
+    required: false
+  - id: "sla_requirements"
+    description: "Service level agreements and response time targets"
+    required: false
+
+flame:
+  enabled: false
+  population_size: 5000
+  kappa: 0.15
+  influencer_weight: 3.0
+  sub_steps: 5
+
+environment:
+  tick_count: 24
+  tick_unit: "hour"
+  initial_state:
+    base_load: 0.4
+    failure_probability: 0.05
+    cascade_factor: 0.3

@@ -221,12 +221,16 @@ CONTEXT_REQUIREMENTS: dict[str, dict] = {
 }
 
 
-def detect_missing_context() -> dict:
+def detect_missing_context(scenario_config=None) -> dict:
     """
     Inspect world context for missing information categories.
 
     Called when user starts a simulation. Returns what's present, what's
     missing, and why each missing piece matters.
+
+    If scenario_config is provided, uses its context_categories instead of
+    the hardcoded CONTEXT_REQUIREMENTS. This enables domain-specific context
+    detection per scenario.
 
     Does NOT block the simulation — the user decides whether to proceed
     or upload more documents first.
@@ -242,6 +246,17 @@ def detect_missing_context() -> dict:
             "can_proceed": True,  # always True — detection only, not blocking
         }
     """
+    # Build requirements from scenario config or fall back to hardcoded
+    if scenario_config is not None and hasattr(scenario_config, "context_categories"):
+        requirements = {}
+        for cat in scenario_config.context_categories:
+            requirements[cat.id] = {
+                "keywords": cat.id.replace("_", " ").split() + cat.description.lower().split()[:5],
+                "why": cat.description,
+            }
+    else:
+        requirements = CONTEXT_REQUIREMENTS
+
     ctx_path = Path(CONTEXT_FILE)
     result = {
         "has_context": False,
@@ -255,7 +270,7 @@ def detect_missing_context() -> dict:
 
     if not ctx_path.exists():
         result["warnings"].append("No documents uploaded. Simulation will run without world context.")
-        for cat, spec in CONTEXT_REQUIREMENTS.items():
+        for cat, spec in requirements.items():
             result["missing"].append({"category": cat, "why": spec["why"]})
         return result
 
@@ -263,7 +278,7 @@ def detect_missing_context() -> dict:
         ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
     except Exception:
         result["warnings"].append("world_context.json is corrupted. Simulation will run without context.")
-        for cat, spec in CONTEXT_REQUIREMENTS.items():
+        for cat, spec in requirements.items():
             result["missing"].append({"category": cat, "why": spec["why"]})
         return result
 
@@ -274,12 +289,12 @@ def detect_missing_context() -> dict:
 
     if not summary.strip():
         result["warnings"].append("Documents uploaded but summary is empty.")
-        for cat, spec in CONTEXT_REQUIREMENTS.items():
+        for cat, spec in requirements.items():
             result["missing"].append({"category": cat, "why": spec["why"]})
         return result
 
     # Scan for each category
-    for cat, spec in CONTEXT_REQUIREMENTS.items():
+    for cat, spec in requirements.items():
         matched = [kw for kw in spec["keywords"] if kw in summary]
         if matched:
             result["present"].append({"category": cat, "matched_keywords": matched})

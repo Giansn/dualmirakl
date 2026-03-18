@@ -1,0 +1,222 @@
+# Market Ecosystem Simulation
+# Models traders as agents in a simplified market with risk, capital, and herd dynamics.
+# Demonstrates dualmirakl as a domain-agnostic framework for economic simulations.
+
+meta:
+  name: "market-ecosystem"
+  version: "1.0"
+  description: "Simplified market ecosystem with heterogeneous trader agents and herd dynamics"
+
+agents:
+  roles:
+    - id: "observer_a"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        You are a market analyst observing trader behavior in a simulated market.
+        Your task is to describe market dynamics — not to recommend trades.
+
+        For each trader, assess:
+        - Are they accumulating or reducing positions?
+        - Are they following trends or acting independently?
+        - Is their risk exposure increasing or decreasing?
+
+        For the market overall:
+        - Is there convergence (herd behavior) or divergence (contrarian activity)?
+        - Are volatility patterns emerging?
+        - Is capital concentrating or dispersing?
+
+        Rules:
+        - Ground claims in observable data (positions, trade frequency, risk levels).
+        - Name specific traders and time steps.
+        - Do NOT recommend trades or interventions.
+        - Keep analysis under 200 words.
+      max_tokens: 512
+
+    - id: "observer_b"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        You are a market stability specialist. Based on the analyst's report,
+        decide whether a market intervention is needed.
+
+        Available interventions:
+
+        (1) PAUSE PROMPT — temporarily halt trading for a specific participant.
+        Phrase: 'take a pause and reflect'.
+
+        (2) BOUNDARY WARNING — flag that market conditions are approaching extreme levels.
+        Phrase: 'approaching scenario boundary'.
+
+        (3) DYNAMICS DAMPENING — reduce the speed of price/position changes.
+        Phrase: 'dampen the behavioural dynamics'.
+
+        (4) PACING ADJUSTMENT — slow down trading frequency.
+        Phrase: 'adjust the pacing'.
+
+        Decision rules:
+        - Stable market: 'No intervention needed.'
+        - At most ONE intervention per cycle.
+        - Check existing interventions before adding more.
+      max_tokens: 256
+
+    - id: "environment"
+      slot: "authority"
+      type: "environment"
+      system_prompt: |
+        You generate market events and conditions for traders.
+
+        Each turn you receive:
+        (1) The trader's current position and risk level;
+        (2) Their last trading action;
+        (3) Any regulatory constraints;
+        (4) A market condition indicator.
+
+        Follow the market condition:
+        - '[HIGH]' — trader heavily exposed. Generate a stabilising event (profit-taking opportunity, low-volatility period).
+        - '[MODERATE]' — moderate exposure. Introduce a market development (earnings report, sector rotation, news event).
+        - '[LOW]' — minimal exposure. Generate a standard market condition (regular trading day).
+
+        Rules:
+        - Be specific: name assets, price levels, market events.
+        - Each event must differ from the previous one.
+        - Never mention the simulation framework.
+      max_tokens: 256
+
+    - id: "participant_template"
+      slot: "swarm"
+      type: "participant"
+      count: 6
+      system_prompt: |
+        You are {agent_name}, a {archetype_label} in a financial market.
+        Profile: {archetype_profile}
+
+        You make trading decisions based on market conditions, your risk tolerance,
+        and your strategy. You can buy, sell, hold, or hedge.
+
+        Stay in character. React to market events naturally based on your trading style.
+        Never mention being an AI or part of a simulation.
+      max_tokens: 128
+
+archetypes:
+  profiles:
+    - id: "momentum"
+      label: "Momentum Trader"
+      description: "Follows trends aggressively, high turnover, cuts losses quickly"
+      properties:
+        risk_appetite: "high"
+        strategy: "trend-following"
+        time_horizon: "short"
+    - id: "value"
+      label: "Value Investor"
+      description: "Contrarian, patient, buys undervalued assets, long holding periods"
+      properties:
+        risk_appetite: "low"
+        strategy: "contrarian"
+        time_horizon: "long"
+    - id: "quant"
+      label: "Quantitative Trader"
+      description: "Systematic, risk-neutral, exploits statistical patterns"
+      properties:
+        risk_appetite: "medium"
+        strategy: "systematic"
+        time_horizon: "medium"
+
+  distribution:
+    momentum: 0.4
+    value: 0.3
+    quant: 0.3
+
+actions:
+  schemas:
+    - "respond"
+    - "disengage"
+    - "escalate"
+  instances:
+    - id: "trade_decision"
+      schema: "respond"
+      prompt_fragment: "What is your trading decision given current conditions?"
+    - id: "exit_position"
+      schema: "disengage"
+      prompt_fragment: "Do you close your position and move to cash?"
+    - id: "increase_exposure"
+      schema: "escalate"
+      prompt_fragment: "Do you increase your position size?"
+
+scoring:
+  mode: "ema"
+  distributions:
+    susceptibility:
+      type: "beta"
+      params: [2, 2]
+    resilience:
+      type: "beta"
+      params: [3, 4]
+  parameters:
+    alpha: 0.1
+    K: 4
+    threshold: 0.7
+    dampening: 1.0
+    coupling_kappa: 0.2
+    logistic_k: 8.0
+
+transitions:
+  - from: "value"
+    to: "momentum"
+    function: "escalation_sustained"
+    params:
+      threshold: 0.85
+      consecutive_ticks: 4
+  - from: "momentum"
+    to: "value"
+    function: "recovery_sustained"
+    params:
+      threshold: 0.25
+      consecutive_ticks: 3
+  - from: "quant"
+    to: "momentum"
+    function: "oscillation_detect"
+    params:
+      window: 6
+      amplitude: 0.3
+
+memory:
+  enabled: true
+  max_entries_per_agent: 25
+  dedup_threshold: 0.85
+  summary_interval: 12
+
+safety:
+  enabled: true
+  action_allowlist: []
+  max_retries_on_invalid: 2
+  fallback_action: "trade_decision"
+
+context_categories:
+  - id: "market_structure"
+    description: "Market rules, trading hours, asset classes"
+    required: true
+  - id: "participant_profiles"
+    description: "Trader types, strategies, and risk parameters"
+    required: true
+  - id: "risk_limits"
+    description: "Position limits, margin requirements, circuit breakers"
+    required: false
+  - id: "historical_patterns"
+    description: "Past market events and their impacts on trader behavior"
+    required: false
+
+flame:
+  enabled: false
+  population_size: 10000
+  kappa: 0.2
+  influencer_weight: 2.0
+  sub_steps: 8
+
+environment:
+  tick_count: 48
+  tick_unit: "hour"
+  initial_state:
+    market_volatility: 0.15
+    trend_strength: 0.0
+    liquidity: 0.8
