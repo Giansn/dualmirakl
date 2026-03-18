@@ -77,9 +77,20 @@ echo "  PID: $GW_PID"
 
 echo ""
 echo "All services running."
-echo "  authority : http://localhost:${AUTHORITY_PORT}/v1"
-echo "  swarm     : http://localhost:${SWARM_PORT}/v1"
-echo "  gateway   : http://localhost:${GATEWAY_PORT}/v1  (unified + embeddings)"
+echo "  authority : http://localhost:${AUTHORITY_PORT}/v1  (GPU 0)"
+echo "  swarm     : http://localhost:${SWARM_PORT}/v1  (GPU 1)"
+echo "  gateway   : http://localhost:${GATEWAY_PORT}/v1  (CPU — unified + embeddings)"
+
+# FLAME GPU 2 (optional 3rd GPU)
+if [ "${FLAME_ENABLED:-0}" = "1" ]; then
+  echo "  flame     : GPU ${FLAME_GPU:-2}  (FLAME GPU 2 — ${FLAME_N_POPULATION:-10000} population agents)"
+  echo ""
+  echo "3-GPU mode active. FLAME population dynamics will run during simulation."
+else
+  echo ""
+  echo "2-GPU mode (standard). Set FLAME_ENABLED=1 in .env for 3-GPU mode."
+fi
+
 echo "Logs: logs/authority.log  logs/swarm.log  logs/gateway.log"
 echo "Stop: bash stop_all.sh"
 echo "$AUTH_PID $SWARM_PID $GW_PID" > logs/pids.txt

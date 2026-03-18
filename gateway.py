@@ -287,6 +287,16 @@ async def sim_preflight():
     return await preflight_check()
 
 
+@app.get("/simulation/flame")
+async def sim_flame_status():
+    """
+    FLAME GPU 2 status — reports engine, W&B, and Optuna availability.
+    Always returns (never fails), even when FLAME is disabled.
+    """
+    from simulation.flame_setup import flame_status
+    return flame_status()
+
+
 @app.get("/simulation/detect")
 async def sim_detect():
     """
@@ -350,6 +360,8 @@ async def sim_start(req: Request):
                     score_mode=body.get("score_mode", "ema"),
                     logistic_k=body.get("logistic_k", 6.0),
                     on_tick=_on_tick,
+                    flame_enabled=body.get("flame_enabled"),
+                    flame_config=body.get("flame_config"),
                 )
                 # Run dynamics analysis on results
                 from simulation.dynamics import analyze_simulation
@@ -409,9 +421,43 @@ async def sim_results():
     results = {}
 
     for fname in ["config.json", "trajectories.json", "observations.json",
-                   "compliance.json", "interventions.json", "dynamics_analysis.json"]:
+                   "compliance.json", "interventions.json", "dynamics_analysis.json",
+                   "flame_population.json"]:
         fpath = run_dir / fname
         if fpath.exists():
             results[fname.replace(".json", "")] = json.loads(fpath.read_text())
 
     return results
+
+
+@app.post("/simulation/optimize")
+async def sim_optimize(req: Request):
+    """
+    Run Optuna Bayesian optimization over simulation parameters.
+    Non-blocking — runs in background thread.
+
+    Body: {
+        "mode": "fast"|"full",
+        "n_trials": 100,
+        "include_flame": false,
+        "target_mean": 0.5
+    }
+    """
+    body = await req.json() if req.headers.get("content-type") == "application/json" else {}
+
+    import threading
+
+    def _run():
+        try:
+            from simulation.optimize import run_optimization
+            run_optimization(
+                mode=body.get("mode", "fast"),
+                n_trials=body.get("n_trials", 100),
+                include_flame=body.get("include_flame", False),
+                target_mean=body.get("target_mean", 0.5),
+            )
+        except ImportError as e:
+            _sim_state["status"] = f"error: {e}"
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "optimization_started", "config": body}

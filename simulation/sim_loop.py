@@ -41,9 +41,73 @@ from simulation.agent_rolesv3 import (
     EMBED_BATCH_SIZE,
     check_compliance,
 )
+from simulation.event_stream import (
+    EventStream, SimEvent,
+    STIMULUS, RESPONSE, SCORE, OBSERVATION, INTERVENTION as EV_INTERVENTION,
+    COMPLIANCE, FLAME_SNAPSHOT, PERSONA, CONTEXT,
+)
 from orchestrator import agent_turn, close_client
+from simulation.tracking import tracker
 
 logger = logging.getLogger(__name__)
+
+# ── FLAME GPU 2 (optional, requires 3rd GPU + pyflamegpu) ────────────────────
+
+FLAME_ENABLED = os.environ.get("FLAME_ENABLED", "0") == "1"
+
+
+def _flame_config_from_env(overrides: Optional[dict] = None) -> dict:
+    """Build FLAME config from env vars + optional overrides."""
+    _e = os.environ.get
+    cfg = {
+        "n_population": int(_e("FLAME_N_POPULATION", "10000")),
+        "n_influencers": int(_e("SIM_N_PARTICIPANTS", "4")),
+        "space_size": 100.0,
+        "interaction_radius": float(_e("FLAME_INTERACTION_RADIUS", "10.0")),
+        "alpha": float(_e("SIM_ALPHA", "0.15")),
+        "kappa": float(_e("FLAME_KAPPA", "0.1")),
+        "dampening": 1.0,
+        "influencer_weight": float(_e("FLAME_INFLUENCER_WEIGHT", "5.0")),
+        "score_mode": _e("SIM_SCORE_MODE", "ema"),
+        "logistic_k": float(_e("SIM_LOGISTIC_K", "6.0")),
+        "drift_sigma": float(_e("FLAME_DRIFT_SIGMA", "0.01")),
+        "move_speed": 0.5,
+        "sub_steps": int(_e("FLAME_SUB_STEPS", "10")),
+        "gpu_id": int(_e("FLAME_GPU", "2")),
+        "seed": int(_e("SIM_SEED", "42")),
+    }
+    if overrides:
+        cfg.update(overrides)
+    return cfg
+
+
+def _try_init_flame(
+    config: dict,
+    n_participants: int,
+) -> tuple:
+    """
+    Attempt to initialize FLAME engine + bridge. Returns (engine, bridge) or (None, None).
+    Fails gracefully if pyflamegpu not installed or no GPU available.
+    """
+    try:
+        from simulation.flame import FlameEngine, FlameBridge
+        config["n_influencers"] = n_participants
+        engine = FlameEngine(config)
+        bridge = FlameBridge(
+            n_influencers=n_participants,
+            space_size=config.get("space_size", 100.0),
+        )
+        engine.init()
+        bridge.push_influencer_positions(engine)
+        logger.info("FLAME GPU 2 initialized: %d population agents on GPU %d",
+                     config["n_population"], config["gpu_id"])
+        return engine, bridge
+    except ImportError:
+        logger.warning("pyflamegpu not installed — FLAME disabled")
+        return None, None
+    except Exception as e:
+        logger.warning("FLAME init failed: %s — continuing without FLAME", e)
+        return None, None
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -285,6 +349,28 @@ async def preflight_check() -> dict:
         "detail": "loaded" if ctx_exists else "no documents uploaded yet",
     })
 
+    # Check FLAME GPU 2 (optional — warn, never fail)
+    if FLAME_ENABLED:
+        try:
+            import pyflamegpu
+            checks.append({
+                "name": "flame_gpu2",
+                "status": "ok",
+                "detail": f"pyflamegpu available, GPU {os.environ.get('FLAME_GPU', '2')}",
+            })
+        except ImportError:
+            checks.append({
+                "name": "flame_gpu2",
+                "status": "warn",
+                "detail": "FLAME_ENABLED=1 but pyflamegpu not installed — will run without FLAME",
+            })
+    else:
+        checks.append({
+            "name": "flame_gpu2",
+            "status": "info",
+            "detail": "disabled (set FLAME_ENABLED=1 for 3-GPU mode)",
+        })
+
     ready = all(c["status"] != "fail" for c in checks)
     return {"ready": ready, "checks": checks}
 
@@ -404,6 +490,7 @@ class WorldState:
     _log_by_tick: dict = field(default_factory=dict)  # tick → [ObsEntry]
     active_interventions: list[Intervention] = field(default_factory=list)
     _compliance_log: list[dict] = field(default_factory=list)
+    stream: EventStream = field(default_factory=EventStream)
 
     pom_targets: dict = field(default_factory=lambda: {
         "score_distribution": None,
@@ -1056,7 +1143,9 @@ async def run_tick(
     max_tokens: int = 256,
     score_mode: str = "ema",
     logistic_k: float = 6.0,
-) -> None:
+    flame_engine=None,
+    flame_bridge=None,
+) -> Optional[dict]:
     """
     Execute one tick with three throughput optimizations:
 
@@ -1065,6 +1154,10 @@ async def run_tick(
             — both GPUs active simultaneously via asyncio.gather
     [Opt 3] Phase C+D overlap: on observer ticks, start observer_a analysis (GPU)
             while embeddings compute (CPU) — different hardware, free overlap
+    [Opt 4] Phase F: FLAME GPU 2 population step (GPU 2, runs concurrently with
+            post-tick bookkeeping when enabled)
+
+    Returns FLAME snapshot dict if FLAME is active, else None.
     """
     n = len(participants)
     is_observer_tick = (tick % world_state.k == 0)
@@ -1080,6 +1173,12 @@ async def run_tick(
         participants, world_state, max_tokens=max(64, max_tokens // 2)
     )
 
+    # Emit stimuli to event stream
+    for p in participants:
+        world_state.stream.emit(tick, "A", STIMULUS, p.agent_id, {
+            "content": stimuli.get(p.agent_id, ""),
+        })
+
     # [Fix 9] Compliance check on batch output
     for p in participants:
         violations = check_compliance(stimuli.get(p.agent_id, ""), "environment")
@@ -1089,12 +1188,21 @@ async def run_tick(
                 "tick": tick, "agent": "environment",
                 "role": "environment", "violations": violations,
             })
+            world_state.stream.emit(tick, "A", COMPLIANCE, "environment", {
+                "role": "environment", "violations": violations,
+            })
 
     # -- Phase B -- concurrent participant responses (swarm GPU) [Opt 2]
     responses = await asyncio.gather(*[
         p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens)
         for p in participants
     ])
+
+    # Emit responses to event stream
+    for p, resp in zip(participants, responses):
+        world_state.stream.emit(tick, "B", RESPONSE, p.agent_id, {
+            "content": resp,
+        })
 
     # -- Phase C+D overlap [Opt 3] ─────────────────────────────────────────
     # Embedding (CPU) and observer_a analysis (authority GPU) use different
@@ -1116,9 +1224,25 @@ async def run_tick(
             _phase_c(), _phase_d1()
         )
 
+        # Emit observer_a analysis to event stream
+        world_state.stream.emit(tick, "D", OBSERVATION, "observer_a", {
+            "content": analysis,
+        })
+
         # Phase D2: observer_b needs observer_a's analysis (must be sequential)
         ivs = await obs_b.intervene(tick, world_state, n, analysis)
         world_state.active_interventions.extend(ivs)
+
+        # Emit interventions to event stream
+        for iv in ivs:
+            world_state.stream.emit(tick, "D", EV_INTERVENTION, "observer_b", {
+                "type": iv.type,
+                "description": iv.description,
+                "modifier": iv.modifier,
+                "activated_at": iv.activated_at,
+                "duration": iv.duration,
+                "source": iv.source,
+            })
     else:
         # Non-observer tick: just embeddings
         signals_and_ses = embed_score_batch(list(responses))
@@ -1143,8 +1267,47 @@ async def run_tick(
             signal=signal,
             signal_se=signal_se,
         ))
+        # Emit score to event stream
+        world_state.stream.emit(tick, "C", SCORE, participant.agent_id, {
+            "score_before": score_before,
+            "score_after": participant.behavioral_score,
+            "signal": signal,
+            "signal_se": signal_se,
+            "dampening": dampening,
+        })
+
+    # -- Phase F -- FLAME population step (GPU 2, optional) [Opt 4] ────────
+    flame_snapshot = None
+    if flame_engine is not None and flame_bridge is not None:
+        scores = [p.behavioral_score for p in participants]
+        flame_bridge.push_influencer_scores(flame_engine, scores)
+
+        # Apply current dampening to FLAME environment
+        flame_engine.set_environment(dampening=dampening)
+
+        # Run sub-steps on GPU 2 (offloaded to thread to not block event loop)
+        await asyncio.get_event_loop().run_in_executor(
+            None, flame_engine.step
+        )
+
+        flame_snapshot = flame_bridge.pull_population_stats(
+            flame_engine, tick, flame_engine.config["sub_steps"]
+        )
+        logger.debug(
+            "[Tick %d] FLAME: pop=%d mean=%.3f std=%.3f",
+            tick, flame_snapshot.n_population,
+            flame_snapshot.mean_score, flame_snapshot.std_score,
+        )
+        # Emit FLAME snapshot to event stream
+        world_state.stream.emit(tick, "F", FLAME_SNAPSHOT, "flame", {
+            "mean_score": flame_snapshot.mean_score,
+            "std_score": flame_snapshot.std_score,
+            "n_population": flame_snapshot.n_population,
+            "histogram": flame_snapshot.histogram,
+        })
 
     world_state.apply_interventions()
+    return flame_snapshot
 
 
 async def run_simulation(
@@ -1160,11 +1323,18 @@ async def run_simulation(
     score_mode: str = "ema",
     logistic_k: float = 6.0,
     on_tick: Optional[callable] = None,
+    flame_enabled: Optional[bool] = None,
+    flame_config: Optional[dict] = None,
 ) -> tuple[list[ParticipantAgent], WorldState]:
     """
     Run the stratified multi-agent simulation.
     [Fix 5] Exposes intervention_threshold as a run parameter for SA sweeps.
     [Fix 7] Exposes persona_summary_interval.
+
+    FLAME GPU 2 (optional):
+        Set flame_enabled=True (or FLAME_ENABLED=1 env var) to activate
+        population dynamics on a 3rd GPU. Requires pyflamegpu + NVIDIA GPU.
+        dualmirakl runs normally without it.
     """
     # Temporarily override module-level threshold for this run
     import simulation.agent_rolesv3 as _cfg
@@ -1174,6 +1344,15 @@ async def run_simulation(
     _cfg.PERSONA_SUMMARY_INTERVAL = persona_summary_interval
 
     t_start = time.monotonic()
+
+    run_config = {
+        "n_ticks": n_ticks, "n_participants": n_participants,
+        "k": k, "alpha": alpha, "history_window": history_window,
+        "max_tokens": max_tokens, "seed": seed,
+        "intervention_threshold": intervention_threshold,
+        "persona_summary_interval": persona_summary_interval,
+        "score_mode": score_mode, "logistic_k": logistic_k,
+    }
 
     # Load world context from uploaded documents (if any)
     world_context = load_world_context()
@@ -1196,19 +1375,38 @@ async def run_simulation(
                       world_context=world_context),
     ]
 
+    # ── FLAME boot (optional — auto-configures W&B + Optuna) ─────────────
+    use_flame = flame_enabled if flame_enabled is not None else FLAME_ENABLED
+    flame_engine, flame_bridge = None, None
+    flame_ctx = None
+    if use_flame:
+        from simulation.flame_setup import flame_boot
+        flame_ctx = flame_boot(run_config, flame_config, n_participants)
+        flame_engine = flame_ctx.engine
+        flame_bridge = flame_ctx.bridge
+    else:
+        # 2-GPU mode: W&B still available but without FLAME enrichment
+        tracker.init_run(run_config)
+
     # Compact header
     detection = detect_missing_context()
     ctx_status = f"{detection['n_documents']} docs" if detection["has_context"] else "no context"
     if detection["missing"]:
         ctx_status += f" | missing: {', '.join(m['category'] for m in detection['missing'])}"
-    print(f"\n\u2500\u2500 sim v3 | {n_ticks} ticks | {n_participants} agents | K={k} | {score_mode} \u2500\u2500")
+    gpu_label = "2 GPUs"
+    if flame_engine is not None:
+        gpu_label = f"3 GPUs (FLAME: {flame_engine.config['n_population']} pop)"
+    print(f"\n\u2500\u2500 sim v3 | {n_ticks} ticks | {n_participants} agents | K={k} | {score_mode} | {gpu_label} \u2500\u2500")
     print(f"  context: {ctx_status}")
 
     try:
         for tick in range(1, n_ticks + 1):
             ivs_before = len(world_state.active_interventions)
-            await run_tick(tick, environment, participants, observers, world_state,
-                          alpha, max_tokens, score_mode, logistic_k)
+            flame_snapshot = await run_tick(
+                tick, environment, participants, observers, world_state,
+                alpha, max_tokens, score_mode, logistic_k,
+                flame_engine, flame_bridge,
+            )
 
             # Compact tick line
             bar_filled = int(tick / n_ticks * 12)
@@ -1231,6 +1429,11 @@ async def run_simulation(
             compliance_this_tick = [c for c in world_state.compliance_report() if c["tick"] == tick]
             if compliance_this_tick:
                 events.append(f"! {len(compliance_this_tick)} violations")
+            if flame_snapshot is not None:
+                events.append(
+                    f"\u25a3 pop \u03bc={flame_snapshot.mean_score:.2f} "
+                    f"\u03c3={flame_snapshot.std_score:.2f}"
+                )
 
             event_str = "  " + "  ".join(events) if events else ""
             print(f"  T{tick:<3d} {bar}  {scores_str}{event_str}")
@@ -1249,13 +1452,28 @@ async def run_simulation(
                     tick_events.append({"type": "persona", "detail": "persona summary refresh"})
                 if compliance_this_tick:
                     tick_events.append({"type": "compliance", "detail": f"{len(compliance_this_tick)} violations"})
-                on_tick({
+                tick_info = {
                     "tick": tick,
                     "n_ticks": n_ticks,
                     "pct": pct,
                     "scores": [round(p.behavioral_score, 3) for p in participants],
                     "events": tick_events,
-                })
+                }
+                if flame_snapshot is not None:
+                    tick_info["flame"] = {
+                        "mean_score": round(flame_snapshot.mean_score, 4),
+                        "std_score": round(flame_snapshot.std_score, 4),
+                        "n_population": flame_snapshot.n_population,
+                        "histogram": flame_snapshot.histogram,
+                    }
+                on_tick(tick_info)
+
+            # W&B per-tick logging (no-op if wandb not installed)
+            tracker.log_tick(
+                tick,
+                [p.behavioral_score for p in participants],
+                flame_snapshot,
+            )
 
     finally:
         _cfg.INTERVENTION_THRESHOLD = _original_threshold
@@ -1273,6 +1491,11 @@ async def run_simulation(
         summary_parts.append(f"{stats['n_above_threshold']}/{stats['n_total']} above 0.7")
     if compliance:
         summary_parts.append(f"{len(compliance)} violations")
+    if flame_engine is not None:
+        flame_stats = flame_engine.get_population_stats()
+        summary_parts.append(
+            f"FLAME pop \u03bc={flame_stats['mean_score']:.2f}"
+        )
 
     # Export results
     run_config = {
@@ -1283,7 +1506,27 @@ async def run_simulation(
         "persona_summary_interval": persona_summary_interval,
         "score_mode": score_mode, "logistic_k": logistic_k,
     }
+    if flame_engine is not None:
+        run_config["flame"] = flame_engine.config
     run_dir = export_results(participants, world_state, run_config, duration_s)
+
+    # Export FLAME population data alongside dualmirakl output
+    if flame_bridge is not None:
+        flame_bridge.export_snapshots(os.path.join(run_dir, "flame_population.json"))
+        logger.info("FLAME population data exported to %s", run_dir)
+
+    # W&B summary + artifact (no-op if wandb not installed)
+    flame_final = flame_stats if flame_engine is not None else None
+    tracker.log_summary(stats, flame_final, duration_s, len(compliance))
+    tracker.log_artifact(run_dir, f"run_{seed}")
+    tracker.finish()
+
+    # Shutdown FLAME context (engine + all handles)
+    if flame_ctx is not None:
+        flame_ctx.shutdown()
+    elif flame_engine is not None:
+        flame_engine.shutdown()
+
     print(f"\n  \u2500\u2500 done {' | '.join(summary_parts)} \u2500\u2500")
     print(f"  \u2500\u2500 {run_dir} \u2500\u2500")
 
@@ -1362,6 +1605,11 @@ def export_results(
     ]
     (run_dir / "interventions.json").write_text(json.dumps(interventions, indent=2))
 
+    # Full event stream (unified audit log)
+    (run_dir / "event_stream.json").write_text(
+        json.dumps(world_state.stream.export(), indent=2)
+    )
+
     logger.info(f"Results exported to {run_dir}")
     return str(run_dir)
 
@@ -1434,15 +1682,27 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     print("\n\u2500\u2500 multi-agent simulation (v3) \u2500\u2500")
-    print("Modes: [s]imulation (default) | [m]orris screening | [b]sobol analysis\n")
+    print("Modes: [s]imulation (default) | [m]orris screening | [b]sobol analysis | [o]ptuna optimization\n")
 
-    mode = input("  Mode [s/m/b]: ").strip().lower() or "s"
+    mode = input("  Mode [s/m/b/o]: ").strip().lower() or "s"
 
     if mode in ("m", "morris"):
         run_sensitivity_analysis(mode="morris")
 
     elif mode in ("b", "sobol"):
         run_sensitivity_analysis(mode="sobol")
+
+    elif mode in ("o", "optuna"):
+        from simulation.optimize import run_optimization
+        _e = lambda k, d: os.environ.get(k, d)
+        opt_mode = _prompt("Optuna mode", "fast", str, "fast|full")
+        n_trials = _prompt("Number of trials", 100, int, "10-1000")
+        include_flame = _prompt("Include FLAME params", _e("FLAME_ENABLED", "0"), str, "0|1") == "1"
+        target_mean = _prompt("Target mean score", 0.5, float, "0.0-1.0")
+        run_optimization(
+            mode=opt_mode, n_trials=n_trials,
+            include_flame=include_flame, target_mean=target_mean,
+        )
 
     else:
         # Defaults from env vars (set in .env), overridable via interactive prompt
@@ -1457,6 +1717,11 @@ if __name__ == "__main__":
         score_mode     = _prompt("Score mode",              _e("SIM_SCORE_MODE", "ema"),        str,   "ema|logistic")
         logistic_k     = _prompt("Logistic steepness k",    float(_e("SIM_LOGISTIC_K", "6.0")), float, "3.0\u201310.0")
 
+        # FLAME GPU 2 (optional 3rd GPU)
+        flame_default = _e("FLAME_ENABLED", "0")
+        flame_input = _prompt("FLAME GPU 2 (3rd GPU)",  flame_default,  str,   "0=off, 1=on")
+        use_flame = flame_input == "1"
+
         async def main():
             try:
                 await run_simulation(
@@ -1464,6 +1729,7 @@ if __name__ == "__main__":
                     k=k, alpha=alpha, history_window=history_window,
                     max_tokens=max_tokens, seed=seed,
                     score_mode=score_mode, logistic_k=logistic_k,
+                    flame_enabled=use_flame,
                 )
             finally:
                 await close_client()
