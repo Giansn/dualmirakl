@@ -1,0 +1,145 @@
+# dualmirakl Scenario Template
+# Copy this file and customize for your domain.
+# Validate before running: python -m simulation.scenario validate scenarios/your_scenario.yaml
+
+meta:
+  name: "my-scenario"                    # short identifier (no spaces)
+  version: "1.0"                         # semver
+  description: "One-line description"    # injected as {domain_context} in prompts
+
+# ── Agent definitions ─────────────────────────────────────────────────────────
+# Each role defines an agent type with a GPU slot, type, and system prompt.
+# Prompt templates can use {variables} — see BUILTIN_VARIABLES in scenario.py.
+agents:
+  roles:
+    - id: "observer_a"                   # unique identifier
+      slot: "authority"                  # GPU slot: "authority" | "swarm"
+      type: "observer"                   # "observer" | "participant" | "environment"
+      system_prompt: |
+        Your system prompt here. Use {domain_context} for scenario description.
+      max_tokens: 512                    # max response tokens
+
+    - id: "observer_b"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        Your intervention specialist prompt here.
+      max_tokens: 256
+
+    - id: "environment"
+      slot: "authority"
+      type: "environment"
+      system_prompt: |
+        Your environment/stimulus generator prompt here.
+      max_tokens: 256
+
+    - id: "participant_template"
+      slot: "swarm"
+      type: "participant"
+      count: 4                           # how many instances to spawn
+      system_prompt: |
+        You are {agent_name}, a {archetype_label}.
+        Profile: {archetype_profile}
+        {current_stimulus}
+      max_tokens: 128
+
+# ── Archetype profiles ────────────────────────────────────────────────────────
+# Named profiles with arbitrary properties. No cross-product — just define them.
+archetypes:
+  profiles:
+    - id: "K1"
+      label: "Profile A"
+      description: "Description of this archetype"
+      properties:                        # arbitrary key-value pairs
+        trait_x: "high"
+        trait_y: "low"
+    - id: "K2"
+      label: "Profile B"
+      description: "Description of this archetype"
+      properties:
+        trait_x: "low"
+        trait_y: "high"
+
+  distribution:                          # fractions, must sum to 1.0
+    K1: 0.5
+    K2: 0.5
+
+# ── Actions ───────────────────────────────────────────────────────────────────
+# References schemas defined in simulation/action_schema.py.
+actions:
+  schemas:                               # which schemas are active
+    - "respond"
+    - "disengage"
+    - "escalate"
+  instances:                             # per-scenario action instances
+    - id: "primary_action"
+      schema: "respond"
+      prompt_fragment: "How do you respond?"
+
+# ── Score dynamics ────────────────────────────────────────────────────────────
+scoring:
+  mode: "ema"                            # "ema" | "logistic" | "custom"
+  distributions:
+    susceptibility:
+      type: "beta"
+      params: [2, 3]
+    resilience:
+      type: "beta"
+      params: [2, 5]
+  parameters:
+    alpha: 0.15                          # EMA learning rate
+    K: 4                                 # observer frequency (every K ticks)
+    threshold: 0.7                       # score threshold for "above" counting
+    dampening: 1.0                       # default dampening (1.0 = none)
+    coupling_kappa: 0.0                  # peer influence strength
+    logistic_k: 6.0                      # sigmoid steepness (logistic mode only)
+
+# ── Transitions ───────────────────────────────────────────────────────────────
+# Each references a Python function in simulation/transitions.py.
+# Built-ins: escalation_sustained, recovery_sustained, threshold_cross, oscillation_detect
+transitions:
+  - from: "K2"
+    to: "K1"
+    function: "escalation_sustained"
+    params:
+      threshold: 0.8
+      consecutive_ticks: 3
+
+# ── Memory ────────────────────────────────────────────────────────────────────
+memory:
+  enabled: true
+  max_entries_per_agent: 20
+  dedup_threshold: 0.85
+  summary_interval: 10
+
+# ── Safety ────────────────────────────────────────────────────────────────────
+safety:
+  enabled: true
+  action_allowlist: []                   # actions that bypass APPROVE tier
+  max_retries_on_invalid: 2
+  fallback_action: "primary_action"
+
+# ── Context detection ─────────────────────────────────────────────────────────
+# Categories for document upload validation (detect_missing_context).
+context_categories:
+  - id: "scenario_description"
+    description: "What is being simulated and why"
+    required: true
+  - id: "agent_characteristics"
+    description: "Properties and behaviors of the simulated entities"
+    required: true
+
+# ── FLAME GPU 2 (optional) ───────────────────────────────────────────────────
+flame:
+  enabled: false
+  population_size: 10000
+  kappa: 0.05
+  influencer_weight: 0.8
+  sub_steps: 4
+
+# ── Environment ───────────────────────────────────────────────────────────────
+environment:
+  tick_count: 100
+  tick_unit: "step"                      # "step" | "hour" | "day" | "week"
+  initial_state:                         # arbitrary key-value pairs for prompts
+    example_param: 0.5
