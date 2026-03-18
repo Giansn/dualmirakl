@@ -50,6 +50,7 @@ from simulation.action_schema import (
     PARTICIPANT_ACTIONS, OBSERVER_A_ACTIONS, OBSERVER_B_ACTIONS,
     schema_to_prompt, parse_action, extract_narrative,
 )
+from simulation.agent_memory import AgentMemoryStore
 from orchestrator import agent_turn, close_client
 from simulation.tracking import tracker
 
@@ -495,6 +496,7 @@ class WorldState:
     active_interventions: list[Intervention] = field(default_factory=list)
     _compliance_log: list[dict] = field(default_factory=list)
     stream: EventStream = field(default_factory=EventStream)
+    memory: Optional[AgentMemoryStore] = field(default=None)
 
     pom_targets: dict = field(default_factory=lambda: {
         "score_distribution": None,
@@ -1007,8 +1009,17 @@ class ParticipantAgent:
         # Persona summaries handled at tick level (concurrent pre-phase)
         nudge = world_state.participant_nudges()
         nudge_note = f" {nudge}" if nudge else ""
+
+        # Retrieve relevant memories and inject into prompt
+        memory_context = ""
+        if world_state.memory is not None:
+            memory_context = world_state.memory.format_for_prompt(
+                self.agent_id, stimulus, tick, top_k=3,
+            )
+
         # [Fix 6] Score NOT included in participant prompt
         prompt = (
+            f"{memory_context}"
             f"[Tick {tick}]{nudge_note} "
             f"The environment presents: \"{stimulus[:120]}\". "
             f"How do you respond? What do you do?"
@@ -1031,6 +1042,12 @@ class ParticipantAgent:
         self._last_parsed = parse_action(response, PARTICIPANT_ACTIONS)
         if self._last_parsed:
             logger.debug(f"[{self.agent_id}] structured: action={self._last_parsed.get('action')}")
+
+        # Store memory if agent included one in structured output
+        if world_state.memory is not None:
+            world_state.memory.process_agent_memory_output(
+                self.agent_id, self._last_parsed, tick,
+            )
 
         # [Fix 9] Compliance check (on narrative or raw text)
         check_text = extract_narrative(self._last_parsed, response)
@@ -1426,6 +1443,12 @@ async def run_simulation(
 
     set_seed(seed)
     world_state = WorldState(k=k)
+
+    # Initialize agent memory store (reuses e5-small-v2 embedding model)
+    def _embed_single(text: str) -> np.ndarray:
+        return _get_embed().encode([text])[0]
+    world_state.memory = AgentMemoryStore(embed_fn=_embed_single)
+
     environment = EnvironmentAgent(history_window=history_window, world_context=world_context)
     participants = [
         ParticipantAgent(f"participant_{i}", history_window=history_window)
@@ -1674,6 +1697,12 @@ def export_results(
     (run_dir / "event_stream.json").write_text(
         json.dumps(world_state.stream.export(), indent=2)
     )
+
+    # Agent memories (if any were stored during the run)
+    if world_state.memory is not None and len(world_state.memory) > 0:
+        (run_dir / "agent_memories.json").write_text(
+            json.dumps(world_state.memory.export(), indent=2)
+        )
 
     logger.info(f"Results exported to {run_dir}")
     return str(run_dir)

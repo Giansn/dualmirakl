@@ -52,6 +52,10 @@ PARTICIPANT_ACTIONS = {
                     "type": "string",
                     "description": "Free-form first-person narrative of the response (preserves behavioral richness).",
                 },
+                "memory": {
+                    "type": "object",
+                    "description": "Optional: something important to remember for later. Include title, content, and tags.",
+                },
             },
             "required": ["action", "emotion", "narrative"],
         },
