@@ -91,6 +91,39 @@ def _full_config() -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+class TestFrozenConfig:
+    def test_config_is_immutable(self):
+        config = ScenarioConfig.from_dict(_minimal_config())
+        with pytest.raises(Exception):
+            config.meta = MetaConfig(name="changed")
+
+    def test_replicate_with_seed(self):
+        config = ScenarioConfig.from_dict(_full_config())
+        copy = config.replicate(seed=123)
+        assert copy.environment.initial_state.get("seed") == 123
+        # Original unchanged
+        assert config.environment.initial_state.get("seed") is None
+
+    def test_replicate_with_scoring_override(self):
+        config = ScenarioConfig.from_dict(_full_config())
+        copy = config.replicate(scoring_alpha=0.3)
+        assert copy.scoring.parameters["alpha"] == 0.3
+        # Original unchanged
+        assert config.scoring.parameters["alpha"] == 0.15
+
+    def test_replicate_returns_new_instance(self):
+        config = ScenarioConfig.from_dict(_full_config())
+        copy = config.replicate(seed=42)
+        assert config is not copy
+
+    def test_replicate_preserves_other_fields(self):
+        config = ScenarioConfig.from_dict(_full_config())
+        copy = config.replicate(seed=99)
+        assert copy.meta.name == config.meta.name
+        assert len(copy.archetypes.profiles) == len(config.archetypes.profiles)
+        assert copy.scoring.mode == config.scoring.mode
+
+
 class TestFromDict:
     def test_minimal_config(self):
         config = ScenarioConfig.from_dict(_minimal_config())

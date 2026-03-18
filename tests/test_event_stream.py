@@ -244,6 +244,50 @@ class TestAggregates:
         assert stream.response_texts(99) == {}
 
 
+# ── Batch emit ────────────────────────────────────────────────────────────────
+
+class TestBatchEmit:
+    def test_batch_emits_all(self):
+        stream = EventStream()
+        with stream.batch() as b:
+            b.emit(1, "A", STIMULUS, "p_0", {"content": "a"})
+            b.emit(1, "A", STIMULUS, "p_1", {"content": "b"})
+            b.emit(1, "A", STIMULUS, "p_2", {"content": "c"})
+        assert len(stream) == 3
+
+    def test_batch_indexes_correctly(self):
+        stream = EventStream()
+        with stream.batch() as b:
+            b.emit(1, "A", STIMULUS, "p_0", {"content": "a"})
+            b.emit(1, "B", RESPONSE, "p_0", {"content": "b"})
+        assert len(stream.query(event_type=STIMULUS)) == 1
+        assert len(stream.query(event_type=RESPONSE)) == 1
+        assert len(stream.query(agent_id="p_0")) == 2
+        assert len(stream.tick_events(1)) == 2
+
+    def test_batch_not_visible_during(self):
+        stream = EventStream()
+        stream.emit(0, "A", STIMULUS, "env", {"content": "pre"})
+        with stream.batch() as b:
+            b.emit(1, "A", STIMULUS, "p_0", {"content": "a"})
+            # During batch, events are pending — only pre-existing visible
+            assert len(stream) == 1
+        # After batch, all visible
+        assert len(stream) == 2
+
+    def test_batch_empty(self):
+        stream = EventStream()
+        with stream.batch() as b:
+            pass  # no emissions
+        assert len(stream) == 0
+
+    def test_batch_returns_events(self):
+        stream = EventStream()
+        with stream.batch() as b:
+            e = b.emit(1, "A", STIMULUS, "p_0", {"content": "test"})
+        assert e.agent_id == "p_0"
+
+
 # ── Introspection ─────────────────────────────────────────────────────────────
 
 class TestIntrospection:

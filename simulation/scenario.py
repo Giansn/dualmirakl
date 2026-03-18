@@ -182,7 +182,12 @@ class ScenarioConfig(BaseModel):
     """
     Complete scenario configuration loaded from YAML.
     Single source of truth for all domain-specific simulation parameters.
+
+    Frozen after creation: config cannot be mutated during a simulation run.
+    Use replicate(seed) for parameter sweeps with different seeds.
     """
+    model_config = {"frozen": True}
+
     meta: MetaConfig
     agents: AgentsConfig
     archetypes: ArchetypesConfig = Field(default_factory=lambda: ArchetypesConfig(profiles=[], distribution={}))
@@ -213,6 +218,31 @@ class ScenarioConfig(BaseModel):
     def from_dict(cls, data: dict) -> ScenarioConfig:
         """Create from a dictionary (for API usage)."""
         return cls.model_validate(data)
+
+    def replicate(self, seed: Optional[int] = None, **overrides) -> ScenarioConfig:
+        """
+        Create a copy with a different seed or parameter overrides.
+        Used for SA sweeps and multi-seed runs. Since ScenarioConfig is frozen,
+        this is the only way to create a variant.
+
+        Args:
+            seed: New random seed (stored in environment.initial_state["seed"])
+            **overrides: Nested overrides like scoring_alpha=0.2
+        """
+        data = self.model_dump(by_alias=True)
+        if seed is not None:
+            data.setdefault("environment", {}).setdefault("initial_state", {})["seed"] = seed
+        for key, value in overrides.items():
+            if key.startswith("scoring_"):
+                param = key[len("scoring_"):]
+                data.setdefault("scoring", {}).setdefault("parameters", {})[param] = value
+            elif key.startswith("flame_"):
+                param = key[len("flame_"):]
+                data.setdefault("flame", {})[param] = value
+            elif key.startswith("memory_"):
+                param = key[len("memory_"):]
+                data.setdefault("memory", {})[param] = value
+        return ScenarioConfig.from_dict(data)
 
     # ── Validation ────────────────────────────────────────────────────────
 

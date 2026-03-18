@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from simulation.scenario import ScenarioConfig
-from simulation.agents import AgentFactory, AgentSpec, _safe_format, _assign_profiles
+from simulation.agents import AgentFactory, AgentSpec, AgentSet, _safe_format, _assign_profiles
 from simulation.scoring import ScoreEngine, EMAScoreEngine, LogisticScoreEngine
 
 
@@ -57,36 +57,41 @@ def _test_config() -> ScenarioConfig:
 
 
 class TestAgentFactory:
+    def test_returns_agentset(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        assert isinstance(agents, AgentSet)
+
     def test_creates_all_roles(self):
         config = _test_config()
         agents = AgentFactory.from_config(config)
-        assert len(agents["observers"]) == 2
-        assert len(agents["environment"]) == 1
-        assert len(agents["participants"]) == 4
+        assert len(agents.by_type("observer")) == 2
+        assert len(agents.by_type("environment")) == 1
+        assert len(agents.by_type("participant")) == 4
 
     def test_participant_ids(self):
         config = _test_config()
         agents = AgentFactory.from_config(config)
-        ids = [a.agent_id for a in agents["participants"]]
+        ids = agents.by_type("participant").ids()
         assert ids == ["participant_0", "participant_1", "participant_2", "participant_3"]
 
     def test_observer_slot(self):
         config = _test_config()
         agents = AgentFactory.from_config(config)
-        for obs in agents["observers"]:
+        for obs in agents.by_type("observer"):
             assert obs.slot == "authority"
             assert obs.backend == "authority"
 
     def test_participant_slot(self):
         config = _test_config()
         agents = AgentFactory.from_config(config)
-        for p in agents["participants"]:
+        for p in agents.by_type("participant"):
             assert p.slot == "swarm"
 
     def test_profiles_assigned(self):
         config = _test_config()
         agents = AgentFactory.from_config(config, rng=np.random.RandomState(42))
-        profiles = [a.profile for a in agents["participants"]]
+        profiles = [a.profile for a in agents.by_type("participant")]
         assert all(p is not None for p in profiles)
         labels = {p.label for p in profiles}
         assert labels == {"Bold", "Cautious"}
@@ -95,7 +100,7 @@ class TestAgentFactory:
         """With 50/50 distribution and 4 agents, should get 2 of each."""
         config = _test_config()
         agents = AgentFactory.from_config(config, rng=np.random.RandomState(42))
-        labels = [a.profile.label for a in agents["participants"]]
+        labels = [a.profile.label for a in agents.by_type("participant")]
         assert labels.count("Bold") == 2
         assert labels.count("Cautious") == 2
 
@@ -103,15 +108,15 @@ class TestAgentFactory:
         config = _test_config()
         a1 = AgentFactory.from_config(config, rng=np.random.RandomState(42))
         a2 = AgentFactory.from_config(config, rng=np.random.RandomState(42))
-        labels1 = [a.profile.id for a in a1["participants"]]
-        labels2 = [a.profile.id for a in a2["participants"]]
+        labels1 = [a.profile.id for a in a1.by_type("participant")]
+        labels2 = [a.profile.id for a in a2.by_type("participant")]
         assert labels1 == labels2
 
     def test_domain_context_propagated(self):
         config = _test_config()
         agents = AgentFactory.from_config(config)
-        assert agents["observers"][0].domain_context == "Test scenario"
-        assert agents["participants"][0].domain_context == "Test scenario"
+        assert agents.by_type("observer")[0].domain_context == "Test scenario"
+        assert agents.by_type("participant")[0].domain_context == "Test scenario"
 
     def test_no_profiles_gives_none(self):
         config = ScenarioConfig.from_dict({
@@ -122,21 +127,21 @@ class TestAgentFactory:
             ]},
         })
         agents = AgentFactory.from_config(config)
-        assert all(a.profile is None for a in agents["participants"])
+        assert all(a.profile is None for a in agents.by_type("participant"))
 
 
 class TestAgentSpec:
     def test_render_prompt_builtins(self):
         config = _test_config()
         agents = AgentFactory.from_config(config)
-        obs = agents["observers"][0]
+        obs = agents.by_type("observer")[0]
         rendered = obs.render_prompt()
         assert "Test scenario" in rendered  # {domain_context}
 
     def test_render_prompt_profile(self):
         config = _test_config()
         agents = AgentFactory.from_config(config, rng=np.random.RandomState(42))
-        p = agents["participants"][0]
+        p = agents.by_type("participant")[0]
         rendered = p.render_prompt()
         assert p.agent_id in rendered  # {agent_name}
         assert p.profile.label in rendered  # {archetype_label}
@@ -144,7 +149,7 @@ class TestAgentSpec:
     def test_render_prompt_tick_state(self):
         config = _test_config()
         agents = AgentFactory.from_config(config)
-        obs = agents["observers"][0]
+        obs = agents.by_type("observer")[0]
         rendered = obs.render_prompt({"domain_context": "OVERRIDE"})
         assert "OVERRIDE" in rendered
 
@@ -158,10 +163,74 @@ class TestAgentSpec:
     def test_repr(self):
         config = _test_config()
         agents = AgentFactory.from_config(config, rng=np.random.RandomState(42))
-        r = repr(agents["participants"][0])
+        r = repr(agents.by_type("participant")[0])
         assert "participant_0" in r
         assert "participant" in r
         assert "swarm" in r
+
+
+class TestAgentSet:
+    def test_by_slot(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        authority = agents.by_slot("authority")
+        assert len(authority) == 3  # 2 observers + 1 environment
+        swarm = agents.by_slot("swarm")
+        assert len(swarm) == 4  # 4 participants
+
+    def test_by_type(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        assert len(agents.by_type("observer")) == 2
+        assert len(agents.by_type("participant")) == 4
+        assert len(agents.by_type("environment")) == 1
+
+    def test_by_id(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        obs = agents.by_id("observer_a")
+        assert obs is not None
+        assert obs.agent_id == "observer_a"
+        assert agents.by_id("nonexistent") is None
+
+    def test_select(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        big = agents.select(lambda a: a.max_tokens >= 256)
+        assert len(big) == 3  # 2 observers (512, 256) + 1 env (256)
+
+    def test_agg(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        types = agents.agg("type")
+        assert "observer" in types
+        assert "participant" in types
+
+    def test_ids(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        ids = agents.by_type("participant").ids()
+        assert len(ids) == 4
+        assert "participant_0" in ids
+
+    def test_repr(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        r = repr(agents)
+        assert "AgentSet" in r
+        assert "total=7" in r
+
+    def test_iteration(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        count = sum(1 for _ in agents)
+        assert count == 7
+
+    def test_indexing(self):
+        config = _test_config()
+        agents = AgentFactory.from_config(config)
+        first = agents[0]
+        assert isinstance(first, AgentSpec)
 
 
 class TestSafeFormat:

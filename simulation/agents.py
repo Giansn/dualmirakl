@@ -95,6 +95,71 @@ def _safe_format(template: str, variables: dict) -> str:
     return re.sub(r'\{(\w+)\}', replacer, template)
 
 
+class AgentSet:
+    """
+    Lightweight container for AgentSpec instances (Mesa-inspired).
+
+    Supports filtering by slot/type, aggregation, and iteration.
+    Returned by AgentFactory instead of plain dict-of-lists.
+
+    Usage:
+        agents = AgentFactory.from_config(config)
+        participants = agents.by_type("participant")
+        authority_agents = agents.by_slot("authority")
+        all_ids = agents.agg("agent_id")
+    """
+
+    def __init__(self, specs: Optional[list[AgentSpec]] = None):
+        self._specs: list[AgentSpec] = list(specs or [])
+
+    def by_slot(self, slot: str) -> AgentSet:
+        """Filter to agents on a specific GPU slot."""
+        return AgentSet([s for s in self._specs if s.slot == slot])
+
+    def by_type(self, agent_type: str) -> AgentSet:
+        """Filter to agents of a specific type (observer, participant, environment)."""
+        return AgentSet([s for s in self._specs if s.type == agent_type])
+
+    def by_id(self, agent_id: str) -> Optional[AgentSpec]:
+        """Get a single agent by ID, or None."""
+        for s in self._specs:
+            if s.agent_id == agent_id:
+                return s
+        return None
+
+    def select(self, filter_func) -> AgentSet:
+        """Filter with a custom predicate function."""
+        return AgentSet([s for s in self._specs if filter_func(s)])
+
+    def agg(self, attr: str) -> list:
+        """Collect an attribute from all agents into a list."""
+        return [getattr(s, attr) for s in self._specs]
+
+    def ids(self) -> list[str]:
+        """Shorthand for agg('agent_id')."""
+        return self.agg("agent_id")
+
+    def to_list(self) -> list[AgentSpec]:
+        """Return the underlying list."""
+        return list(self._specs)
+
+    def __len__(self) -> int:
+        return len(self._specs)
+
+    def __iter__(self):
+        return iter(self._specs)
+
+    def __getitem__(self, idx):
+        return self._specs[idx]
+
+    def __repr__(self) -> str:
+        types = {}
+        for s in self._specs:
+            types[s.type] = types.get(s.type, 0) + 1
+        parts = [f"{t}={n}" for t, n in sorted(types.items())]
+        return f"AgentSet({', '.join(parts)}, total={len(self)})"
+
+
 class AgentFactory:
     """
     Creates AgentSpec instances from a ScenarioConfig.
@@ -109,36 +174,27 @@ class AgentFactory:
     def from_config(
         config: ScenarioConfig,
         rng: Optional[np.random.RandomState] = None,
-    ) -> dict[str, list[AgentSpec]]:
+    ) -> AgentSet:
         """
-        Build all agent specs from config.
+        Build all agent specs from config. Returns an AgentSet.
 
-        Returns a dict:
-          {
-            "observers": [AgentSpec, ...],
-            "environment": [AgentSpec],
-            "participants": [AgentSpec, ...],
-          }
+        Legacy dict access:
+          agents.by_type("observer")   replaces  result["observers"]
+          agents.by_type("participant") replaces  result["participants"]
+          agents.by_type("environment") replaces  result["environment"]
         """
         if rng is None:
             rng = np.random.RandomState(42)
 
-        result: dict[str, list[AgentSpec]] = {
-            "observers": [],
-            "environment": [],
-            "participants": [],
-        }
-
+        specs: list[AgentSpec] = []
         domain_context = config.domain_context
 
         for role in config.agents.roles:
             if role.type == "observer":
-                spec = AgentSpec(role.id, role, domain_context=domain_context)
-                result["observers"].append(spec)
+                specs.append(AgentSpec(role.id, role, domain_context=domain_context))
 
             elif role.type == "environment":
-                spec = AgentSpec(role.id, role, domain_context=domain_context)
-                result["environment"].append(spec)
+                specs.append(AgentSpec(role.id, role, domain_context=domain_context))
 
             elif role.type == "participant":
                 count = role.count or 1
@@ -149,13 +205,12 @@ class AgentFactory:
                 for i in range(count):
                     agent_id = f"participant_{i}"
                     profile = profiles[i] if i < len(profiles) else None
-                    spec = AgentSpec(
+                    specs.append(AgentSpec(
                         agent_id, role, profile=profile,
                         domain_context=domain_context,
-                    )
-                    result["participants"].append(spec)
+                    ))
 
-        return result
+        return AgentSet(specs)
 
 
 def _assign_profiles(

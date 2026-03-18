@@ -20,6 +20,7 @@ Event types:
 
 from __future__ import annotations
 
+import contextlib
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -110,6 +111,40 @@ class EventStream:
         self._by_agent.setdefault(agent_id, []).append(event)
         self._by_type.setdefault(event_type, []).append(event)
         return event
+
+    # ── Batch emit ─────────────────────────────────────────────────────────
+
+    @contextlib.contextmanager
+    def batch(self):
+        """
+        Context manager for batched event emission (Mesa-inspired optimization).
+
+        Defers index updates until the batch completes. Events are appended to
+        _events immediately but _by_tick/_by_agent/_by_type are built once on exit.
+
+        Usage:
+            with stream.batch() as b:
+                b.emit(tick, "A", STIMULUS, "p_0", {...})
+                b.emit(tick, "A", STIMULUS, "p_1", {...})
+            # indices updated here
+        """
+        pending: list[SimEvent] = []
+
+        class BatchEmitter:
+            def emit(_, tick, phase, event_type, agent_id, payload):
+                event = SimEvent(tick=tick, phase=phase, event_type=event_type,
+                                 agent_id=agent_id, payload=payload)
+                pending.append(event)
+                return event
+
+        yield BatchEmitter()
+
+        # Flush: append all and index in one pass
+        for event in pending:
+            self._events.append(event)
+            self._by_tick.setdefault(event.tick, []).append(event)
+            self._by_agent.setdefault(event.agent_id, []).append(event)
+            self._by_type.setdefault(event.event_type, []).append(event)
 
     # ── Query ─────────────────────────────────────────────────────────────
 
