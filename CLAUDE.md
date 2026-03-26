@@ -11,7 +11,7 @@ bash pull_models.sh             # download models to $HF_HOME
 python -m simulation.sim_loop  # run simulation (interactive CLI, legacy mode)
 python -m simulation.sim_loop --scenario scenarios/social_dynamics.yaml  # scenario-driven
 python -m simulation.scenario validate scenarios/foo.yaml  # dry-run validation (zero GPU)
-python -m pytest tests/ -v     # 442 tests, no vLLM needed
+python -m pytest tests/ -v     # 508 tests, no vLLM needed
 python simulation/dynamics.py  # dynamics analysis demo (A-H)
 ```
 
@@ -52,6 +52,7 @@ safety:        enabled, action_allowlist, fallback_action
 context_categories:  domain-specific document detection categories
 flame:         enabled, population_size, kappa, influencer_weight
 react:         enabled, max_steps, tools (ReACT observer config)
+topologies:    list of {id, type, weight, cluster_size} (dual-environment)
 environment:   tick_count, tick_unit, initial_state
 ```
 
@@ -93,6 +94,14 @@ MiroFish-inspired multi-step observer. Instead of single-pass analysis, iterativ
 
 Real-time knowledge graph feedback loop. EventStream events distilled into a NetworkX-style shared graph after each tick. Entities: agents, score regions, intervention nodes, behavioral patterns. Temporal edges with valid_at/invalid_at. Queryable by the ReACT observer via query_graph tool. Exported as part of run data.
 
+### Dual-Environment Topologies (simulation/topology.py)
+
+MiroFish-inspired dual-platform architecture. Agents experience multiple interaction topologies simultaneously (Option A: dual-context, single-response). Types: `independent` (broadcast, default) and `clustered` (agents grouped, see neighbors). Combined stimuli in Phase B, single score signal. Zero overhead when single topology. Configure via `topologies:` list in scenario YAML.
+
+### Ontology Generator (simulation/ontology_generator.py)
+
+LLM-generated archetypes and transitions from domain documents. Uses authority backend to auto-generate profiles, distribution fractions, and transition rules. Lowers scenario authoring barrier. Output mergeable into ScenarioConfig.
+
 ## Analysis Toolkit (dynamics.py)
 
 A: Coupled ODE | B: Bifurcation sweep | C: Lyapunov | D: Sobol S2 | E: Transfer entropy | F: Emergence index | G-pre: Attractor basins | G: Stochastic resonance | H: WorldState bridge
@@ -125,6 +134,8 @@ Boot sequence (`flame_setup.py`): auto-configures engine + W&B + Optuna. Status:
 | `simulation/safety.py` | Observer mode + safety classification |
 | `simulation/react_observer.py` | ReACT observer with tool use (MiroFish-inspired) |
 | `simulation/graph_memory.py` | Real-time graph memory feedback loop |
+| `simulation/topology.py` | Dual-environment topology manager |
+| `simulation/ontology_generator.py` | LLM-generated ontology from documents |
 | `simulation/dynamics.py` | 8-module analysis toolkit |
 | `simulation/agent_rolesv3.py` | Legacy roles, anchors, codebook, compliance |
 | `simulation/flame/` | FLAME GPU 2 engine, bridge, models |
@@ -136,7 +147,7 @@ Boot sequence (`flame_setup.py`): auto-configures engine + W&B + Optuna. Status:
 
 ## Gateway API
 
-`/` UI | `/health` | `/v1/chat/completions` proxy | `/v1/embeddings` e5 | `/v1/models` | `/v1/documents` CRUD+query | `/simulation/preflight` | `/simulation/detect` | `/simulation/start` POST | `/simulation/status` GET | `/simulation/results` GET
+`/` UI | `/health` | `/v1/chat/completions` proxy | `/v1/embeddings` e5 | `/v1/models` | `/v1/documents` CRUD+query | `/v1/interview` POST (live agent interview) | `/simulation/preflight` | `/simulation/detect` | `/simulation/start` POST | `/simulation/status` GET | `/simulation/results` GET
 
 ## Deployment
 
