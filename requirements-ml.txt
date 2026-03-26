@@ -1,0 +1,15 @@
+# ML extensions for dualmirakl
+# Install: pip install -r requirements-ml.txt
+
+# Chaos / nonlinear dynamics
+nolds>=0.6.1
+
+# Sensitivity analysis
+SALib>=1.5.2
+
+# Stats (likely already installed via main requirements)
+# scipy>=1.17
+# scikit-learn>=1.5
+
+# Already in requirements.txt (reference):
+# jax, numpyro, numpy, simpy, duckdb, httpx
