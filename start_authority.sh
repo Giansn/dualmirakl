@@ -29,6 +29,6 @@ exec python -m vllm.entrypoints.openai.api_server \
   --max-model-len "$MAX_MODEL_LEN" \
   --max-num-seqs "$MAX_NUM_SEQS" \
   --trust-remote-code \
-  --disable-log-requests \
+  --no-enable-log-requests \
   $QUANT_FLAGS \
   $EXTRA_FLAGS
