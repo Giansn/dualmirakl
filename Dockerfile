@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── vLLM (separate layer — largest dep, benefits from cache) ──────────────────
-RUN pip install vllm==0.16.0
+RUN pip install vllm==0.18.0
 
 # ── Project Python dependencies ──────────────────────────────────────────────
 RUN pip install \
