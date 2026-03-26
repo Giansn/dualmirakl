@@ -821,11 +821,12 @@ async function sendMessage() {
             }}catch{}
         }
       }
+      amsg.content=stripThink(amsg.content);
       const ms=document.querySelectorAll('.msg.assistant');const last=ms[ms.length-1];if(last) last.querySelector('.msg-bd').innerHTML=fmt(amsg.content);
     } else {
       const res=await fetch(`${url.chat()}/v1/chat/completions`,{method:'POST',headers:url.hdrs(),body:JSON.stringify({model:'authority',messages:apiMsgs,max_tokens:c.maxTok,temperature:c.temp,stream:false})});
       const d=await res.json();
-      amsg.content=d.choices?.[0]?.message?.content||d.error?.message||'Empty response — try a new chat or rephrase your message.';
+      amsg.content=stripThink(d.choices?.[0]?.message?.content)||d.error?.message||'Empty response — try a new chat or rephrase your message.';
       outToks=d.usage?.completion_tokens||tok(amsg.content);
       chat.messages.push(amsg); ty.classList.remove('vis'); renderMessages();
     }
