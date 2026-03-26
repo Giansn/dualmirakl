@@ -1165,11 +1165,8 @@ async function checkHealth(ep,dotId,path='/v1/models'){
   } catch{d.className='dot off';}
 }
 function runHealth(){
-  // Gateway serves all three — check via gateway proxy when using local mode
-  const gw=url.gw();
-  checkHealth(gw,'stEmbed','/v1/models');        // gateway itself (always up if reachable)
-  checkHealth(url.chat(),'stAuth','/v1/models');  // authority backend
-  checkHealth(url.bg(),'stSwarm','/v1/models');   // swarm backend
+  checkHealth(url.chat(),'stAuth','/v1/models');
+  checkHealth(url.bg(),'stSwarm','/v1/models');
 }
 
 // ── INIT ──
