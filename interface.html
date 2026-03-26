@@ -1155,22 +1155,8 @@ async function viewSimResults() {
   }
 }
 
-// ── HEALTH ──
-async function checkHealth(ep,dotId,path='/v1/models'){
-  const d=document.getElementById(dotId);
-  try{
-    const c=new AbortController();setTimeout(()=>c.abort(),4000);
-    const r=await fetch(`${ep}${path}`,{signal:c.signal,headers:url.hdrs()});
-    d.className='dot '+(r.ok?'on':'off');
-  } catch{d.className='dot off';}
-}
-function runHealth(){
-  checkHealth(url.chat(),'stAuth','/v1/models');
-  checkHealth(url.bg(),'stSwarm','/v1/models');
-}
-
 // ── INIT ──
-renderChatList(); renderMessages(); updEmbedCnt(); updBurst(); runHealth(); setInterval(runHealth,30000);
+renderChatList(); renderMessages(); updEmbedCnt(); updBurst();
 </script>
 </body>
 </html>
