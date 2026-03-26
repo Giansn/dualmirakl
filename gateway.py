@@ -276,6 +276,13 @@ _sim_state = {
     "pct": 0,
 }
 
+# Live simulation objects — set by _run(), used by /v1/interview
+_sim_live = {
+    "participants": None,   # list[ParticipantAgent] during run
+    "world_state": None,    # WorldState during run
+    "loop": None,           # asyncio event loop of sim thread
+}
+
 
 @app.get("/simulation/preflight")
 async def sim_preflight():
@@ -338,6 +345,8 @@ async def sim_start(req: Request):
 
         async def _sim():
             try:
+                _sim_live["loop"] = _aio.get_event_loop()
+
                 def _on_tick(info):
                     _sim_state["tick"] = info["tick"]
                     _sim_state["n_ticks"] = info["n_ticks"]
@@ -349,6 +358,11 @@ async def sim_start(req: Request):
                             "pct": info["pct"],
                             **ev,
                         })
+                    # Store live refs for interview endpoint
+                    if "participants" in info:
+                        _sim_live["participants"] = info["participants"]
+                    if "world_state" in info:
+                        _sim_live["world_state"] = info["world_state"]
 
                 participants, world_state = await run_simulation(
                     n_ticks=body.get("n_ticks", 12),
@@ -391,6 +405,9 @@ async def sim_start(req: Request):
             except Exception as e:
                 _sim_state["status"] = f"error: {e}"
             finally:
+                _sim_live["participants"] = None
+                _sim_live["world_state"] = None
+                _sim_live["loop"] = None
                 try:
                     await close_client()
                 except Exception:
@@ -428,6 +445,72 @@ async def sim_results():
             results[fname.replace(".json", "")] = json.loads(fpath.read_text())
 
     return results
+
+
+@app.post("/v1/interview")
+async def interview_agent(req: Request):
+    """
+    Interview a live participant agent mid-simulation.
+
+    Body: {"agent_id": "participant_0", "question": "How are you feeling?"}
+    Returns the agent's in-character response via the swarm GPU.
+
+    Only works while a simulation is running — agents must be live.
+    """
+    body = await req.json()
+    agent_id = body.get("agent_id", "")
+    question = body.get("question", "")
+
+    if not agent_id or not question:
+        return {"error": "agent_id and question are required"}
+
+    if _sim_state["status"] != "running":
+        return {"error": "No simulation running", "status": _sim_state["status"]}
+
+    participants = _sim_live.get("participants")
+    if not participants:
+        return {"error": "Simulation participants not yet initialized"}
+
+    # Find the target agent
+    target = None
+    for p in participants:
+        if p.agent_id == agent_id:
+            target = p
+            break
+
+    if target is None:
+        available = [p.agent_id for p in participants]
+        return {"error": f"Agent '{agent_id}' not found", "available": available}
+
+    # Send interview via swarm GPU
+    tick = _sim_state.get("tick", 0)
+    try:
+        interview_body = {
+            "model": "swarm",
+            "messages": [
+                {"role": "system", "content": target._build_system_prompt()},
+                *target.history[-4:],
+                {"role": "user", "content": (
+                    f"[Interview at tick {tick}] An external observer asks: {question}\n"
+                    f"Answer honestly and in character."
+                )},
+            ],
+            "max_tokens": 192,
+            "temperature": 0.7,
+        }
+        r = await client.post(f"{SWARM}/chat/completions", json=interview_body)
+        r.raise_for_status()
+        response_text = r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        return {"error": f"Interview failed: {e}"}
+
+    return {
+        "agent_id": agent_id,
+        "question": question,
+        "response": response_text,
+        "tick": tick,
+        "score": round(target.behavioral_score, 3),
+    }
 
 
 @app.post("/simulation/optimize")

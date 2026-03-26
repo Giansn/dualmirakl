@@ -58,6 +58,7 @@ from simulation.safety import (
 )
 from orchestrator import agent_turn, close_client
 from simulation.tracking import tracker
+from simulation.topology import TopologyManager, combine_stimuli
 
 logger = logging.getLogger(__name__)
 
@@ -945,6 +946,67 @@ class EnvironmentAgent:
                 stimuli[p.agent_id] = await self.decide(p, world_state, max_tokens=max(64, max_tokens // 2))
             return stimuli
 
+    async def batch_decide_clustered(
+        self,
+        participants: list["ParticipantAgent"],
+        world_state: WorldState,
+        clusters: list,
+        max_tokens: int = 256,
+    ) -> dict[str, str]:
+        """
+        Generate cluster-aware stimuli. Participants in the same cluster
+        share context about their neighbors' recent activity.
+        """
+        constraints = world_state.environment_constraints()
+        constraint_note = f"\nACTIVE CONSTRAINTS: {constraints}" if constraints else ""
+
+        cluster_summaries = []
+        for cluster in clusters:
+            members_info = []
+            for pid in cluster.members:
+                p = next((x for x in participants if x.agent_id == pid), None)
+                if p:
+                    members_info.append(
+                        f"    {pid}: score={p.behavioral_score:.2f}, "
+                        f"last=\"{p.last_response[:50]}\""
+                    )
+            cluster_summaries.append(
+                f"  Cluster {cluster.id} ({len(cluster.members)} members):\n"
+                + "\n".join(members_info)
+            )
+
+        prompt = (
+            f"Generate a community-style stimulus for each participant. "
+            f"Members of the same cluster share a common context — reference "
+            f"what their neighbors are doing. Respond with a JSON object "
+            f"mapping participant_id → stimulus string.{constraint_note}\n\n"
+            + "\n".join(cluster_summaries)
+        )
+
+        batch_max = min(max_tokens * len(participants), max(256, 80 * len(participants)))
+
+        response = await _resilient_agent_turn(
+            agent_id="environment_clustered",
+            backend=self.cfg["backend"],
+            system_prompt=self._system_prompt(),
+            user_message=prompt,
+            history=[],
+            max_tokens=batch_max,
+        )
+
+        try:
+            cleaned = response.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
+            stimuli = json.loads(cleaned)
+            missing = [p.agent_id for p in participants if p.agent_id not in stimuli]
+            if missing:
+                raise ValueError(f"Missing participants in clustered response: {missing}")
+            return stimuli
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"batch_decide_clustered parse failed ({e}), falling back to broadcast")
+            return await self.batch_decide(participants, world_state, max_tokens)
+
 
 class ParticipantAgent:
     """
@@ -1311,6 +1373,8 @@ async def run_tick(
     logistic_k: float = 6.0,
     flame_engine=None,
     flame_bridge=None,
+    topology_manager: Optional[TopologyManager] = None,
+    topology_configs: Optional[list] = None,
 ) -> Optional[dict]:
     """
     Execute one tick with three throughput optimizations:
@@ -1335,15 +1399,48 @@ async def run_tick(
     ])
 
     # -- Phase A -- batch stimulus generation (1 call instead of N) [Opt 1]
-    stimuli = await environment.batch_decide(
-        participants, world_state, max_tokens=max(64, max_tokens // 2)
+    _multi_topo = (
+        topology_configs is not None
+        and len(topology_configs) > 1
+        and topology_manager is not None
     )
 
-    # Emit stimuli to event stream
-    for p in participants:
-        world_state.stream.emit(tick, "A", STIMULUS, p.agent_id, {
-            "content": stimuli.get(p.agent_id, ""),
-        })
+    if _multi_topo:
+        # Multi-topology: generate stimuli per topology, combine for each participant
+        all_stimuli = {}  # {topo_id: {pid: stimulus}}
+        for topo_cfg in topology_configs:
+            if topo_cfg.type == "clustered":
+                clusters = topology_manager.get_clusters(topo_cfg.id)
+                all_stimuli[topo_cfg.id] = await environment.batch_decide_clustered(
+                    participants, world_state, clusters,
+                    max_tokens=max(64, max_tokens // 2),
+                )
+            else:
+                all_stimuli[topo_cfg.id] = await environment.batch_decide(
+                    participants, world_state,
+                    max_tokens=max(64, max_tokens // 2),
+                )
+        # Combine into single stimulus per participant
+        stimuli = {}
+        for p in participants:
+            stimuli[p.agent_id] = combine_stimuli(
+                all_stimuli, p.agent_id, topology_configs,
+            )
+        # Emit with topology metadata
+        for p in participants:
+            payload = {"content": stimuli[p.agent_id]}
+            for topo_cfg in topology_configs:
+                payload[f"topology_{topo_cfg.id}"] = all_stimuli[topo_cfg.id].get(p.agent_id, "")
+            world_state.stream.emit(tick, "A", STIMULUS, p.agent_id, payload)
+    else:
+        # Fast path: single topology (current behavior, zero overhead)
+        stimuli = await environment.batch_decide(
+            participants, world_state, max_tokens=max(64, max_tokens // 2)
+        )
+        for p in participants:
+            world_state.stream.emit(tick, "A", STIMULUS, p.agent_id, {
+                "content": stimuli.get(p.agent_id, ""),
+            })
 
     # [Fix 9] Compliance check on batch output
     for p in participants:
@@ -1645,6 +1742,21 @@ async def run_simulation(
                       world_context=world_context),
     ]
 
+    # ── Topology setup (dual-environment, MiroFish-inspired) ────────────
+    _topo_configs = None
+    _topo_manager = None
+    if scenario_config is not None and len(scenario_config.topologies) > 1:
+        _topo_configs = scenario_config.topologies
+        _topo_manager = TopologyManager()
+        pid_list = [p.agent_id for p in participants]
+        for topo_cfg in _topo_configs:
+            if topo_cfg.type == "clustered":
+                _topo_manager.assign_clusters(
+                    topo_cfg.id, pid_list,
+                    cluster_size=topo_cfg.cluster_size,
+                    rng=_get_rng(),
+                )
+
     # ── FLAME boot (optional — auto-configures W&B + Optuna) ─────────────
     use_flame = flame_enabled if flame_enabled is not None else FLAME_ENABLED
     flame_engine, flame_bridge = None, None
@@ -1676,6 +1788,8 @@ async def run_simulation(
                 tick, environment, participants, observers, world_state,
                 alpha, max_tokens, score_mode, logistic_k,
                 flame_engine, flame_bridge,
+                topology_manager=_topo_manager,
+                topology_configs=_topo_configs,
             )
 
             # Compact tick line
@@ -1728,6 +1842,8 @@ async def run_simulation(
                     "pct": pct,
                     "scores": [round(p.behavioral_score, 3) for p in participants],
                     "events": tick_events,
+                    "participants": participants,
+                    "world_state": world_state,
                 }
                 if flame_snapshot is not None:
                     tick_info["flame"] = {

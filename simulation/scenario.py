@@ -180,6 +180,22 @@ class ReactConfig(BaseModel):
     ])
 
 
+class TopologyConfig(BaseModel):
+    """Dual-environment topology configuration (MiroFish-inspired)."""
+    id: str = "broadcast"
+    type: str = "independent"     # "independent" | "clustered"
+    weight: float = 1.0
+    cluster_size: int = 2
+    recluster_interval: int = 0   # 0 = static, N = recluster every N ticks
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v):
+        if v not in ("independent", "clustered"):
+            raise ValueError(f"topology type must be 'independent' or 'clustered', got '{v}'")
+        return v
+
+
 class EnvironmentConfig(BaseModel):
     tick_count: int = 100
     tick_unit: str = "step"
@@ -209,6 +225,9 @@ class ScenarioConfig(BaseModel):
     context_categories: list[ContextCategory] = Field(default_factory=list)
     flame: FlameConfig = Field(default_factory=FlameConfig)
     react: ReactConfig = Field(default_factory=ReactConfig)
+    topologies: list[TopologyConfig] = Field(
+        default_factory=lambda: [TopologyConfig()],
+    )
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
 
     # ── Loaders ───────────────────────────────────────────────────────────
