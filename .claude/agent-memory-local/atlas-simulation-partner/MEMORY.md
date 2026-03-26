@@ -1,0 +1,1 @@
+- [DualMirakl Architecture](project_architecture.md) -- Multi-agent sim framework: dual Blackwell GPUs, SimPy tick loop, EMA/logistic scoring, FLAME population dynamics
