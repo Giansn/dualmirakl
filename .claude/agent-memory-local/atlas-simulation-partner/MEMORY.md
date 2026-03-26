@@ -1,1 +1,2 @@
 - [DualMirakl Architecture](project_architecture.md) -- Multi-agent sim framework: dual Blackwell GPUs, SimPy tick loop, EMA/logistic scoring, FLAME population dynamics
+- [Extension Review](project_extension_review.md) -- 2026-03-26 assessment: stats/ and parallel/ mostly duplicate dynamics.py and orchestrator.py; bandit needs reward signal; JAX/vLLM coexistence unverified
