@@ -428,7 +428,7 @@ class GraphMemory:
 
         # Edge to all agents (interventions affect population)
         for agent_id in self.nodes_by_type("agent"):
-            if agent_id.startswith("participant_"):
+            if isinstance(agent_id, str) and agent_id.startswith("participant_"):
                 self.add_edge(iv_node, agent_id, INTERVENTION_ON, tick)
 
         return 2
@@ -585,7 +585,7 @@ class GraphMemory:
             if agents:
                 lines.append(f"\nAgents ({len(agents)}):")
                 for aid in sorted(agents):
-                    if not aid.startswith("participant_"):
+                    if not isinstance(aid, str) or not aid.startswith("participant_"):
                         continue
                     props = self._nodes[aid].get("properties", {})
                     score = props.get("latest_score", "?")

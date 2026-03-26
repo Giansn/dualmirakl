@@ -1019,6 +1019,8 @@ class EnvironmentAgent:
             if cleaned.startswith("```"):
                 cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
             stimuli = json.loads(cleaned)
+            # Ensure all values are strings (LLM may return nested objects)
+            stimuli = {k: str(v) if not isinstance(v, str) else v for k, v in stimuli.items()}
             missing = [p.agent_id for p in participants if p.agent_id not in stimuli]
             if missing:
                 raise ValueError(f"Missing participants in batch response: {missing}")
@@ -1542,7 +1544,10 @@ async def run_tick(
 
     # [Fix 9] Compliance check on batch output
     for p in participants:
-        violations = check_compliance(stimuli.get(p.agent_id, ""), "environment")
+        _stim_val = stimuli.get(p.agent_id, "")
+        if not isinstance(_stim_val, str):
+            _stim_val = str(_stim_val)
+        violations = check_compliance(_stim_val, "environment")
         if violations:
             logger.debug(f"[COMPLIANCE] environment tick={tick} violations: {violations}")
             world_state._compliance_log.append({

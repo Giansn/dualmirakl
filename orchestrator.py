@@ -74,7 +74,13 @@ async def agent_turn(
     """Single agent turn. max_tokens=256: action descriptions are short."""
     messages = [{"role": "system", "content": system_prompt}]
     if history:
-        messages.extend(history)
+        # Enforce strict role alternation (Mistral Nemo rejects non-alternating)
+        for msg in history:
+            if messages and msg["role"] == messages[-1]["role"]:
+                # Merge consecutive same-role messages
+                messages[-1]["content"] += "\n" + msg["content"]
+            else:
+                messages.append(msg)
     messages.append({"role": "user", "content": user_message})
     response = await chat(backend, messages, max_tokens=max_tokens)
     return response

@@ -429,15 +429,13 @@ async def sim_start(req: Request):
                 _sim_state["status"] = "completed"
                 _sim_state["tick"] = body.get("n_ticks", 12)
             except Exception as e:
+                import traceback as _tb
                 _sim_state["status"] = f"error: {e}"
+                _tb.print_exc()
             finally:
                 _sim_live["participants"] = None
                 _sim_live["world_state"] = None
                 _sim_live["loop"] = None
-                try:
-                    await close_client()
-                except Exception:
-                    pass
 
         _aio.run(_sim())
 
