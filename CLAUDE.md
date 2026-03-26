@@ -11,7 +11,7 @@ bash pull_models.sh             # download models to $HF_HOME
 python -m simulation.sim_loop  # run simulation (interactive CLI, legacy mode)
 python -m simulation.sim_loop --scenario scenarios/social_dynamics.yaml  # scenario-driven
 python -m simulation.scenario validate scenarios/foo.yaml  # dry-run validation (zero GPU)
-python -m pytest tests/ -v     # 331 tests, no vLLM needed
+python -m pytest tests/ -v     # 442 tests, no vLLM needed
 python simulation/dynamics.py  # dynamics analysis demo (A-H)
 ```
 
@@ -51,6 +51,7 @@ memory:        enabled, max_entries_per_agent, dedup_threshold
 safety:        enabled, action_allowlist, fallback_action
 context_categories:  domain-specific document detection categories
 flame:         enabled, population_size, kappa, influencer_weight
+react:         enabled, max_steps, tools (ReACT observer config)
 environment:   tick_count, tick_unit, initial_state
 ```
 
@@ -82,7 +83,15 @@ Per-agent persistent memory store across ticks. Semantic retrieval via e5-small-
 
 ### Safety Gates (simulation/safety.py)
 
-Observer mode enforcement (ANALYSE vs INTERVENE) + action safety classification (AUTO/REVIEW/APPROVE). dynamics_dampening requires APPROVE tier. Allowlist is the only override mechanism.
+Observer mode enforcement (ANALYSE vs INTERVENE) + action safety classification (AUTO/REVIEW/APPROVE). dynamics_dampening requires APPROVE tier. Allowlist is the only override mechanism. Tool safety tiers: tool.query_* → AUTO, tool.interview_agent → REVIEW.
+
+### ReACT Observer (simulation/react_observer.py)
+
+MiroFish-inspired multi-step observer. Instead of single-pass analysis, iteratively reasons → calls tools → observes results → final answer. Enabled via `react.enabled: true` in scenario YAML. Tools: query_scores, query_events, check_interventions, query_memory, interview_agent, query_graph. Bounded by max_steps (default 5). Drop-in replacement for ObserverAgent.analyse() in Phase D1.
+
+### Graph Memory (simulation/graph_memory.py)
+
+Real-time knowledge graph feedback loop. EventStream events distilled into a NetworkX-style shared graph after each tick. Entities: agents, score regions, intervention nodes, behavioral patterns. Temporal edges with valid_at/invalid_at. Queryable by the ReACT observer via query_graph tool. Exported as part of run data.
 
 ## Analysis Toolkit (dynamics.py)
 
@@ -114,6 +123,8 @@ Boot sequence (`flame_setup.py`): auto-configures engine + W&B + Optuna. Status:
 | `simulation/action_schema.py` | Structured action schemas + parsing |
 | `simulation/agent_memory.py` | Per-agent memory store |
 | `simulation/safety.py` | Observer mode + safety classification |
+| `simulation/react_observer.py` | ReACT observer with tool use (MiroFish-inspired) |
+| `simulation/graph_memory.py` | Real-time graph memory feedback loop |
 | `simulation/dynamics.py` | 8-module analysis toolkit |
 | `simulation/agent_rolesv3.py` | Legacy roles, anchors, codebook, compliance |
 | `simulation/flame/` | FLAME GPU 2 engine, bridge, models |

@@ -44,7 +44,7 @@ class TestSimEvent:
         assert "timestamp" not in d  # not exported
 
     def test_event_type_constants(self):
-        assert len(ALL_EVENT_TYPES) == 9
+        assert len(ALL_EVENT_TYPES) == 11
         assert STIMULUS in ALL_EVENT_TYPES
         assert FLAME_SNAPSHOT in ALL_EVENT_TYPES
 

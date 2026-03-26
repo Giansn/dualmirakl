@@ -128,6 +128,14 @@ ACTION_SAFETY: dict[str, SafetyTier] = {
     "intervene.pacing_adjustment": SafetyTier.REVIEW,
     "intervene.dynamics_dampening": SafetyTier.APPROVE,
 
+    # ── Observer tools (Phase D1 ReACT) — tiered by side effects
+    "tool.query_scores": SafetyTier.AUTO,
+    "tool.query_events": SafetyTier.AUTO,
+    "tool.check_interventions": SafetyTier.AUTO,
+    "tool.query_memory": SafetyTier.AUTO,
+    "tool.interview_agent": SafetyTier.REVIEW,
+    "tool.query_graph": SafetyTier.AUTO,
+
     # ── Future actions (when agents get side effects)
     "modify_parameter": SafetyTier.APPROVE,
     "terminate_agent": SafetyTier.APPROVE,

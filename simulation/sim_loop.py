@@ -44,8 +44,9 @@ from simulation.agent_rolesv3 import (
 from simulation.event_stream import (
     EventStream, SimEvent,
     STIMULUS, RESPONSE, SCORE, OBSERVATION, INTERVENTION as EV_INTERVENTION,
-    COMPLIANCE, FLAME_SNAPSHOT, PERSONA, CONTEXT,
+    COMPLIANCE, FLAME_SNAPSHOT, PERSONA, CONTEXT, TOOL_USE, GRAPH_UPDATE,
 )
+from simulation.graph_memory import GraphMemory
 from simulation.action_schema import (
     PARTICIPANT_ACTIONS, OBSERVER_A_ACTIONS, OBSERVER_B_ACTIONS,
     schema_to_prompt, parse_action, extract_narrative,
@@ -517,6 +518,7 @@ class WorldState:
     stream: EventStream = field(default_factory=EventStream)
     memory: Optional[AgentMemoryStore] = field(default=None)
     safety_gate: SafetyGate = field(default_factory=SafetyGate)
+    graph: Optional[GraphMemory] = field(default=None)
 
     pom_targets: dict = field(default_factory=lambda: {
         "score_distribution": None,
@@ -1379,6 +1381,10 @@ async def run_tick(
         logger.debug(f"[Tick {tick}] Observer cycle (C+D overlapped)...")
         obs_a, obs_b = observers[0], observers[1]
 
+        # Update participant references for ReACT interview tool
+        if hasattr(obs_a, 'set_participants'):
+            obs_a.set_participants(participants)
+
         async def _phase_c():
             # Use narrative text for embedding when structured output is available
             texts = [
@@ -1486,6 +1492,17 @@ async def run_tick(
         })
 
     world_state.apply_interventions()
+
+    # -- Graph memory feedback loop (distill tick events into shared graph) ─
+    if world_state.graph is not None:
+        ops = world_state.graph.distill_tick(tick, world_state.stream)
+        if ops > 0:
+            world_state.stream.emit(tick, "system", GRAPH_UPDATE, "system", {
+                "operations": ops,
+                "n_nodes": world_state.graph.n_nodes,
+                "n_edges": world_state.graph.n_edges,
+            })
+
     return flame_snapshot
 
 
@@ -1582,6 +1599,9 @@ async def run_simulation(
         embed_fn=_embed_single, max_per_agent=mem_max, dedup_threshold=mem_dedup,
     )
 
+    # Initialize graph memory (real-time feedback loop)
+    world_state.graph = GraphMemory()
+
     # Initialize safety gate from config
     if scenario_config is not None and scenario_config.safety.enabled:
         world_state.safety_gate = SafetyGate(
@@ -1593,10 +1613,33 @@ async def run_simulation(
         ParticipantAgent(f"participant_{i}", history_window=history_window)
         for i in range(n_participants)
     ]
+    # ── Observer setup (ReACT or standard) ──────────────────────────────
+    _use_react = False
+    _react_cfg = None
+    if scenario_config is not None and scenario_config.react.enabled:
+        _use_react = True
+        _react_cfg = scenario_config.react
+
+    if _use_react:
+        from simulation.react_observer import ReactObserver
+        obs_a = ReactObserver(
+            "observer_a", "observer_a",
+            max_steps=_react_cfg.max_steps,
+            history_window=history_window,
+            max_tokens=max_tokens,
+            world_context=world_context,
+            enabled_tools=_react_cfg.tools if _react_cfg.tools else None,
+        )
+        obs_a.set_participants(participants)
+    else:
+        obs_a = ObserverAgent(
+            "observer_a", "observer_a",
+            history_window=history_window, max_tokens=max_tokens,
+            world_context=world_context,
+        )
+
     observers = [
-        ObserverAgent("observer_a", "observer_a",
-                      history_window=history_window, max_tokens=max_tokens,
-                      world_context=world_context),
+        obs_a,
         ObserverAgent("observer_b", "observer_b",
                       history_window=history_window, max_tokens=max_tokens,
                       world_context=world_context),

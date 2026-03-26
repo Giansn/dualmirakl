@@ -170,6 +170,16 @@ class FlameConfig(BaseModel):
     sub_steps: int = 4
 
 
+class ReactConfig(BaseModel):
+    """ReACT-style observer configuration (MiroFish-inspired)."""
+    enabled: bool = False
+    max_steps: int = 5
+    tools: list[str] = Field(default_factory=lambda: [
+        "query_scores", "query_events", "check_interventions",
+        "query_memory", "interview_agent",
+    ])
+
+
 class EnvironmentConfig(BaseModel):
     tick_count: int = 100
     tick_unit: str = "step"
@@ -198,6 +208,7 @@ class ScenarioConfig(BaseModel):
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     context_categories: list[ContextCategory] = Field(default_factory=list)
     flame: FlameConfig = Field(default_factory=FlameConfig)
+    react: ReactConfig = Field(default_factory=ReactConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
 
     # ── Loaders ───────────────────────────────────────────────────────────
@@ -403,6 +414,7 @@ def _cli_validate(path: str) -> int:
     print(f"  Memory: {'enabled' if config.memory.enabled else 'disabled'}")
     print(f"  Safety: {'enabled' if config.safety.enabled else 'disabled'}")
     print(f"  FLAME: {'enabled' if config.flame.enabled else 'disabled'}")
+    print(f"  ReACT: {'enabled' if config.react.enabled else 'disabled'}")
     print(f"  Ticks: {config.environment.tick_count}")
     print()
 
