@@ -2225,6 +2225,25 @@ async def run_simulation(
             json.dumps(graph_export, indent=2, default=str)
         )
 
+    # ── Possibility branches report ─────────────────────────────────────
+    try:
+        from simulation.possibility_report import compute_possibility_report, render_cli
+        _report_config = {
+            "alpha": alpha, "kappa": 0.0, "dampening": 1.0,
+            "score_mode": score_mode, "logistic_k": logistic_k,
+            "susceptibility": float(np.mean([p.susceptibility for p in participants])),
+            "resilience": float(np.mean([p.resilience for p in participants])),
+        }
+        _poss_report = compute_possibility_report(
+            score_logs=[p.score_log for p in participants],
+            config=_report_config,
+            run_id=os.path.basename(run_dir),
+        )
+        (Path(run_dir) / "possibility_branches.json").write_text(_poss_report.to_json())
+        print(render_cli(_poss_report))
+    except Exception as e:
+        logger.warning("Possibility report failed: %s", e)
+
     # Export FLAME population data alongside dualmirakl output
     if flame_bridge is not None:
         flame_bridge.export_snapshots(os.path.join(run_dir, "flame_population.json"))
