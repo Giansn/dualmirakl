@@ -13,16 +13,26 @@ MODELS = {
 
 # Persistent client — reuses connections (keep-alive pool) across all calls.
 # HTTP/2 multiplexes concurrent requests over a single TCP connection per host.
-_client = httpx.AsyncClient(
-    http2=True,
-    timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
-    limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-)
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    """Get or create the shared async HTTP client."""
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            http2=True,
+            timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _client
 
 
 async def close_client() -> None:
     """Call once at shutdown to drain the connection pool."""
-    await _client.aclose()
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
 
 
 async def chat(
@@ -38,7 +48,7 @@ async def chat(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    r = await _client.post(f"{cfg['url']}/chat/completions", json=payload)
+    r = await _get_client().post(f"{cfg['url']}/chat/completions", json=payload)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
@@ -75,7 +85,7 @@ async def health_check() -> dict:
     status = {}
     for name, cfg in MODELS.items():
         try:
-            r = await _client.get(
+            r = await _get_client().get(
                 f"{cfg['url'].replace('/v1', '')}/health",
                 timeout=5.0,
             )
