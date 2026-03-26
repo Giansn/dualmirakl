@@ -18,10 +18,13 @@ Can be used post-hoc on simulation output or inline during run_tick().
 
 from __future__ import annotations
 
+import logging
 import math
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -493,6 +496,13 @@ def lyapunov_from_timeseries(
     if M < 10:
         return 0.0
 
+    MIN_EMBEDDED_LYAP = 30
+    if M < MIN_EMBEDDED_LYAP:
+        logger.warning(
+            "lyapunov_from_timeseries: only %d embedded vectors "
+            "(minimum %d recommended for reliable estimation).", M, MIN_EMBEDDED_LYAP,
+        )
+
     # Time-delay embedding: X_i = [S(i), S(i+τ), S(i+2τ), ...]
     X = np.array([
         [score_log[i + j * tau] for j in range(embedding_dim)]
@@ -575,11 +585,21 @@ def estimate_system_lyapunov(
     else:
         regime = "marginal"
 
+    min_len = min((len(log) for log in score_logs), default=0)
+    embedded = min_len - 2  # default embedding_dim=3, tau=1
+    sample_warning = None
+    if method == "timeseries" and embedded < 30:
+        sample_warning = (
+            f"Only {embedded} embedded vectors from {min_len} time points. "
+            f"Minimum 30 recommended for reliable Lyapunov estimation."
+        )
+
     return {
         "per_agent": [round(l, 4) for l in per_agent],
         "population_mean": round(pop_mean, 4),
         "max_lyapunov": round(max_lya, 4),
         "regime": regime,
+        "sample_size_warning": sample_warning,
     }
 
 
@@ -767,6 +787,13 @@ def transfer_entropy(
     if n <= delay + 1:
         return 0.0
 
+    MIN_SAMPLES_TE = 30
+    if n - delay < MIN_SAMPLES_TE:
+        logger.warning(
+            "transfer_entropy: only %d effective samples (minimum %d recommended). "
+            "Result may be unreliable.", n - delay, MIN_SAMPLES_TE,
+        )
+
     src = np.array(source[:n])
     tgt = np.array(target[:n])
     src_d = _discretize(src, n_bins)
@@ -948,6 +975,14 @@ def emergence_mutual_information(
     min_len = min(len(log) for log in score_logs)
     if min_len < 10:
         return 0.0
+
+    MIN_SAMPLES_MI = 30
+    if min_len < MIN_SAMPLES_MI:
+        logger.warning(
+            "emergence_mutual_information: only %d time points "
+            "(minimum %d recommended). Discretized entropy estimates "
+            "may be dominated by binning artifacts.", min_len, MIN_SAMPLES_MI,
+        )
 
     # Use the final portion of trajectories (post-transient)
     tail_start = max(0, min_len - min(min_len, 30))

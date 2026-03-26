@@ -85,6 +85,38 @@ class AgentSpec:
         return f"AgentSpec({self.agent_id}, {self.type}, {self.slot}{profile_str})"
 
 
+# ── Archetype-driven parameter sampling ──────────────────────────────────────
+ARCHETYPE_BETA_PARAMS: dict[str, tuple[float, float]] = {
+    "high":   (5.0, 2.0),   # mode=0.80
+    "medium": (3.0, 3.0),   # mode=0.50
+    "low":    (2.0, 5.0),   # mode=0.20
+}
+DEFAULT_SUSCEPTIBILITY_BETA = (2.0, 3.0)
+DEFAULT_RESILIENCE_BETA = (2.0, 5.0)
+
+
+def sample_agent_params(
+    profile: Optional[ArchetypeProfile],
+    rng: np.random.RandomState,
+) -> dict[str, float]:
+    """Sample susceptibility and resilience from Beta distributions
+    parameterized by the archetype profile's property levels."""
+    susc_level = None
+    if profile and hasattr(profile, "properties") and "susceptibility" in profile.properties:
+        susc_level = str(profile.properties["susceptibility"]).lower().strip()
+    susc_a, susc_b = ARCHETYPE_BETA_PARAMS.get(susc_level, DEFAULT_SUSCEPTIBILITY_BETA)
+
+    res_level = None
+    if profile and hasattr(profile, "properties") and "resilience" in profile.properties:
+        res_level = str(profile.properties["resilience"]).lower().strip()
+    res_a, res_b = ARCHETYPE_BETA_PARAMS.get(res_level, DEFAULT_RESILIENCE_BETA)
+
+    return {
+        "susceptibility": float(rng.beta(susc_a, susc_b)),
+        "resilience": float(rng.beta(res_a, res_b)),
+    }
+
+
 def _safe_format(template: str, variables: dict) -> str:
     """Format a template string, leaving unknown {variables} as-is."""
     def replacer(match):

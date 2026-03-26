@@ -27,6 +27,12 @@ class ScoreEngine:
     """
 
     def __init__(self, alpha: float = 0.15, **params):
+        if alpha == 0.0:
+            import logging
+            logging.getLogger(__name__).warning(
+                "ScoreEngine alpha=0.0: scores will never update. "
+                "This is likely a configuration error."
+            )
         self.alpha = alpha
         self.params = params
 

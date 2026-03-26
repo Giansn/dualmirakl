@@ -20,6 +20,7 @@ Architecture layers (Park et al. 2023; Adaptive-VP, ACL 2025):
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import math
@@ -405,15 +406,25 @@ async def preflight_check() -> dict:
 # ── Reproducibility ───────────────────────────────────────────────────────────
 
 _rng: Optional[np.random.RandomState] = None
+_rng_ctx: contextvars.ContextVar[Optional[np.random.RandomState]] = contextvars.ContextVar(
+    "_rng_ctx", default=None
+)
 
 
 def set_seed(seed: int = 42) -> None:
+    """Set the RNG for the current context (or global fallback)."""
+    rng = np.random.RandomState(seed)
+    _rng_ctx.set(rng)
     global _rng
-    _rng = np.random.RandomState(seed)
-    logger.info(f"Global seed set to {seed}")
+    _rng = rng
+    logger.info(f"Seed set to {seed}")
 
 
 def _get_rng() -> np.random.RandomState:
+    """Get the RNG for the current context, falling back to global."""
+    ctx_rng = _rng_ctx.get(None)
+    if ctx_rng is not None:
+        return ctx_rng
     global _rng
     if _rng is None:
         set_seed(42)
@@ -649,12 +660,71 @@ def _compute_signal_from_vec(vec) -> tuple[float, float]:
     return signal, se
 
 
-def embed_score_batch(responses: list[str]) -> list[tuple[float, float]]:
-    """[Fix 12] Batch encode all responses in one model call."""
+# ── Action-based signal override ─────────────────────────────────────────────
+# Base signal for each structured action type.
+ACTION_BASE_SIGNALS: dict[str, float] = {
+    "disengage": 0.15,
+    "respond": 0.45,
+    "escalate": 0.75,
+}
+EMBED_MODIFIER_RANGE = 0.1
+
+
+def _compute_signal_with_action(
+    parsed_action: Optional[dict],
+    embed_vec,
+) -> tuple[float, float]:
+    """
+    Compute behavioral signal using structured action as base, with
+    embedding similarity as a fine-grained modifier.
+
+    Falls back to pure embedding if no recognized action.
+    """
+    embed_signal, embed_se = _compute_signal_from_vec(embed_vec)
+
+    if parsed_action is None:
+        return embed_signal, embed_se
+
+    action_type = str(parsed_action.get("action", "")).lower().strip()
+
+    if action_type in ACTION_BASE_SIGNALS:
+        base = ACTION_BASE_SIGNALS[action_type]
+        modifier = (embed_signal - 0.5) * 2.0 * EMBED_MODIFIER_RANGE
+        signal = float(np.clip(base + modifier, 0.0, 1.0))
+        return signal, embed_se
+
+    intensity = parsed_action.get("intensity")
+    if intensity is not None:
+        try:
+            intensity_f = float(intensity)
+            if 0.0 <= intensity_f <= 1.0:
+                signal = float(np.clip(0.7 * intensity_f + 0.3 * embed_signal, 0.0, 1.0))
+                return signal, embed_se
+        except (TypeError, ValueError):
+            pass
+
+    return embed_signal, embed_se
+
+
+def embed_score_batch(
+    responses: list[str],
+    parsed_actions: Optional[list[Optional[dict]]] = None,
+) -> list[tuple[float, float]]:
+    """[Fix 12] Batch encode all responses in one model call.
+    If parsed_actions provided, uses action type as base signal with embed modifier."""
     _load_anchors()
     model = _get_embed()
     vecs = model.encode(responses, batch_size=EMBED_BATCH_SIZE, show_progress_bar=False)
-    return [_compute_signal_from_vec(v) for v in vecs]
+
+    if parsed_actions is None:
+        return [_compute_signal_from_vec(v) for v in vecs]
+
+    return [
+        _compute_signal_with_action(
+            parsed_actions[i] if i < len(parsed_actions) else None, v
+        )
+        for i, v in enumerate(vecs)
+    ]
 
 
 def update_score(
@@ -1027,15 +1097,25 @@ class ParticipantAgent:
     self-regulation.
     """
 
-    def __init__(self, agent_id: str, history_window: int = 4):
+    def __init__(
+        self,
+        agent_id: str,
+        history_window: int = 4,
+        susceptibility: Optional[float] = None,
+        resilience: Optional[float] = None,
+    ):
         self.agent_id = agent_id
         self.cfg = AGENT_ROLES["participant"]
         self.history: list[dict] = []
         self.history_window = history_window
         rng = _get_rng()
         self.behavioral_score: float = float(rng.uniform(0.1, 0.5))
-        self.susceptibility: float = float(rng.beta(2.0, 3.0))
-        self.resilience: float = float(rng.beta(2.0, 5.0))
+        self.susceptibility: float = susceptibility if susceptibility is not None else float(rng.beta(2.0, 3.0))
+        self.resilience: float = resilience if resilience is not None else float(rng.beta(2.0, 5.0))
+        if self.susceptibility < 1e-6:
+            logger.warning("[%s] susceptibility=%.6f near zero — agent ignores signals", agent_id, self.susceptibility)
+        if self.resilience > 1.0 - 1e-6:
+            logger.warning("[%s] resilience=%.6f near 1.0 — agent score frozen", agent_id, self.resilience)
         self.score_log: list[float] = []
         self.last_stimulus: str = "nothing yet"
         self.last_response: str = ""
@@ -1491,7 +1571,8 @@ async def run_tick(
                 )
                 for p, resp in zip(participants, responses)
             ]
-            return embed_score_batch(texts)
+            parsed_actions = [getattr(p, '_last_parsed', None) for p in participants]
+            return embed_score_batch(texts, parsed_actions=parsed_actions)
 
         async def _phase_d1():
             return await obs_a.analyse(tick, world_state, n)
@@ -1528,7 +1609,8 @@ async def run_tick(
             )
             for p, resp in zip(participants, responses)
         ]
-        signals_and_ses = embed_score_batch(texts)
+        parsed_actions = [getattr(p, '_last_parsed', None) for p in participants]
+        signals_and_ses = embed_score_batch(texts, parsed_actions=parsed_actions)
 
     # -- Score update (always after embedding completes) ────────────────────
     for participant, response, (signal, signal_se) in zip(participants, responses, signals_and_ses):
@@ -1683,6 +1765,12 @@ async def run_simulation(
     if world_context:
         logger.info(f"World context loaded ({len(world_context)} chars)")
 
+    # ── Edge case guards ────────────────────────────────────────────────
+    if alpha == 0.0:
+        logger.warning("alpha=0.0: scores will never move. Set alpha > 0 for meaningful dynamics.")
+    if k > n_ticks:
+        logger.warning("K=%d > n_ticks=%d: observer will never fire.", k, n_ticks)
+
     set_seed(seed)
     world_state = WorldState(k=k)
 
@@ -1782,10 +1870,46 @@ async def run_simulation(
         _combined_context = f"{_combined_context}\n\n{graph_context}" if _combined_context else graph_context
 
     environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context)
-    participants = [
-        ParticipantAgent(f"participant_{i}", history_window=history_window)
-        for i in range(n_participants)
-    ]
+
+    # ── Create participants with archetype-driven parameters ──────────
+    if scenario_config is not None:
+        from simulation.agents import AgentFactory, sample_agent_params
+        try:
+            agent_set = AgentFactory.from_config(scenario_config, rng=_get_rng())
+            participant_specs = [s for s in agent_set.specs if s.role.type == "participant"]
+            participants = []
+            for spec in participant_specs[:n_participants]:
+                params = sample_agent_params(spec.profile, _get_rng())
+                p = ParticipantAgent(
+                    spec.agent_id,
+                    history_window=history_window,
+                    susceptibility=params["susceptibility"],
+                    resilience=params["resilience"],
+                )
+                participants.append(p)
+                logger.debug(
+                    "[%s] archetype=%s susc=%.3f resil=%.3f",
+                    spec.agent_id,
+                    spec.profile.id if spec.profile else "none",
+                    params["susceptibility"], params["resilience"],
+                )
+            # Pad if scenario defines fewer participants than requested
+            while len(participants) < n_participants:
+                i = len(participants)
+                participants.append(
+                    ParticipantAgent(f"participant_{i}", history_window=history_window)
+                )
+        except Exception as e:
+            logger.warning("AgentFactory failed (%s), falling back to default creation", e)
+            participants = [
+                ParticipantAgent(f"participant_{i}", history_window=history_window)
+                for i in range(n_participants)
+            ]
+    else:
+        participants = [
+            ParticipantAgent(f"participant_{i}", history_window=history_window)
+            for i in range(n_participants)
+        ]
 
     # ── Persona generation (Enhancement 3): generate from KG if configured ──
     _use_generated_personas = False
