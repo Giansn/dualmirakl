@@ -66,7 +66,10 @@ async def models():
 @app.get("/", response_class=HTMLResponse)
 async def ui():
     html_file = _proj_dir / "interface.html"
-    return HTMLResponse(html_file.read_text(encoding="utf-8"))
+    html = html_file.read_text(encoding="utf-8")
+    embed_cls = "dot on" if _embed is not None else "dot off"
+    html = html.replace('class="dot chk" id="stEmbed"', f'class="{embed_cls}" id="stEmbed"')
+    return HTMLResponse(html)
 
 
 @app.get("/health")

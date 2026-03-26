@@ -1161,7 +1161,7 @@ async function checkHealth(ep,dotId){
   try{const c=new AbortController();setTimeout(()=>c.abort(),3000);const r=await fetch(`${ep}/v1/models`,{signal:c.signal});d.className='dot '+(r.ok?'on':'off');}
   catch{d.className='dot off';}
 }
-function runHealth(){checkHealth(url.chat(),'stAuth');checkHealth(url.bg(),'stSwarm');checkHealth(url.emb(),'stEmbed');}
+function runHealth(){checkHealth(url.chat(),'stAuth');checkHealth(url.bg(),'stSwarm');}
 
 // ── INIT ──
 renderChatList(); renderMessages(); updEmbedCnt(); updBurst(); runHealth(); setInterval(runHealth,30000);
