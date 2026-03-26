@@ -450,7 +450,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
         <input type="number" id="sModelCtx" value="8192">
         <div class="sn">MAX_MODEL_LEN of your vLLM backend. Burst will never exceed this.</div>
       </div>
-      <div class="sg"><label>System Prompt</label><textarea id="sSys">You are a helpful AI assistant. Be concise and direct.</textarea></div>
+      <div class="sg"><label>System Prompt</label><textarea id="sSys">You are DualMirakl, a multi-agent simulation assistant running on dual Blackwell GPUs. You power a SimPy-based stratified tick loop (phases A-F) with observer agents (authority GPU) and participant agents (swarm GPU). You can discuss simulation design, agent dynamics, scoring models (EMA/logistic), scenario configuration, and help interpret results. Be concise and direct.</textarea></div>
     </div>
 
     <!-- Compression -->
@@ -554,6 +554,7 @@ const url = {
 };
 
 // ── UTILS ──
+function stripThink(t) { return t ? t.replace(/<think>[\s\S]*?<\/think>\s*/g,'').replace(/^[\s\S]*?<\/think>\s*/,'').trim() : t; }
 function tok(t) { return t ? Math.ceil(t.length/4) : 0; }
 function esc(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
 function fmtT(ts) { return ts ? new Date(ts).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : ''; }
@@ -706,14 +707,14 @@ async function compressMsgs(msgs) {
   const text=msgs.map(m=>`${m.role==='user'?'User':'Assistant'}: ${m.content}`).join('\n\n');
   try {
     const r=await fetch(`${url.bg()}/v1/chat/completions`,{method:'POST',headers:url.hdrs(),body:JSON.stringify({model:'swarm',messages:[{role:'system',content:`Compress into max ${c.cmpTgt} tokens. Output ONLY the summary.`},{role:'user',content:text}],max_tokens:c.cmpTgt+50,temperature:0.2})});
-    const d=await r.json(); return d.choices?.[0]?.message?.content?.trim()||null;
+    const d=await r.json(); return stripThink(d.choices?.[0]?.message?.content?.trim())||null;
   } catch { return null; }
 }
 async function genTitle(msgs) {
   try {
     const ct=msgs.slice(0,4).map(m=>`${m.role}: ${m.content.substring(0,100)}`).join('\n');
     const r=await fetch(`${url.bg()}/v1/chat/completions`,{method:'POST',headers:url.hdrs(),body:JSON.stringify({model:'swarm',messages:[{role:'system',content:'Generate a 3-5 word title. Reply ONLY the title.'},{role:'user',content:ct}],max_tokens:15,temperature:0.3})});
-    const d=await r.json(); return d.choices?.[0]?.message?.content?.trim()?.replace(/^["']|["']$/g,'')||'New Chat';
+    const d=await r.json(); return stripThink(d.choices?.[0]?.message?.content?.trim())?.replace(/^["']|["']$/g,'')||'New Chat';
   } catch { return 'New Chat'; }
 }
 async function maybeCompress(chat) {
