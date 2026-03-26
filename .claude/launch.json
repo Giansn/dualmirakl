@@ -1,0 +1,35 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "authority",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "vllm.entrypoints.openai.api_server", "--model", "authority", "--served-model-name", "authority", "--port", "8000", "--host", "0.0.0.0", "--gpu-memory-utilization", "0.90", "--trust-remote-code"],
+      "port": 8000
+    },
+    {
+      "name": "swarm",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "vllm.entrypoints.openai.api_server", "--model", "swarm", "--served-model-name", "swarm", "--port", "8001", "--host", "0.0.0.0", "--gpu-memory-utilization", "0.90", "--trust-remote-code"],
+      "port": 8001
+    },
+    {
+      "name": "gateway",
+      "runtimeExecutable": "uvicorn",
+      "runtimeArgs": ["gateway:app", "--host", "0.0.0.0", "--port", "9000", "--workers", "1", "--loop", "asyncio"],
+      "port": 9000
+    },
+    {
+      "name": "sim",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "simulation.sim_loop", "--scenario", "scenarios/social_dynamics.yaml"],
+      "port": 0
+    },
+    {
+      "name": "jupyter",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "jupyter", "lab", "--ip", "0.0.0.0", "--port", "8888", "--no-browser", "--allow-root"],
+      "port": 8888
+    }
+  ]
+}
