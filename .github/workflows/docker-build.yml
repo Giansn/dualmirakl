@@ -41,5 +41,5 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:runpod-cu128
             ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:latest
-          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:buildcache
-          cache-to:   type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:buildcache,mode=max
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
