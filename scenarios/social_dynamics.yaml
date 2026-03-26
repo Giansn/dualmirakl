@@ -245,6 +245,9 @@ flame:
   influencer_weight: 5.0
   sub_steps: 10
 
+persona_generation:
+  source: "manual"   # "manual" = static templates, "graph" = auto-generate from KG
+
 environment:
   tick_count: 12
   tick_unit: "step"

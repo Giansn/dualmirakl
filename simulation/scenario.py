@@ -196,6 +196,19 @@ class TopologyConfig(BaseModel):
         return v
 
 
+class PersonaGenerationConfig(BaseModel):
+    """Configuration for automatic persona generation from Knowledge Graph."""
+    source: str = "manual"       # "manual" | "graph"
+    count: Optional[int] = None  # override participant count; None = use agents.roles count
+
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, v):
+        if v not in ("manual", "graph"):
+            raise ValueError(f"persona_generation source must be 'manual' or 'graph', got '{v}'")
+        return v
+
+
 class EnvironmentConfig(BaseModel):
     tick_count: int = 100
     tick_unit: str = "step"
@@ -227,6 +240,9 @@ class ScenarioConfig(BaseModel):
     react: ReactConfig = Field(default_factory=ReactConfig)
     topologies: list[TopologyConfig] = Field(
         default_factory=lambda: [TopologyConfig()],
+    )
+    persona_generation: PersonaGenerationConfig = Field(
+        default_factory=PersonaGenerationConfig,
     )
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
 
@@ -434,6 +450,7 @@ def _cli_validate(path: str) -> int:
     print(f"  Safety: {'enabled' if config.safety.enabled else 'disabled'}")
     print(f"  FLAME: {'enabled' if config.flame.enabled else 'disabled'}")
     print(f"  ReACT: {'enabled' if config.react.enabled else 'disabled'}")
+    print(f"  Persona: {config.persona_generation.source}")
     print(f"  Ticks: {config.environment.tick_count}")
     print()
 

@@ -188,7 +188,7 @@ async def upload_document(req: Request):
 
     _context_file.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    return {
+    result = {
         "status": "stored",
         "document": name,
         "n_chunks": len(chunks),
@@ -196,6 +196,25 @@ async def upload_document(req: Request):
         "total_documents": existing["n_documents"],
         "context_file": str(_context_file),
     }
+
+    # Optional GraphRAG extraction
+    extract_graph = body.get("extract_graph", False)
+    if extract_graph:
+        import threading
+
+        def _extract():
+            import asyncio as _aio
+
+            async def _do():
+                from simulation.graph_rag import extract_graph as _extract_graph
+                await _extract_graph(chunks=chunks, embed_fn=_embed.encode, doc_name=name)
+
+            _aio.run(_do())
+
+        threading.Thread(target=_extract, daemon=True).start()
+        result["graph_extraction"] = "started"
+
+    return result
 
 
 @app.get("/v1/documents")
@@ -376,6 +395,7 @@ async def sim_start(req: Request):
                     on_tick=_on_tick,
                     flame_enabled=body.get("flame_enabled"),
                     flame_config=body.get("flame_config"),
+                    continue_from=body.get("continue_from"),
                 )
                 # Run dynamics analysis on results
                 from simulation.dynamics import analyze_simulation
@@ -544,3 +564,234 @@ async def sim_optimize(req: Request):
 
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "optimization_started", "config": body}
+
+
+# ── GraphRAG endpoints ───────────────────────────────────────────────────────
+
+@app.post("/v1/documents/extract_graph")
+async def extract_graph_from_documents(req: Request):
+    """
+    Trigger GraphRAG entity/relation extraction on uploaded documents.
+
+    Reads chunks from world_context.json, runs authority-slot extraction,
+    stores results in DuckDB. Async — returns immediately.
+    """
+    if not _context_file.exists():
+        return {"error": "No documents uploaded. Upload documents first via POST /v1/documents."}
+
+    ctx = json.loads(_context_file.read_text(encoding="utf-8"))
+    all_chunks = []
+    for doc in ctx.get("documents", []):
+        for chunk in doc.get("chunks", []):
+            all_chunks.append(chunk["text"])
+
+    if not all_chunks:
+        return {"error": "No document chunks found."}
+
+    import threading
+
+    def _run():
+        import asyncio as _aio
+
+        async def _extract():
+            from simulation.graph_rag import extract_graph
+            entities, relations = await extract_graph(
+                chunks=all_chunks,
+                embed_fn=_embed.encode,
+                doc_name="batch_extraction",
+            )
+            return len(entities), len(relations)
+
+        return _aio.run(_extract())
+
+    # Run in background thread (authority slot call)
+    threading.Thread(target=_run, daemon=True).start()
+
+    return {
+        "status": "extraction_started",
+        "n_chunks": len(all_chunks),
+        "message": "GraphRAG extraction running in background. Use GET /v1/graph to check results.",
+    }
+
+
+@app.get("/v1/graph")
+async def get_graph():
+    """Get all entities and relations from the GraphRAG knowledge graph."""
+    try:
+        from simulation.graph_rag import get_graph_entities, get_graph_relations
+        entities = get_graph_entities()
+        relations = get_graph_relations()
+        return {
+            "entities": entities,
+            "relations": relations,
+            "n_entities": len(entities),
+            "n_relations": len(relations),
+        }
+    except Exception as e:
+        return {"error": str(e), "entities": [], "relations": []}
+
+
+@app.delete("/v1/graph")
+async def clear_graph():
+    """Clear all entities and relations from the GraphRAG knowledge graph."""
+    try:
+        from simulation.graph_rag import clear_graph
+        clear_graph()
+        return {"status": "cleared"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/v1/graph/query")
+async def query_graph(req: Request):
+    """
+    Semantic search over the knowledge graph.
+
+    Body: {"query": "...", "top_k": 20, "threshold": 0.4}
+    Returns relevant graph triples as context text.
+    """
+    body = await req.json()
+    query = body.get("query", "")
+    top_k = body.get("top_k", 20)
+    threshold = body.get("threshold", 0.4)
+
+    if not query:
+        return {"error": "query is required", "context": ""}
+
+    from simulation.graph_rag import query_graph_context
+    context = query_graph_context(
+        scenario_context=query,
+        embed_fn=_embed.encode,
+        top_k=top_k,
+        threshold=threshold,
+    )
+    return {"context": context, "query": query}
+
+
+# ── Post-Sim Analysis endpoints ──────────────────────────────────────────────
+
+_analyse_state = {
+    "status": "idle",
+    "run_dir": None,
+    "report": None,
+    "steps": 0,
+}
+
+
+@app.post("/simulation/analyse")
+async def sim_analyse(req: Request):
+    """
+    Start a post-simulation ReACT analysis.
+
+    Body: {"run_id": "data/run_...", "questions": ["What drove divergence?"]}
+    """
+    body = await req.json()
+    run_dir = body.get("run_id") or body.get("run_dir", "")
+    questions = body.get("questions", ["What are the key findings from this simulation?"])
+
+    if not run_dir:
+        # Use most recent run
+        from pathlib import Path as _P
+        data_dir = _P("data")
+        if data_dir.exists():
+            run_dirs = sorted(data_dir.iterdir(), reverse=True)
+            if run_dirs:
+                run_dir = str(run_dirs[0])
+
+    if not run_dir:
+        return {"error": "No run_dir specified and no completed runs found."}
+
+    if _analyse_state["status"] == "running":
+        return {"error": "Analysis already running.", "status": _analyse_state}
+
+    _analyse_state["status"] = "running"
+    _analyse_state["run_dir"] = run_dir
+    _analyse_state["report"] = None
+    _analyse_state["steps"] = 0
+
+    import threading
+
+    def _run():
+        import asyncio as _aio
+
+        async def _do_analysis():
+            from simulation.react_observer import PostSimAnalyser
+
+            def _on_step(step, tool, preview):
+                _analyse_state["steps"] = step + 1
+
+            analyser = PostSimAnalyser(run_dir=run_dir)
+            report = await analyser.analyse(
+                questions=questions,
+                on_step=_on_step,
+            )
+            _analyse_state["report"] = report
+            _analyse_state["status"] = "completed"
+
+        try:
+            _aio.run(_do_analysis())
+        except Exception as e:
+            _analyse_state["status"] = f"error: {e}"
+            _analyse_state["report"] = {"error": str(e)}
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return {
+        "status": "analysis_started",
+        "run_dir": run_dir,
+        "questions": questions,
+    }
+
+
+@app.get("/simulation/analyse/status")
+async def sim_analyse_status():
+    """Check post-sim analysis progress."""
+    return _analyse_state
+
+
+@app.get("/simulation/analyse/report")
+async def sim_analyse_report():
+    """Get the completed analysis report."""
+    if _analyse_state["status"] != "completed" or not _analyse_state["report"]:
+        return {"error": "No completed analysis.", "status": _analyse_state["status"]}
+    return _analyse_state["report"]
+
+
+# ── Memory persistence endpoints ─────────────────────────────────────────────
+
+@app.get("/v1/memories")
+async def list_memories():
+    """List persisted memory statistics across runs."""
+    try:
+        from simulation.agent_memory import DuckDBMemoryBackend
+        backend = DuckDBMemoryBackend(run_id="query")
+        return {
+            "stats": backend.memory_stats(),
+            "runs": backend.get_run_ids(),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/v1/memories/{run_id}")
+async def get_run_memories(run_id: str):
+    """Get all persisted memories for a specific run."""
+    try:
+        from simulation.storage import get_db
+        db = get_db()
+        rows = db.execute(
+            "SELECT agent_id, title, content, tags, tick, memory_type, importance "
+            "FROM agent_memories WHERE run_id = ? ORDER BY agent_id, tick",
+            [run_id],
+        ).fetchall()
+        return {
+            "run_id": run_id,
+            "n_memories": len(rows),
+            "memories": [
+                {"agent_id": r[0], "title": r[1], "content": r[2], "tags": r[3],
+                 "tick": r[4], "type": r[5], "importance": r[6]}
+                for r in rows
+            ],
+        }
+    except Exception as e:
+        return {"error": str(e)}

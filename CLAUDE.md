@@ -100,7 +100,19 @@ MiroFish-inspired dual-platform architecture. Agents experience multiple interac
 
 ### Ontology Generator (simulation/ontology_generator.py)
 
-LLM-generated archetypes and transitions from domain documents. Uses authority backend to auto-generate profiles, distribution fractions, and transition rules. Lowers scenario authoring barrier. Output mergeable into ScenarioConfig.
+LLM-generated archetypes and transitions from domain documents. Uses authority backend to auto-generate profiles, distribution fractions, and transition rules. Lowers scenario authoring barrier. Output mergeable into ScenarioConfig. Also contains `generate_personas()` for automatic persona creation from KG (Enhancement 3).
+
+### DuckDB Storage (simulation/storage.py)
+
+Embedded DuckDB storage layer for persistent data across runs. Tables: `entities`, `relations` (GraphRAG), `agent_memories` (cross-run persistence), `generated_personas` (cache), `analysis_reports` (post-sim). File: `data/dualmirakl.duckdb`. Supports native FLOAT[384] vector operations for e5-small-v2 embeddings.
+
+### GraphRAG (simulation/graph_rag.py)
+
+Document → Knowledge Graph pipeline. Entity/relation extraction via authority slot (batch, JSON-mode). Persists to DuckDB. Context injection: `query_graph_context()` retrieves relevant triples by cosine similarity. Seeds `graph_memory.py` before tick 0. Triggered by `POST /v1/documents?extract_graph=true` or `POST /v1/documents/extract_graph`.
+
+### Post-Sim ReACT Analysis (simulation/react_observer.py — PostSimAnalyser)
+
+Authority-slot post-simulation analysis using the ReACT pattern. Loads data from `data/{run_id}/`, iteratively queries trajectories, dynamics, events, memories, graph. Produces structured reports. Tools: query_trajectories, query_dynamics, compare_agents, query_events, query_graph, interview_memory, statistical_test. API: `POST /simulation/analyse`.
 
 ## Analysis Toolkit (dynamics.py)
 
@@ -130,12 +142,14 @@ Boot sequence (`flame_setup.py`): auto-configures engine + W&B + Optuna. Status:
 | `simulation/transitions.py` | Transition function registry + built-ins |
 | `simulation/event_stream.py` | Unified event stream |
 | `simulation/action_schema.py` | Structured action schemas + parsing |
-| `simulation/agent_memory.py` | Per-agent memory store |
+| `simulation/agent_memory.py` | Per-agent memory store + DuckDB persistence backend |
 | `simulation/safety.py` | Observer mode + safety classification |
-| `simulation/react_observer.py` | ReACT observer with tool use (MiroFish-inspired) |
-| `simulation/graph_memory.py` | Real-time graph memory feedback loop |
+| `simulation/react_observer.py` | ReACT observer (live + post-sim analysis) |
+| `simulation/graph_memory.py` | Real-time graph memory + GraphRAG seeding |
 | `simulation/topology.py` | Dual-environment topology manager |
-| `simulation/ontology_generator.py` | LLM-generated ontology from documents |
+| `simulation/ontology_generator.py` | LLM-generated ontology + persona generation |
+| `simulation/storage.py` | DuckDB storage layer (entities, memories, personas, reports) |
+| `simulation/graph_rag.py` | Document → Knowledge Graph extraction pipeline |
 | `simulation/dynamics.py` | 8-module analysis toolkit |
 | `simulation/agent_rolesv3.py` | Legacy roles, anchors, codebook, compliance |
 | `simulation/flame/` | FLAME GPU 2 engine, bridge, models |
@@ -147,7 +161,7 @@ Boot sequence (`flame_setup.py`): auto-configures engine + W&B + Optuna. Status:
 
 ## Gateway API
 
-`/` UI | `/health` | `/v1/chat/completions` proxy | `/v1/embeddings` e5 | `/v1/models` | `/v1/documents` CRUD+query | `/v1/interview` POST (live agent interview) | `/simulation/preflight` | `/simulation/detect` | `/simulation/start` POST | `/simulation/status` GET | `/simulation/results` GET
+`/` UI | `/health` | `/v1/chat/completions` proxy | `/v1/embeddings` e5 | `/v1/models` | `/v1/documents` CRUD+query+extract_graph | `/v1/graph` GET/DELETE | `/v1/graph/query` POST | `/v1/memories` GET | `/v1/memories/{run_id}` GET | `/v1/interview` POST | `/simulation/preflight` | `/simulation/detect` | `/simulation/start` POST (supports `continue_from`) | `/simulation/status` GET | `/simulation/results` GET | `/simulation/analyse` POST | `/simulation/analyse/status` GET | `/simulation/analyse/report` GET
 
 ## Deployment
 

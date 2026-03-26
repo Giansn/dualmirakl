@@ -275,3 +275,272 @@ async def generate_ontology(
     )
 
     return data
+
+
+# ── Persona generation from Knowledge Graph (Enhancement 3) ──────────────────
+
+from dataclasses import dataclass, field as dataclass_field
+from typing import Optional
+
+
+@dataclass
+class PersonaSpec:
+    """
+    Generated persona specification matching agent_rolesv3.py's
+    6-component PARTICIPANT_TEMPLATE structure.
+    """
+    id: str
+    archetype_id: str
+    identity: str
+    behavior_rules: str
+    emotional_range: str
+    knowledge_bounds: str
+    consistency_rules: str
+    hard_limits: str
+    properties: dict = dataclass_field(default_factory=dict)
+
+    def to_system_prompt(self) -> str:
+        """Convert to a complete participant system prompt."""
+        return (
+            f"{self.identity}\n\n"
+            f"BEHAVIOR RULES:\n{self.behavior_rules}\n\n"
+            f"EMOTIONAL RANGE:\n{self.emotional_range}\n\n"
+            f"KNOWLEDGE BOUNDS:\n{self.knowledge_bounds}\n\n"
+            f"CONSISTENCY RULES:\n{self.consistency_rules}\n\n"
+            f"HARD LIMITS:\n{self.hard_limits}"
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "archetype_id": self.archetype_id,
+            "identity": self.identity,
+            "behavior_rules": self.behavior_rules,
+            "emotional_range": self.emotional_range,
+            "knowledge_bounds": self.knowledge_bounds,
+            "consistency_rules": self.consistency_rules,
+            "hard_limits": self.hard_limits,
+            "properties": self.properties,
+        }
+
+
+PERSONA_SYSTEM = (
+    "You are an expert simulation designer specializing in creating diverse, "
+    "realistic agent personas for multi-agent simulations. You generate "
+    "heterogeneous personalities grounded in domain knowledge.\n\n"
+    "You MUST output ONLY valid JSON — no markdown fences, no explanation."
+)
+
+PERSONA_USER_TEMPLATE = """Generate {n_personas} diverse agent personas for a simulation called "{scenario_name}".
+
+DOMAIN CONTEXT (entities and relationships extracted from domain documents):
+{graph_context}
+
+ARCHETYPE DEFINITIONS (each persona must belong to one archetype):
+{archetype_context}
+
+OUTPUT FORMAT — a JSON array of persona objects:
+[
+  {{
+    "archetype_id": "<which archetype this persona belongs to>",
+    "identity": "<2-3 sentences: who this person is, their background, their role in the domain>",
+    "behavior_rules": "<2-3 rules: how they typically act, their default patterns, their tendencies>",
+    "emotional_range": "<their emotional spectrum: what triggers strong reactions, what calms them, their baseline mood>",
+    "knowledge_bounds": "<what they know and don't know: expertise areas, blind spots, information sources>",
+    "consistency_rules": "<what stays constant: core values, non-negotiable beliefs, persistent traits>",
+    "hard_limits": "<what they will NEVER do: ethical boundaries, absolute refusals, breaking points>"
+  }}
+]
+
+RULES:
+- Each persona must be distinct — different backgrounds, motivations, knowledge levels.
+- Distribute personas across archetypes according to the provided distribution.
+- Ground personas in the domain context — reference specific entities when appropriate.
+- Include resistance and hesitancy in behavior rules to counteract LLM agreeability bias.
+- Knowledge bounds should vary: some personas know a lot about the domain, others know little.
+- Hard limits should feel realistic and persona-specific, not generic.
+- Do NOT mention AI, simulation, scores, or technical framing.
+
+Output ONLY the JSON array:"""
+
+
+def _build_persona_prompt(
+    graph_context: str,
+    archetypes: list[dict],
+    distribution: dict[str, float],
+    scenario_name: str,
+    n_personas: int,
+) -> tuple[str, str]:
+    """Build the prompt for persona generation."""
+    archetype_lines = []
+    for arch in archetypes:
+        dist_pct = distribution.get(arch["id"], 0) * 100
+        archetype_lines.append(
+            f"  {arch['id']} ({arch['label']}): {arch.get('description', '')} "
+            f"[target: {dist_pct:.0f}% of personas]"
+        )
+    archetype_context = "\n".join(archetype_lines)
+
+    user = PERSONA_USER_TEMPLATE.format(
+        n_personas=n_personas,
+        scenario_name=scenario_name,
+        graph_context=graph_context or "No domain documents uploaded.",
+        archetype_context=archetype_context,
+    )
+    return PERSONA_SYSTEM, user
+
+
+def _parse_persona_output(raw: str, n_personas: int) -> list[dict]:
+    """Parse LLM persona generation output."""
+    text = raw.strip()
+
+    if text.startswith("```"):
+        first_nl = text.index("\n")
+        text = text[first_nl + 1:]
+        if text.endswith("```"):
+            text = text[:-3].rstrip()
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        import re
+        match = re.search(r'\[[\s\S]*\]', text)
+        if match:
+            data = json.loads(match.group())
+        else:
+            raise ValueError("Could not parse persona output as JSON array")
+
+    if not isinstance(data, list):
+        raise ValueError(f"Expected JSON array, got {type(data).__name__}")
+
+    return data
+
+
+async def generate_personas(
+    scenario_name: str,
+    archetypes: list[dict],
+    distribution: dict[str, float],
+    n_personas: int = 4,
+    graph_context: str = "",
+    db=None,
+) -> list[PersonaSpec]:
+    """
+    Generate heterogeneous agent personas from domain knowledge.
+
+    Uses the authority LLM to create diverse personas grounded in the
+    knowledge graph and distributed across archetypes.
+
+    Args:
+        scenario_name: Name of the scenario.
+        archetypes: List of archetype dicts (id, label, description, properties).
+        distribution: Archetype distribution fractions.
+        n_personas: Number of personas to generate.
+        graph_context: Formatted graph context from GraphRAG.
+        db: Optional DuckDB connection for caching.
+
+    Returns:
+        List of PersonaSpec objects ready for sim_loop integration.
+    """
+    import orchestrator
+
+    # Check cache first
+    if db is not None:
+        cached = _load_cached_personas(db, scenario_name, n_personas)
+        if cached:
+            logger.info("Loaded %d cached personas for '%s'", len(cached), scenario_name)
+            return cached
+
+    system, user = _build_persona_prompt(
+        graph_context, archetypes, distribution, scenario_name, n_personas,
+    )
+
+    try:
+        raw_output = await orchestrator.agent_turn(
+            agent_id="persona_generator",
+            backend="authority",
+            system_prompt=system,
+            user_message=user,
+            max_tokens=4096,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Persona generation LLM call failed: {e}") from e
+
+    persona_data = _parse_persona_output(raw_output, n_personas)
+
+    personas = []
+    for i, pd in enumerate(persona_data):
+        spec = PersonaSpec(
+            id=f"persona_{i}",
+            archetype_id=pd.get("archetype_id", "K2"),
+            identity=pd.get("identity", ""),
+            behavior_rules=pd.get("behavior_rules", ""),
+            emotional_range=pd.get("emotional_range", ""),
+            knowledge_bounds=pd.get("knowledge_bounds", ""),
+            consistency_rules=pd.get("consistency_rules", ""),
+            hard_limits=pd.get("hard_limits", ""),
+            properties={
+                "knowledge_depth": 0.3 + (hash(pd.get("identity", "")) % 60) / 100,
+            },
+        )
+        personas.append(spec)
+
+    # Cache in DuckDB
+    if db is not None:
+        _cache_personas(db, scenario_name, personas)
+
+    logger.info(
+        "Generated %d personas for '%s' (%d archetypes)",
+        len(personas), scenario_name, len(set(p.archetype_id for p in personas)),
+    )
+
+    return personas
+
+
+def _cache_personas(db, scenario_name: str, personas: list[PersonaSpec]) -> None:
+    """Cache generated personas in DuckDB."""
+    import hashlib
+    for spec in personas:
+        cache_id = hashlib.sha256(
+            f"{scenario_name}:{spec.id}:{spec.identity[:50]}".encode()
+        ).hexdigest()[:16]
+        db.execute(
+            """INSERT OR REPLACE INTO generated_personas
+               (id, scenario_name, archetype_id, identity, behavior_rules,
+                emotional_range, knowledge_bounds, consistency_rules, hard_limits, properties)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [cache_id, scenario_name, spec.archetype_id,
+             spec.identity, spec.behavior_rules, spec.emotional_range,
+             spec.knowledge_bounds, spec.consistency_rules, spec.hard_limits,
+             json.dumps(spec.properties)],
+        )
+
+
+def _load_cached_personas(
+    db, scenario_name: str, n_personas: int,
+) -> Optional[list[PersonaSpec]]:
+    """Load cached personas if available and count matches."""
+    rows = db.execute(
+        "SELECT id, archetype_id, identity, behavior_rules, emotional_range, "
+        "knowledge_bounds, consistency_rules, hard_limits, properties "
+        "FROM generated_personas WHERE scenario_name = ? ORDER BY id",
+        [scenario_name],
+    ).fetchall()
+
+    if len(rows) != n_personas:
+        return None
+
+    personas = []
+    for i, row in enumerate(rows):
+        personas.append(PersonaSpec(
+            id=f"persona_{i}",
+            archetype_id=row[1],
+            identity=row[2],
+            behavior_rules=row[3],
+            emotional_range=row[4],
+            knowledge_bounds=row[5],
+            consistency_rules=row[6],
+            hard_limits=row[7],
+            properties=json.loads(row[8]) if row[8] else {},
+        ))
+
+    return personas

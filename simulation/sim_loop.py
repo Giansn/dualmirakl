@@ -47,6 +47,7 @@ from simulation.event_stream import (
     COMPLIANCE, FLAME_SNAPSHOT, PERSONA, CONTEXT, TOOL_USE, GRAPH_UPDATE,
 )
 from simulation.graph_memory import GraphMemory
+from simulation.agent_memory import DuckDBMemoryBackend
 from simulation.action_schema import (
     PARTICIPANT_ACTIONS, OBSERVER_A_ACTIONS, OBSERVER_B_ACTIONS,
     schema_to_prompt, parse_action, extract_narrative,
@@ -1619,6 +1620,7 @@ async def run_simulation(
     flame_enabled: Optional[bool] = None,
     flame_config: Optional[dict] = None,
     scenario_config=None,
+    continue_from: Optional[str] = None,
 ) -> tuple[list[ParticipantAgent], WorldState]:
     """
     Run the stratified multi-agent simulation.
@@ -1699,17 +1701,127 @@ async def run_simulation(
     # Initialize graph memory (real-time feedback loop)
     world_state.graph = GraphMemory()
 
+    # ── GraphRAG: seed graph with document-derived knowledge ──────────
+    graph_context = ""
+    try:
+        from simulation.graph_rag import query_graph_context
+        graph_context = query_graph_context(
+            scenario_context=world_context or (scenario_config.meta.description if scenario_config else ""),
+            embed_fn=lambda texts: _get_embed().encode(texts),
+            top_k=20,
+            threshold=0.4,
+        )
+        if graph_context:
+            logger.info("GraphRAG context loaded (%d chars)", len(graph_context))
+            # Seed graph_memory with GraphRAG entities
+            try:
+                from simulation.graph_rag import get_graph_entities, get_graph_relations
+                from simulation.graph_rag import Entity as _GREntity, Relation as _GRRelation
+                raw_entities = get_graph_entities()
+                raw_relations = get_graph_relations()
+                if raw_entities:
+                    gr_entities = [
+                        _GREntity(id=e["id"], name=e["name"], type=e["type"], properties=e.get("properties", {}))
+                        for e in raw_entities
+                    ]
+                    gr_relations = [
+                        _GRRelation(id=r["id"], source=r["source"], target=r["target"],
+                                    rel_type=r["type"], context=r.get("context", ""),
+                                    weight=r.get("weight", 1.0))
+                        for r in raw_relations
+                    ]
+                    world_state.graph.seed_from_graphrag(gr_entities, gr_relations)
+            except Exception as e:
+                logger.debug("GraphRAG graph seeding skipped: %s", e)
+    except Exception as e:
+        logger.debug("GraphRAG context not available: %s", e)
+
+    # ── Memory persistence: DuckDB write-behind backend ───────────────
+    _memory_backend = None
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    _run_id = f"run_{ts}_s{seed}"
+    try:
+        _memory_backend = DuckDBMemoryBackend(run_id=_run_id)
+        logger.info("Memory persistence enabled (run_id=%s)", _run_id)
+    except Exception as e:
+        logger.debug("Memory persistence not available: %s", e)
+
+    # ── Continue from prior run: load memories ────────────────────────
+    if continue_from and _memory_backend:
+        try:
+            prior_memories = _memory_backend.load_from_run(
+                prior_run_id=continue_from,
+                scenario_context=world_context or "",
+                embed_fn=lambda texts: _get_embed().encode(texts),
+                top_k=5,
+            )
+            for agent_id, mems in prior_memories.items():
+                for mem in mems:
+                    world_state.memory.create(
+                        agent_id=agent_id,
+                        title=f"[prior] {mem['title']}",
+                        content=mem["content"],
+                        tags=mem.get("tags", []) + ["prior_run"],
+                        tick=0,
+                    )
+            n_loaded = sum(len(m) for m in prior_memories.values())
+            if n_loaded > 0:
+                logger.info("Loaded %d memories from prior run '%s'", n_loaded, continue_from)
+        except Exception as e:
+            logger.warning("Failed to load prior memories: %s", e)
+
     # Initialize safety gate from config
     if scenario_config is not None and scenario_config.safety.enabled:
         world_state.safety_gate = SafetyGate(
             allowlist=set(scenario_config.safety.action_allowlist),
         )
 
-    environment = EnvironmentAgent(history_window=history_window, world_context=world_context)
+    # Combine world context with graph context for richer grounding
+    _combined_context = world_context or ""
+    if graph_context:
+        _combined_context = f"{_combined_context}\n\n{graph_context}" if _combined_context else graph_context
+
+    environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context)
     participants = [
         ParticipantAgent(f"participant_{i}", history_window=history_window)
         for i in range(n_participants)
     ]
+
+    # ── Persona generation (Enhancement 3): generate from KG if configured ──
+    _use_generated_personas = False
+    if scenario_config is not None:
+        _persona_cfg = getattr(scenario_config, "persona_generation", None)
+        if _persona_cfg and getattr(_persona_cfg, "source", "manual") == "graph":
+            try:
+                from simulation.ontology_generator import generate_personas as _gen_personas
+                from simulation.storage import get_db as _get_storage_db
+                _persona_db = None
+                try:
+                    _persona_db = _get_storage_db()
+                except Exception:
+                    pass
+                archetypes = [
+                    {"id": p.id, "label": p.label, "description": p.description,
+                     "properties": p.properties}
+                    for p in scenario_config.archetypes.profiles
+                ]
+                distribution = dict(scenario_config.archetypes.distribution)
+                personas = await _gen_personas(
+                    scenario_name=scenario_config.meta.name,
+                    archetypes=archetypes,
+                    distribution=distribution,
+                    n_personas=n_participants,
+                    graph_context=graph_context,
+                    db=_persona_db,
+                )
+                # Override participant system prompts with generated personas
+                for i, (participant, persona) in enumerate(zip(participants, personas)):
+                    participant._persona_spec = persona
+                    participant._system_override = persona.to_system_prompt()
+                _use_generated_personas = True
+                logger.info("Generated %d personas from KG", len(personas))
+            except Exception as e:
+                logger.warning("Persona generation failed, using defaults: %s", e)
     # ── Observer setup (ReACT or standard) ──────────────────────────────
     _use_react = False
     _react_cfg = None
@@ -1854,6 +1966,13 @@ async def run_simulation(
                     }
                 on_tick(tick_info)
 
+            # Memory persistence: flush new memories to DuckDB at tick boundary
+            if _memory_backend and world_state.memory:
+                try:
+                    _memory_backend.flush(world_state.memory)
+                except Exception as e:
+                    logger.debug("Memory flush failed at tick %d: %s", tick, e)
+
             # W&B per-tick logging (no-op if wandb not installed)
             tracker.log_tick(
                 tick,
@@ -1883,6 +2002,15 @@ async def run_simulation(
             f"FLAME pop \u03bc={flame_stats['mean_score']:.2f}"
         )
 
+    # Final memory flush to DuckDB
+    if _memory_backend and world_state.memory:
+        try:
+            n_flushed = _memory_backend.flush_all(world_state.memory)
+            if n_flushed > 0:
+                logger.info("Flushed %d memories to DuckDB", n_flushed)
+        except Exception as e:
+            logger.warning("Final memory flush failed: %s", e)
+
     # Export results
     run_config = {
         "n_ticks": n_ticks, "n_participants": n_participants,
@@ -1891,10 +2019,24 @@ async def run_simulation(
         "intervention_threshold": intervention_threshold,
         "persona_summary_interval": persona_summary_interval,
         "score_mode": score_mode, "logistic_k": logistic_k,
+        "run_id": _run_id,
     }
+    if continue_from:
+        run_config["continued_from"] = continue_from
+    if _use_generated_personas:
+        run_config["persona_source"] = "graph"
+    if graph_context:
+        run_config["graph_context_chars"] = len(graph_context)
     if flame_engine is not None:
         run_config["flame"] = flame_engine.config
     run_dir = export_results(participants, world_state, run_config, duration_s)
+
+    # Export graph memory alongside simulation data
+    if world_state.graph is not None:
+        graph_export = world_state.graph.export()
+        (Path(run_dir) / "graph_memory.json").write_text(
+            json.dumps(graph_export, indent=2, default=str)
+        )
 
     # Export FLAME population data alongside dualmirakl output
     if flame_bridge is not None:
