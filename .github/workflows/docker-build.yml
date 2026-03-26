@@ -2,7 +2,7 @@ name: Build & Push Docker Image
 
 on:
   push:
-    branches: [main, runpod]
+    branches: [main]
     paths:
       - Dockerfile
       - docker-post-start.sh
