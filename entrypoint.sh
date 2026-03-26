@@ -36,7 +36,13 @@ case "$MODE" in
     shell)
         exec bash
         ;;
-    all|*)
+    all)
         exec bash start_all.sh
+        ;;
+    *)
+        # Default: keep container alive with SSH accessible.
+        # Start services manually: bash start_all.sh
+        echo "[dualmirakl] Ready. Run 'bash start_all.sh' to start services."
+        exec sleep infinity
         ;;
 esac

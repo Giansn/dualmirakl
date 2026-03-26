@@ -8,6 +8,10 @@ on:
       - docker-post-start.sh
       - requirements.txt
       - .dockerignore
+      - entrypoint.sh
+      - start_all.sh
+      - start_authority.sh
+      - start_swarm.sh
   workflow_dispatch:
 
 jobs:

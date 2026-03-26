@@ -1,13 +1,14 @@
 # =============================================================================
 # dualmirakl — container image
 #
-# Base: runpod/pytorch (CUDA 12.8, PyTorch 2.9.1, Python 3.11, Ubuntu 22.04)
+# Base: runpod/pytorch (CUDA 12.9, PyTorch 2.9.1, Python 3.12, Ubuntu 22.04)
+# vLLM 0.17.1 (Blackwell sm_120 support)
 #
 # Portable: works on RunPod, Docker Compose, K8s.
 # Models are NOT baked in — mount or download at runtime.
 # =============================================================================
 
-FROM runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2204
+FROM runpod/pytorch:1.0.3-cu1290-torch291-ubuntu2204
 
 # ── Environment (overridable at runtime) ──────────────────────────────────────
 ENV HF_HOME=${HF_HOME:-/models} \
@@ -41,6 +42,7 @@ RUN pip install \
     numpyro==0.20.0 \
     numpy==2.2.6 \
     scipy==1.17.1 \
+    duckdb==1.2.0 \
     python-dotenv==1.2.1 \
     loguru==0.7.3 \
     rich==14.3.3 \
@@ -60,4 +62,6 @@ RUN chmod +x /post_start.sh
 VOLUME ["/models", "/app/data", "/app/logs"]
 
 # ── Default entrypoint ──────────────────────────────────────────────────────
+# Default: container stays alive with SSH. Run 'bash start_all.sh' to boot vLLM.
+# Set ENTRYPOINT_MODE=all to auto-start everything.
 ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]
