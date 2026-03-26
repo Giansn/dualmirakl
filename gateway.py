@@ -72,7 +72,7 @@ async def ui():
     for dot_id, key in [("stAuth", "authority"), ("stSwarm", "swarm"), ("stEmbed", "e5-small-v2")]:
         cls = "dot on" if s.get(key) == "up" else "dot off"
         html = html.replace(f'class="dot chk" id="{dot_id}"', f'class="{cls}" id="{dot_id}"')
-    return HTMLResponse(html)
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/health")

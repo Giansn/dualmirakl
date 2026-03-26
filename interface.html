@@ -504,9 +504,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 const S = {
   chats: [],
   cid: null,
-  streaming: true,
+  streaming: false,
   rag: true,
-  autoCompress: true,
+  autoCompress: false,
   generating: false,
   embeds: [],
   runpod: false,
@@ -542,10 +542,10 @@ function v(id) { return document.getElementById(id)?.value; }
 function logger_warn(msg) { console.warn('[ctx]', msg); }
 
 const url = {
-  chat: () => S.runpod ? v('rpChatUrl').replace(/\/$/,'') : `${cfg().baseUrl}:${cfg().chatPort}`,
-  bg:   () => S.runpod ? v('rpBgUrl').replace(/\/$/,'')   : `${cfg().baseUrl}:${cfg().bgPort}`,
-  emb:  () => S.runpod ? v('rpEmbedUrl').replace(/\/$/,'') : `${cfg().baseUrl}:${cfg().embedPort}`,
-  gw:   () => `${cfg().baseUrl}:${cfg().embedPort}`,
+  chat: () => S.runpod ? v('rpChatUrl').replace(/\/$/,'') : '',
+  bg:   () => S.runpod ? v('rpBgUrl').replace(/\/$/,'')   : '',
+  emb:  () => S.runpod ? v('rpEmbedUrl').replace(/\/$/,'') : '',
+  gw:   () => '',
   hdrs: () => {
     const h = {'Content-Type':'application/json'};
     if (S.runpod && v('rpKey')) h['Authorization'] = `Bearer ${v('rpKey')}`;
@@ -743,7 +743,7 @@ async function buildCtx(chat,query) {
   let toks=tok(c.sys); if(chat.memory) toks+=tok(chat.memory);
 
   let ragChunks=[];
-  if(S.rag){showCbar('cbarRag','Searching\u2026');ragChunks=await ragRetrieve(query);ragChunks.length?showCbar('cbarRag',`${ragChunks.length} chunks`):hideCbar('cbarRag');}
+  if(S.rag&&S.embeds.some(e=>e.role==='document')){showCbar('cbarRag','Searching\u2026');ragChunks=await ragRetrieve(query);ragChunks.length?showCbar('cbarRag',`${ragChunks.length} chunks`):hideCbar('cbarRag');}
   const ragTxt=ragChunks.map(r=>r.text).join('\n'); toks+=tok(ragTxt);
 
   const allM=chat.messages, ws=Math.max(0,allM.length-c.win), winM=allM.slice(ws);
@@ -823,7 +823,8 @@ async function sendMessage() {
       const ms=document.querySelectorAll('.msg.assistant');const last=ms[ms.length-1];if(last) last.querySelector('.msg-bd').innerHTML=fmt(amsg.content);
     } else {
       const res=await fetch(`${url.chat()}/v1/chat/completions`,{method:'POST',headers:url.hdrs(),body:JSON.stringify({model:'authority',messages:apiMsgs,max_tokens:c.maxTok,temperature:c.temp,stream:false})});
-      const d=await res.json(); amsg.content=d.choices?.[0]?.message?.content||'No response';
+      const d=await res.json();
+      amsg.content=d.choices?.[0]?.message?.content||d.error?.message||'Empty response — try a new chat or rephrase your message.';
       outToks=d.usage?.completion_tokens||tok(amsg.content);
       chat.messages.push(amsg); ty.classList.remove('vis'); renderMessages();
     }
@@ -833,9 +834,11 @@ async function sendMessage() {
     if(chat.messages.length<=2&&chat.title==='New Chat') genTitle(chat.messages).then(t=>{chat.title=t;renderChatList();});
     renderMessages();
   } catch(e) {
+    console.error('sendMessage error:', e);
     ty.classList.remove('vis');
-    amsg.content=`\u26A0 Connection error: ${e.message}\n\nEnsure Authority is running at ${url.chat()}`;
-    chat.messages.push(amsg); renderMessages();
+    amsg.content=`\u26A0 Error: ${e.message}\n\nURL: ${url.chat()}/v1/chat/completions`;
+    if(!chat.messages.includes(amsg)) chat.messages.push(amsg);
+    renderMessages();
   } finally {
     S.generating=false;
     hideCbar('cbarRag'); hideCbar('cbarCmp');
@@ -856,10 +859,12 @@ function renderChatList() {
 }
 
 function renderMessages() {
-  const mi=document.getElementById('mi'), ws=document.getElementById('ws'), cn=document.getElementById('cn'), ty=document.getElementById('ty');
+  const mi=document.getElementById('mi'), cn=document.getElementById('cn'), ty=document.getElementById('ty');
+  if(!mi) return;
+  let ws=document.getElementById('ws');
   const chat=getChat();
-  if(!chat||!chat.messages.length){mi.innerHTML='';mi.appendChild(ws);ws.style.display='';mi.appendChild(cn);mi.appendChild(ty);return;}
-  ws.style.display='none';
+  if(!chat||!chat.messages.length){mi.innerHTML='';if(!ws){ws=document.createElement('div');ws.id='ws';ws.className='welcome';}mi.appendChild(ws);ws.style.display='';if(cn)mi.appendChild(cn);if(ty)mi.appendChild(ty);return;}
+  if(ws) ws.style.display='none';
   const c=cfg(), winSt=Math.max(0,chat.messages.length-c.win); let html='';
 
   if(chat.memory&&chat.memoryUpTo>0) html+=`
