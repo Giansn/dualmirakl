@@ -441,6 +441,59 @@ class GraphMemory:
         self.add_edge("environment", agent_id, RECEIVED_STIMULUS, tick)
         return 1
 
+    # ── GraphRAG seeding ────────────────────────────────────────────────
+
+    def seed_from_graphrag(self, entities: list, relations: list) -> int:
+        """
+        Pre-populate the graph with entities and relations extracted from
+        documents via the GraphRAG pipeline (simulation/graph_rag.py).
+
+        Called before tick 0 to give the graph initial structure from
+        domain knowledge. Runtime events (distill_tick) then layer on top.
+
+        Args:
+            entities: List of graph_rag.Entity objects.
+            relations: List of graph_rag.Relation objects.
+
+        Returns:
+            Number of graph operations performed.
+        """
+        ops = 0
+        entity_map = {}  # name -> node_id
+
+        for ent in entities:
+            node_id = f"kg_{ent.name.lower().replace(' ', '_')}"
+            entity_map[ent.name] = node_id
+            self.add_node(
+                node_id,
+                node_type=f"kg_{ent.type}",
+                label=ent.name,
+                tick=0,
+                **ent.properties,
+            )
+            ops += 1
+
+        for rel in relations:
+            src_id = entity_map.get(rel.source)
+            tgt_id = entity_map.get(rel.target)
+            if src_id and tgt_id:
+                self.add_edge(
+                    src_id, tgt_id,
+                    edge_type=f"kg_{rel.rel_type}",
+                    tick=0,
+                    context=rel.context,
+                    weight=rel.weight,
+                )
+                ops += 1
+
+        if ops > 0:
+            logger.info(
+                "[graph] seeded with %d entities + %d relations from GraphRAG",
+                len(entities), len(relations),
+            )
+
+        return ops
+
     # ── Introspection ────────────────────────────────────────────────────
 
     @property

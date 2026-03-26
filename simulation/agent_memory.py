@@ -294,3 +294,157 @@ class AgentMemoryStore:
                 result.append(mem.to_dict())
         result.sort(key=lambda m: (m["agent_id"], m["tick_created"]))
         return result
+
+
+# ── DuckDB persistence layer ─────────────────────────────────────────────────
+
+class DuckDBMemoryBackend:
+    """
+    Persistent memory backend using DuckDB.
+
+    Sits alongside the in-memory AgentMemoryStore as a write-behind layer.
+    During simulation: memories accumulate in-memory (fast path).
+    At tick boundaries: new memories are batch-flushed to DuckDB.
+    Across runs: memories can be loaded from prior runs via load_from_run().
+
+    Usage:
+        backend = DuckDBMemoryBackend(run_id="run_20260325_120000_s42")
+        backend.flush(memory_store)          # after each tick
+        backend.flush_all(memory_store)      # at simulation end
+
+        # For a new run continuing from a prior one:
+        prior_memories = backend.load_from_run(
+            prior_run_id="run_20260324_...",
+            scenario_context="...",
+            embed_fn=lambda texts: model.encode(texts),
+            top_k=5,
+        )
+    """
+
+    def __init__(self, run_id: str, db=None):
+        self.run_id = run_id
+        self._db = db
+        self._flushed_ids: set[str] = set()
+
+    @property
+    def db(self):
+        if self._db is None:
+            from simulation.storage import get_db
+            self._db = get_db()
+        return self._db
+
+    def flush(self, store: AgentMemoryStore) -> int:
+        """
+        Flush new (unflushed) memories from the in-memory store to DuckDB.
+        Call this at tick boundaries. Returns count of newly persisted memories.
+        """
+        count = 0
+        for agent_id in store.agents:
+            for mem in store.get_all(agent_id):
+                if mem.id in self._flushed_ids:
+                    continue
+                self._persist_memory(mem)
+                self._flushed_ids.add(mem.id)
+                count += 1
+        return count
+
+    def flush_all(self, store: AgentMemoryStore) -> int:
+        """Flush all memories (call at simulation end)."""
+        return self.flush(store)
+
+    def _persist_memory(self, mem: Memory) -> None:
+        """Insert a single memory into DuckDB."""
+        embedding_list = mem.embedding.tolist() if mem.embedding is not None else None
+        self.db.execute(
+            """INSERT OR REPLACE INTO agent_memories
+               (id, run_id, agent_id, tick, memory_type, title, content, tags,
+                embedding, importance, decay_rate)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [mem.id, self.run_id, mem.agent_id, mem.tick_created,
+             "episodic", mem.title, mem.content, mem.tags,
+             embedding_list, 1.0, 0.05],
+        )
+
+    def load_from_run(
+        self,
+        prior_run_id: str,
+        scenario_context: str,
+        embed_fn,
+        top_k: int = 5,
+        decay_weight: bool = True,
+    ) -> dict[str, list[dict]]:
+        """
+        Load relevant memories from a prior run for each agent.
+
+        Retrieves top-K memories per agent from the prior run, ranked by
+        cosine similarity to the new scenario context, optionally weighted
+        by importance and temporal decay.
+
+        Args:
+            prior_run_id: Run ID to load memories from.
+            scenario_context: Current scenario description for relevance filtering.
+            embed_fn: Batch embedding function.
+            top_k: Max memories per agent.
+            decay_weight: Apply temporal decay to importance.
+
+        Returns:
+            Dict of agent_id -> list of memory dicts.
+        """
+        from simulation.storage import cosine_similarity_sql
+
+        # Embed the scenario context
+        q_vec = embed_fn([scenario_context])[0].tolist()
+        sim_expr = cosine_similarity_sql("embedding", q_vec)
+
+        rows = self.db.execute(f"""
+            SELECT agent_id, title, content, tags, tick,
+                   importance, decay_rate,
+                   {sim_expr} AS similarity
+            FROM agent_memories
+            WHERE run_id = ?
+              AND embedding IS NOT NULL
+            ORDER BY agent_id, similarity DESC
+        """, [prior_run_id]).fetchall()
+
+        # Group by agent, take top_k per agent
+        from collections import defaultdict
+        agent_memories: dict[str, list] = defaultdict(list)
+
+        for agent_id, title, content, tags, tick, importance, decay_rate, sim in rows:
+            if len(agent_memories[agent_id]) >= top_k:
+                continue
+
+            # Apply decay if requested
+            effective_importance = importance
+            if decay_weight:
+                import math
+                effective_importance = importance * math.exp(-decay_rate * tick)
+
+            agent_memories[agent_id].append({
+                "title": title,
+                "content": content,
+                "tags": tags or [],
+                "tick_created": tick,
+                "similarity": float(sim),
+                "effective_importance": float(effective_importance),
+            })
+
+        return dict(agent_memories)
+
+    def get_run_ids(self) -> list[str]:
+        """List all run IDs that have persisted memories."""
+        rows = self.db.execute(
+            "SELECT DISTINCT run_id FROM agent_memories ORDER BY run_id DESC"
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def memory_stats(self, run_id: Optional[str] = None) -> dict:
+        """Get memory statistics for a run (or all runs)."""
+        where = f"WHERE run_id = '{run_id}'" if run_id else ""
+        row = self.db.execute(f"""
+            SELECT COUNT(*) as total,
+                   COUNT(DISTINCT agent_id) as agents,
+                   COUNT(DISTINCT run_id) as runs
+            FROM agent_memories {where}
+        """).fetchone()
+        return {"total_memories": row[0], "agents": row[1], "runs": row[2]}
