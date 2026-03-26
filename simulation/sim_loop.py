@@ -457,6 +457,17 @@ def _cosine(a, b) -> float:
 
 # ── Resilient agent_turn wrapper ──────────────────────────────────────────────
 
+# Per-backend semaphores for backpressure (respect vLLM max_num_seqs)
+_backend_semaphores: dict[str, asyncio.Semaphore] = {}
+
+
+def _get_semaphore(backend: str, max_concurrent: int = 10) -> asyncio.Semaphore:
+    """Get or create a per-backend semaphore for backpressure."""
+    if backend not in _backend_semaphores:
+        _backend_semaphores[backend] = asyncio.Semaphore(max_concurrent)
+    return _backend_semaphores[backend]
+
+
 async def _resilient_agent_turn(
     agent_id: str,
     backend: str,
@@ -465,28 +476,30 @@ async def _resilient_agent_turn(
     history: list[dict],
     max_tokens: int,
 ) -> str:
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            return await agent_turn(
-                agent_id=agent_id,
-                backend=backend,
-                system_prompt=system_prompt,
-                user_message=user_message,
-                history=history,
-                max_tokens=max_tokens,
-            )
-        except Exception as e:
-            delay = RETRY_DELAY * (2 ** (attempt - 1))
-            logger.warning(
-                f"[{agent_id}] agent_turn failed (attempt {attempt}/{MAX_RETRIES}): {e}. "
-                f"Retrying in {delay:.1f}s..."
-            )
-            if attempt < MAX_RETRIES:
-                await asyncio.sleep(delay)
-            else:
-                fallback = f"[{agent_id} fallback: agent_turn failed after {MAX_RETRIES} attempts]"
-                logger.error(f"[{agent_id}] All retries exhausted. Using fallback response.")
-                return fallback
+    sem = _get_semaphore(backend)
+    async with sem:
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                return await agent_turn(
+                    agent_id=agent_id,
+                    backend=backend,
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    history=history,
+                    max_tokens=max_tokens,
+                )
+            except Exception as e:
+                delay = RETRY_DELAY * (2 ** (attempt - 1))
+                logger.warning(
+                    f"[{agent_id}] agent_turn failed (attempt {attempt}/{MAX_RETRIES}): {e}. "
+                    f"Retrying in {delay:.1f}s..."
+                )
+                if attempt < MAX_RETRIES:
+                    await asyncio.sleep(delay)
+                else:
+                    fallback = f"[{agent_id} fallback: agent_turn failed after {MAX_RETRIES} attempts]"
+                    logger.error(f"[{agent_id}] All retries exhausted. Using fallback response.")
+                    return fallback
 
 
 # ── Data structures ───────────────────────────────────────────────────────────
@@ -1142,8 +1155,8 @@ class ParticipantAgent:
             max_tokens=120,
         )
 
-    def _build_system_prompt(self) -> str:
-        """Prepend persona traits + summary if available."""
+    def _build_system_prompt(self, strategy_constraint: str = "") -> str:
+        """Prepend persona traits + summary + bandit strategy if available."""
         base = self.cfg["system"]
 
         # Inject heterogeneous personality traits
@@ -1167,10 +1180,13 @@ class ParticipantAgent:
             ))
         if trait.strip():
             parts.append(trait.strip())
+        if strategy_constraint:
+            parts.append(f"Current behavioral strategy: {strategy_constraint}")
         parts.append(base)
         return "\n\n".join(parts)
 
-    async def step(self, tick: int, stimulus: str, world_state: WorldState, max_tokens: int = 256) -> str:
+    async def step(self, tick: int, stimulus: str, world_state: WorldState,
+                   max_tokens: int = 256, strategy_constraint: str = "") -> str:
         # Persona summaries handled at tick level (concurrent pre-phase)
         nudge = world_state.participant_nudges()
         nudge_note = f" {nudge}" if nudge else ""
@@ -1190,8 +1206,8 @@ class ParticipantAgent:
             f"How do you respond? What do you do?"
         )
 
-        # Inject structured output schema into system prompt
-        system = self._build_system_prompt()
+        # Inject structured output schema + bandit strategy into system prompt
+        system = self._build_system_prompt(strategy_constraint=strategy_constraint)
         system += schema_to_prompt(PARTICIPANT_ACTIONS, "participant")
 
         response = await _resilient_agent_turn(
@@ -1456,6 +1472,7 @@ async def run_tick(
     flame_bridge=None,
     topology_manager: Optional[TopologyManager] = None,
     topology_configs: Optional[list] = None,
+    bandit=None,
 ) -> Optional[dict]:
     """
     Execute one tick with three throughput optimizations:
@@ -1537,8 +1554,20 @@ async def run_tick(
             })
 
     # -- Phase B -- concurrent participant responses (swarm GPU) [Opt 2]
+    # Bandit: select strategy per agent before LLM call
+    _bandit_selections: dict[str, str] = {}
+    if bandit is not None:
+        for p in participants:
+            if p.agent_id in bandit.agents:
+                strategy, constraint = bandit.select(p.agent_id)
+                _bandit_selections[p.agent_id] = strategy
+            else:
+                _bandit_selections[p.agent_id] = ""
+                constraint = ""
+
     responses = await asyncio.gather(*[
-        p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens)
+        p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens,
+               strategy_constraint=_bandit_selections.get(p.agent_id, ""))
         for p in participants
     ])
 
@@ -1640,6 +1669,24 @@ async def run_tick(
             "signal_se": signal_se,
             "dampening": dampening,
         })
+
+    # -- Bandit reward update (after scoring, before FLAME) ─────────────────
+    if bandit is not None and _bandit_selections:
+        for p in participants:
+            strategy = _bandit_selections.get(p.agent_id)
+            if not strategy or p.agent_id not in bandit.agents:
+                continue
+            # Reward: how much did the score move in the desired direction?
+            # Use the signal directly as reward — higher engagement signal = better
+            last_entry = world_state._log[-1] if world_state._log else None
+            reward = 0.5
+            if last_entry and last_entry.participant_id == p.agent_id:
+                reward = last_entry.signal
+            bandit.update(p.agent_id, strategy, reward)
+
+        # Decay every 10 ticks to prevent early lock-in
+        if tick > 0 and tick % 10 == 0:
+            bandit.decay(0.97)
 
     # -- Phase F -- FLAME population step (GPU 2, optional) [Opt 4] ────────
     flame_snapshot = None
@@ -1911,6 +1958,21 @@ async def run_simulation(
             for i in range(n_participants)
         ]
 
+    # ── Contextual Bandit (adaptive strategy selection) ─────────────────
+    _bandit = None
+    _bandit_enabled = False
+    if scenario_config is not None:
+        _bandit_enabled = getattr(scenario_config, "bandit_enabled", False)
+    if _bandit_enabled:
+        try:
+            from ml.bandit import ContextualBandit
+            _bandit = ContextualBandit(seed=seed)
+            for p in participants:
+                _bandit.register(p.agent_id)
+            logger.info("Contextual bandit enabled for %d agents", len(participants))
+        except ImportError:
+            logger.warning("ml.bandit not available, skipping bandit")
+
     # ── Persona generation (Enhancement 3): generate from KG if configured ──
     _use_generated_personas = False
     if scenario_config is not None:
@@ -2026,6 +2088,7 @@ async def run_simulation(
                 flame_engine, flame_bridge,
                 topology_manager=_topo_manager,
                 topology_configs=_topo_configs,
+                bandit=_bandit,
             )
 
             # Compact tick line
