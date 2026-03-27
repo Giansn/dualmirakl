@@ -934,8 +934,11 @@ class EnvironmentAgent:
     DDA: score >= 0.8 -> stabilising, >= 0.5 -> variation, < 0.5 -> baseline.
     """
 
-    def __init__(self, history_window: int = 4, world_context: Optional[str] = None):
-        self.cfg = AGENT_ROLES["environment"]
+    def __init__(self, history_window: int = 4, world_context: Optional[str] = None,
+                 backend_override: Optional[str] = None):
+        self.cfg = {**AGENT_ROLES["environment"]}
+        if backend_override:
+            self.cfg["backend"] = backend_override
         self.history: list[dict] = []
         self.history_window = history_window
         self.world_context = world_context
@@ -1924,12 +1927,17 @@ async def run_simulation(
     if graph_context:
         _combined_context = f"{_combined_context}\n\n{graph_context}" if _combined_context else graph_context
 
-    environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context)
-
-    # ── Create participants with archetype-driven parameters ──────────
-    # GPU split: round-robin participants across authority + swarm for parallel Phase B
-    _gpu_backends = ["swarm", "authority"]
+    # ── GPU split + pipeline configuration ──────────────────────────────
     _split_enabled = os.getenv("SIM_GPU_SPLIT", "1") == "1"
+    _gpu_backends = ["swarm", "authority"]
+
+    # Pipeline mode: environment on swarm (GPU 1) so Phase A overlaps with Phase D (authority/GPU 0)
+    _pipeline = os.getenv("SIM_PIPELINE", "1") == "1" and _split_enabled
+    _env_backend = "swarm" if _pipeline else None
+    environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context,
+                                   backend_override=_env_backend)
+    if _pipeline:
+        logger.info("Pipeline mode: environment on swarm, observers on authority — Phase A||D overlap enabled")
 
     def _pick_backend(idx):
         if not _split_enabled:
@@ -2101,22 +2109,44 @@ async def run_simulation(
     if detection["missing"]:
         ctx_status += f" | missing: {', '.join(m['category'] for m in detection['missing'])}"
     gpu_label = "2 GPUs"
+    _harmony_mode = _pipeline and not flame_engine
     if flame_engine is not None:
         gpu_label = f"3 GPUs (FLAME: {flame_engine.config['n_population']} pop)"
+    elif _harmony_mode:
+        gpu_label = "2 GPUs (harmony)"
     print(f"\n\u2500\u2500 sim v3 | {n_ticks} ticks | {n_participants} agents | K={k} | {score_mode} | {gpu_label} \u2500\u2500")
     print(f"  context: {ctx_status}")
 
     try:
+        if _harmony_mode:
+            # GPU Harmony: tick-pipelined dual-GPU execution
+            from simulation.gpu_harmony import GPUHarmony
+            harmony = GPUHarmony(
+                environment, participants, observers, world_state,
+                alpha=alpha, max_tokens=max_tokens, score_mode=score_mode,
+                logistic_k=logistic_k, flame_engine=flame_engine,
+                flame_bridge=flame_bridge, topology_manager=_topo_manager,
+                topology_configs=_topo_configs, bandit=_bandit,
+            )
+            # Run pipeline in background, consume tick results from queue
+            _harmony_task = asyncio.create_task(harmony.run(n_ticks))
+
         for tick in range(1, n_ticks + 1):
             ivs_before = len(world_state.active_interventions)
-            flame_snapshot = await run_tick(
-                tick, environment, participants, observers, world_state,
-                alpha, max_tokens, score_mode, logistic_k,
-                flame_engine, flame_bridge,
-                topology_manager=_topo_manager,
-                topology_configs=_topo_configs,
-                bandit=_bandit,
-            )
+
+            if _harmony_mode:
+                # Harmony hands completed ticks via queue
+                _htick, _hparts, _hivs_before = await harmony._tick_done_q.get()
+                flame_snapshot = None
+            else:
+                flame_snapshot = await run_tick(
+                    tick, environment, participants, observers, world_state,
+                    alpha, max_tokens, score_mode, logistic_k,
+                    flame_engine, flame_bridge,
+                    topology_manager=_topo_manager,
+                    topology_configs=_topo_configs,
+                    bandit=_bandit,
+                )
 
             # Compact tick line
             bar_filled = int(tick / n_ticks * 12)
