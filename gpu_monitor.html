@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>dualmirakl GPU Telemetry</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0e17;color:#c8d6e5;font-family:'Courier New',monospace;overflow-x:hidden}
+.header{padding:16px 24px;border-bottom:1px solid #1a2332;display:flex;align-items:center;gap:16px}
+.header h1{font-size:16px;color:#00d4aa;font-weight:400}
+.header .freq{font-size:12px;color:#5a6a7a;margin-left:auto}
+.header .status{width:8px;height:8px;border-radius:50%;background:#ff4757;animation:pulse 1.5s infinite}
+.header .status.live{background:#00d4aa}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 24px}
+.gpu-card{background:#111827;border:1px solid #1a2332;border-radius:8px;padding:16px}
+.gpu-card h2{font-size:13px;color:#5a6a7a;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.gpu-card h2 .idx{color:#00d4aa;font-size:16px;font-weight:700}
+.gpu-card h2 .role{color:#ffa502;font-size:11px;padding:2px 6px;background:#2d1f00;border-radius:3px}
+.metrics{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:16px}
+.metric{text-align:center}
+.metric .val{font-size:28px;font-weight:700;line-height:1}
+.metric .val.hot{color:#ff6b6b}
+.metric .val.warm{color:#ffa502}
+.metric .val.cool{color:#00d4aa}
+.metric .lbl{font-size:10px;color:#5a6a7a;margin-top:4px}
+.chart-wrap{position:relative;height:120px;background:#0d1117;border-radius:4px;overflow:hidden;border:1px solid #1a2332}
+.chart-wrap canvas{width:100%;height:100%}
+.chart-label{position:absolute;top:4px;left:8px;font-size:10px;color:#3a4a5a}
+.chart-max{position:absolute;top:4px;right:8px;font-size:10px;color:#3a4a5a}
+.full-width{grid-column:1/-1}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:0 24px 16px}
+.timeline-card{background:#111827;border:1px solid #1a2332;border-radius:8px;padding:16px}
+.timeline-card h3{font-size:12px;color:#5a6a7a;margin-bottom:8px}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px}
+.bar-row .name{width:80px;text-align:right;color:#5a6a7a}
+.bar-bg{flex:1;height:14px;background:#0d1117;border-radius:2px;overflow:hidden;position:relative}
+.bar-fill{height:100%;border-radius:2px;transition:width .3s}
+.bar-row .pct{width:40px;font-size:11px}
+.events{background:#111827;border:1px solid #1a2332;border-radius:8px;padding:16px;margin:0 24px 16px}
+.events h3{font-size:12px;color:#5a6a7a;margin-bottom:8px}
+.event-log{height:100px;overflow-y:auto;font-size:11px;line-height:1.6}
+.event-log div{border-bottom:1px solid #0d1117;padding:2px 0}
+.event-log .ts{color:#3a4a5a}
+.event-log .gpu0{color:#00d4aa}
+.event-log .gpu1{color:#ffa502}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>dualmirakl GPU Telemetry</h1>
+  <div class="status" id="statusDot"></div>
+  <span class="freq" id="freqLabel">Connecting...</span>
+</div>
+
+<div class="grid" id="gpuCards"></div>
+
+<div class="row">
+  <div class="timeline-card">
+    <h3>VRAM Allocation</h3>
+    <div id="vramBars"></div>
+  </div>
+  <div class="timeline-card">
+    <h3>Power Budget</h3>
+    <div id="powerBars"></div>
+  </div>
+</div>
+
+<div class="events">
+  <h3>Event Log</h3>
+  <div class="event-log" id="eventLog"></div>
+</div>
+
+<script>
+const API = window.location.origin + '/gpu/telemetry';
+const HISTORY = 120; // data points in charts
+const POLL_MS = 500; // 2 Hz sampling
+
+// State per GPU
+const gpus = {};
+
+function initGPU(g) {
+  if (gpus[g.index]) return;
+  gpus[g.index] = {
+    util: new Float32Array(HISTORY),
+    mem_pct: new Float32Array(HISTORY),
+    power: new Float32Array(HISTORY),
+    temp: new Float32Array(HISTORY),
+    ptr: 0,
+    full: false,
+  };
+}
+
+function pushVal(arr, state, val) {
+  arr[state.ptr] = val;
+}
+
+function getVals(arr, state) {
+  const len = state.full ? HISTORY : state.ptr;
+  const out = new Float32Array(len);
+  if (state.full) {
+    const start = state.ptr;
+    for (let i = 0; i < HISTORY; i++) out[i] = arr[(start + i) % HISTORY];
+  } else {
+    for (let i = 0; i < len; i++) out[i] = arr[i];
+  }
+  return out;
+}
+
+function drawChart(canvas, datasets, maxY) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = '#1a2332';
+  ctx.lineWidth = 1;
+  for (let y = 0; y <= 4; y++) {
+    const py = H - (y / 4) * H;
+    ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+  }
+
+  for (const {data, color, fill} of datasets) {
+    if (data.length < 2) continue;
+    const step = W / (HISTORY - 1);
+    const offset = HISTORY - data.length;
+
+    // Fill
+    if (fill) {
+      ctx.beginPath();
+      ctx.moveTo(offset * step, H);
+      for (let i = 0; i < data.length; i++) {
+        ctx.lineTo((offset + i) * step, H - (data[i] / maxY) * H);
+      }
+      ctx.lineTo((offset + data.length - 1) * step, H);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < data.length; i++) {
+      const x = (offset + i) * step;
+      const y = H - (data[i] / maxY) * H;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+function valClass(v) { return v > 80 ? 'hot' : v > 40 ? 'warm' : 'cool'; }
+
+function buildCards(data) {
+  const el = document.getElementById('gpuCards');
+  if (el.children.length > 0) return;
+
+  const roles = {0: 'authority', 1: 'swarm'};
+  // Note: RunPod flips GPU numbering. nvidia-smi 0=authority, 1=swarm
+  for (const g of data.gpus) {
+    const role = roles[g.index] || '?';
+    const card = document.createElement('div');
+    card.className = 'gpu-card';
+    card.id = `gpu${g.index}`;
+    card.innerHTML = `
+      <h2><span class="idx">${g.index}</span> ${g.name} <span class="role">${role}</span></h2>
+      <div class="metrics">
+        <div class="metric"><div class="val cool" id="util${g.index}">0%</div><div class="lbl">Utilization</div></div>
+        <div class="metric"><div class="val cool" id="temp${g.index}">0C</div><div class="lbl">Temp</div></div>
+        <div class="metric"><div class="val cool" id="pwr${g.index}">0W</div><div class="lbl">Power</div></div>
+        <div class="metric"><div class="val cool" id="mem${g.index}">0%</div><div class="lbl">VRAM</div></div>
+      </div>
+      <div class="chart-wrap">
+        <span class="chart-label">Util % / Power W</span>
+        <span class="chart-max" id="chartMax${g.index}">100%</span>
+        <canvas id="canvas${g.index}" width="600" height="120"></canvas>
+      </div>`;
+    el.appendChild(card);
+  }
+}
+
+function updateMetrics(data) {
+  for (const g of data.gpus) {
+    initGPU(g);
+    const s = gpus[g.index];
+
+    pushVal(s.util, s, g.utilization);
+    pushVal(s.mem_pct, s, g.mem_used / g.mem_total * 100);
+    pushVal(s.power, s, g.power);
+    pushVal(s.temp, s, g.temp);
+
+    // Advance pointer
+    s.ptr = (s.ptr + 1) % HISTORY;
+    if (s.ptr === 0) s.full = true;
+
+    // Numbers
+    const uEl = document.getElementById(`util${g.index}`);
+    if (uEl) { uEl.textContent = g.utilization + '%'; uEl.className = 'val ' + valClass(g.utilization); }
+    const tEl = document.getElementById(`temp${g.index}`);
+    if (tEl) { tEl.textContent = g.temp + 'C'; tEl.className = 'val ' + valClass(g.temp); }
+    const pEl = document.getElementById(`pwr${g.index}`);
+    if (pEl) { pEl.textContent = g.power + 'W'; pEl.className = 'val ' + valClass(g.power / 2); }
+    const mEl = document.getElementById(`mem${g.index}`);
+    if (mEl) { const mp = (g.mem_used/g.mem_total*100).toFixed(0); mEl.textContent = mp+'%'; mEl.className = 'val ' + valClass(parseFloat(mp)); }
+
+    // Chart
+    const canvas = document.getElementById(`canvas${g.index}`);
+    if (canvas) {
+      const utilData = getVals(s.util, s);
+      const pwrData = getVals(s.power, s);
+      const pwrNorm = new Float32Array(pwrData.length);
+      for (let i = 0; i < pwrData.length; i++) pwrNorm[i] = pwrData[i] / 200 * 100;
+      drawChart(canvas, [
+        {data: utilData, color: g.index === 0 ? '#00d4aa' : '#ffa502', fill: g.index === 0 ? 'rgba(0,212,170,0.1)' : 'rgba(255,165,2,0.1)'},
+        {data: pwrNorm, color: '#ff6b6b44', fill: false},
+      ], 100);
+    }
+  }
+
+  // VRAM bars
+  const vramEl = document.getElementById('vramBars');
+  if (vramEl) {
+    vramEl.innerHTML = data.gpus.map(g => {
+      const pct = (g.mem_used / g.mem_total * 100).toFixed(1);
+      const color = g.index === 0 ? '#00d4aa' : '#ffa502';
+      return `<div class="bar-row">
+        <span class="name">GPU ${g.index}</span>
+        <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+        <span class="pct">${(g.mem_used/1024).toFixed(1)}G</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Power bars
+  const pwrEl = document.getElementById('powerBars');
+  if (pwrEl) {
+    pwrEl.innerHTML = data.gpus.map(g => {
+      const pct = (g.power / 200 * 100).toFixed(1);
+      const color = g.power > 150 ? '#ff6b6b' : g.power > 80 ? '#ffa502' : '#00d4aa';
+      return `<div class="bar-row">
+        <span class="name">GPU ${g.index}</span>
+        <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
+        <span class="pct">${g.power.toFixed(0)}W</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+let lastEvent = '';
+function logEvent(data) {
+  const el = document.getElementById('eventLog');
+  for (const g of data.gpus) {
+    const key = `${g.index}-${g.utilization > 50 ? 'active' : 'idle'}`;
+    if (g.utilization > 80 && !lastEvent.includes(`gpu${g.index}-active`)) {
+      const ts = new Date().toLocaleTimeString();
+      const cls = g.index === 0 ? 'gpu0' : 'gpu1';
+      el.innerHTML = `<div><span class="ts">${ts}</span> <span class="${cls}">GPU ${g.index}</span> ${g.utilization}% ${g.power.toFixed(0)}W</div>` + el.innerHTML;
+      if (el.children.length > 50) el.removeChild(el.lastChild);
+    }
+    lastEvent = lastEvent.replace(new RegExp(`gpu${g.index}-\\w+`), '') + ` gpu${g.index}-${g.utilization > 50 ? 'active' : 'idle'}`;
+  }
+}
+
+let pollCount = 0;
+let pollStart = Date.now();
+
+async function poll() {
+  try {
+    const r = await fetch(API);
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+
+    buildCards(data);
+    updateMetrics(data);
+    logEvent(data);
+
+    pollCount++;
+    const elapsed = (Date.now() - pollStart) / 1000;
+    const hz = (pollCount / elapsed).toFixed(1);
+
+    document.getElementById('statusDot').className = 'status live';
+    document.getElementById('freqLabel').textContent = `${hz} Hz | ${HISTORY * POLL_MS / 1000}s window`;
+  } catch (e) {
+    document.getElementById('statusDot').className = 'status';
+    document.getElementById('freqLabel').textContent = `Error: ${e.message}`;
+  }
+}
+
+setInterval(poll, POLL_MS);
+poll();
+</script>
+</body>
+</html>

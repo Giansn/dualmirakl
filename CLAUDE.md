@@ -5,14 +5,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-bash start_all.sh              # start authority(:8000) + swarm(:8001) + gateway(:9000)
-bash stop_all.sh               # kill all vLLM processes
-bash pull_models.sh             # download models to $HF_HOME
-python -m simulation.sim_loop  # run simulation (interactive CLI, legacy mode)
+bash start_all.sh                                                # start authority(:8000) + swarm(:8001) + gateway(:9000)
+bash stop_all.sh                                                 # kill all vLLM processes
+bash pull_models.sh                                              # download models to $HF_HOME
+python -m simulation.sim_loop                                    # run simulation (interactive CLI, legacy mode)
 python -m simulation.sim_loop --scenario scenarios/social_dynamics.yaml  # scenario-driven
-python -m simulation.scenario validate scenarios/foo.yaml  # dry-run validation (zero GPU)
-python -m pytest tests/ -v     # 508 tests, no vLLM needed
-python simulation/dynamics.py  # dynamics analysis demo (A-H)
+python -m simulation.scenario validate scenarios/foo.yaml        # dry-run validation (zero GPU)
+python -m pytest tests/ -v                                       # all tests, no vLLM needed
+python -m pytest tests/test_scenario.py -v                       # single file
+python -m pytest tests/test_action_schema.py::TestSchemaStructure -v     # single class
+python -m pytest tests/test_safety.py::TestObserverMode::test_analyse_blocks_intervention -v  # single test
+python simulation/dynamics.py                                    # dynamics analysis demo (A-H)
+python examples/walkthrough.py                                   # 9-step interactive tutorial
+bash audit_env.sh                                                # environment + model health check
 ```
 
 ## Architecture
@@ -26,6 +31,33 @@ CPU   -- gateway   :9000  (e5-small-v2 + proxy + UI + sim API + doc store)
 
 GPU balance ~1.2:1 (authority:swarm). Both have prefix caching + chunked prefill, gpu-mem=0.90.
 
+### Agent-to-slot mapping
+
+| Agent | Slot | Role |
+|-------|------|------|
+| `observer_a` | authority (GPU 0) | Analysis only — no interventions |
+| `observer_b` | authority (GPU 0) | Proposes interventions from observer_a output |
+| `environment` | swarm (GPU 1) | Generates scenario events per tick |
+| `participant` | swarm (GPU 1) | Persona agents responding to events |
+
+### Cooperation loop
+
+```
+authority  →  direction          →  swarm
+swarm      →  prepared chunks    →  embedding (e5-small-v2, CPU)
+embedding  →  top-k results      →  swarm
+swarm      →  filtered context   →  authority
+authority  →  output + new need  →  swarm  [repeat]
+```
+
+### Concurrency model
+
+- `orchestrator.py` uses a singleton `httpx.AsyncClient` with HTTP/2 multiplexing
+- Phase B (participant responses) runs concurrently via `asyncio.gather()`
+- Phase C+D overlap: embedding on CPU thread pool (`run_in_executor`) while observer runs on GPU
+- Observer A → B is sequential (B depends on A's analysis output)
+- `MultiRunScheduler` in `parallel/tick_scheduler.py` manages concurrent runs with `asyncio.Semaphore` respecting vLLM max_seqs
+
 ## Scenario System (domain-agnostic framework)
 
 dualmirakl is a general-purpose multi-agent simulation framework. All domain-specific configuration lives in `scenarios/*.yaml` files. Swap one file to run a completely different simulation domain.
@@ -35,6 +67,7 @@ dualmirakl is a general-purpose multi-agent simulation framework. All domain-spe
 scenarios/social_dynamics.yaml        # behavioral dynamics (default)
 scenarios/network_resilience.yaml     # infrastructure failure cascading
 scenarios/market_ecosystem.yaml       # trader agent herd dynamics
+scenarios/minimal.yaml                # "Hello World" (2 agents, 3 ticks) — setup verification
 scenarios/_template.yaml              # annotated reference for new scenarios
 ```
 
@@ -76,11 +109,11 @@ Unified chronological event log. All phases emit typed events (stimulus, respons
 
 ### Action Schemas (simulation/action_schema.py)
 
-Typed JSON schemas for agent outputs. Participant: respond, disengage, escalate. Observer A: analyse (with clustering/concern enums). Observer B: intervene (with codebook enum) or no_intervention. Schema injected into prompts, parsed from output, falls back to free-text.
+Typed JSON schemas for agent outputs. Participant: respond, disengage, escalate. Observer A: analyse (with clustering/concern enums). Observer B: intervene (with codebook enum) or no_intervention. Schema injected into prompts, parsed from output, falls back to free-text via cosine similarity matching.
 
 ### Agent Memory (simulation/agent_memory.py)
 
-Per-agent persistent memory store across ticks. Semantic retrieval via e5-small-v2 + tag-based lookup. Deduplication by cosine similarity. LRU eviction. Agents can store memories via structured output.
+Per-agent persistent memory store across ticks. Semantic retrieval via e5-small-v2 + tag-based lookup. Deduplication by cosine similarity (>0.9 threshold). LRU eviction. DuckDB persistence backend for cross-run memory.
 
 ### Safety Gates (simulation/safety.py)
 
@@ -88,19 +121,19 @@ Observer mode enforcement (ANALYSE vs INTERVENE) + action safety classification 
 
 ### ReACT Observer (simulation/react_observer.py)
 
-MiroFish-inspired multi-step observer. Instead of single-pass analysis, iteratively reasons → calls tools → observes results → final answer. Enabled via `react.enabled: true` in scenario YAML. Tools: query_scores, query_events, check_interventions, query_memory, interview_agent, query_graph. Bounded by max_steps (default 5). Drop-in replacement for ObserverAgent.analyse() in Phase D1.
+Multi-step observer. Iteratively reasons → calls tools → observes results → final answer. Enabled via `react.enabled: true` in scenario YAML. Tools: query_scores, query_events, check_interventions, query_memory, interview_agent, query_graph. Bounded by max_steps (default 5). Drop-in replacement for ObserverAgent.analyse() in Phase D1.
 
 ### Graph Memory (simulation/graph_memory.py)
 
-Real-time knowledge graph feedback loop. EventStream events distilled into a NetworkX-style shared graph after each tick. Entities: agents, score regions, intervention nodes, behavioral patterns. Temporal edges with valid_at/invalid_at. Queryable by the ReACT observer via query_graph tool. Exported as part of run data.
+Real-time knowledge graph feedback loop. EventStream events distilled into a NetworkX-style shared graph after each tick. Entities: agents, score regions, intervention nodes, behavioral patterns. Temporal edges with valid_at/invalid_at. Queryable by the ReACT observer via query_graph tool.
 
 ### Dual-Environment Topologies (simulation/topology.py)
 
-MiroFish-inspired dual-platform architecture. Agents experience multiple interaction topologies simultaneously (Option A: dual-context, single-response). Types: `independent` (broadcast, default) and `clustered` (agents grouped, see neighbors). Combined stimuli in Phase B, single score signal. Zero overhead when single topology. Configure via `topologies:` list in scenario YAML.
+Agents experience multiple interaction topologies simultaneously (Option A: dual-context, single-response). Types: `independent` (broadcast, default) and `clustered` (agents grouped, see neighbors). Combined stimuli in Phase B, single score signal. Zero overhead when single topology.
 
 ### Ontology Generator (simulation/ontology_generator.py)
 
-LLM-generated archetypes and transitions from domain documents. Uses authority backend to auto-generate profiles, distribution fractions, and transition rules. Lowers scenario authoring barrier. Output mergeable into ScenarioConfig. Also contains `generate_personas()` for automatic persona creation from KG (Enhancement 3).
+LLM-generated archetypes and transitions from domain documents. Uses authority backend to auto-generate profiles, distribution fractions, and transition rules. Output mergeable into ScenarioConfig. Also contains `generate_personas()` for automatic persona creation from KG.
 
 ### DuckDB Storage (simulation/storage.py)
 
@@ -110,15 +143,37 @@ Embedded DuckDB storage layer for persistent data across runs. Tables: `entities
 
 Document → Knowledge Graph pipeline. Entity/relation extraction via authority slot (batch, JSON-mode). Persists to DuckDB. Context injection: `query_graph_context()` retrieves relevant triples by cosine similarity. Seeds `graph_memory.py` before tick 0. Triggered by `POST /v1/documents?extract_graph=true` or `POST /v1/documents/extract_graph`.
 
+### Possibility Report (simulation/possibility_report.py)
+
+Structured simulation output: possibility branches sorted by probability. Composes attractor basins, bifurcation analysis, sensitivity indices, and convergence checks from dynamics.py + stats/ into ranked divergent outcome trajectories with narrative and parameter levers.
+
 ### Post-Sim ReACT Analysis (simulation/react_observer.py — PostSimAnalyser)
 
 Authority-slot post-simulation analysis using the ReACT pattern. Loads data from `data/{run_id}/`, iteratively queries trajectories, dynamics, events, memories, graph. Produces structured reports. Tools: query_trajectories, query_dynamics, compare_agents, query_events, query_graph, interview_memory, statistical_test. API: `POST /simulation/analyse`.
 
-## Analysis Toolkit (dynamics.py)
+## Extension Modules
+
+### stats/ — Analysis metrics (no LLM, pure math)
+
+- `core.py` — stance_drift, polarization (Sarle's bimodality coefficient), opinion_clusters (K-Means + silhouette), influence_network (degree centrality)
+- `validation.py` — validation helpers
+
+### ml/ — Machine learning extensions
+
+- `evolution.py` — (mu+lambda) evolutionary strategy (AgentGenome with Big Five personality, EvolutionEngine)
+- `beliefs.py` — Bayesian belief update model
+- `bandit.py` — Multi-armed bandit strategy selection (UCB)
+- Install extras: `pip install -r requirements-ml.txt` (nolds, SALib)
+
+### parallel/ — Multi-run orchestration
+
+- `tick_scheduler.py` — MultiRunScheduler (RunConfig → RunResult), capacity-aware with asyncio.Semaphore respecting vllm_max_seqs
+
+## Analysis Toolkit (simulation/dynamics.py)
 
 A: Coupled ODE | B: Bifurcation sweep | C: Lyapunov | D: Sobol S2 | E: Transfer entropy | F: Emergence index | G-pre: Attractor basins | G: Stochastic resonance | H: WorldState bridge
 
-SA pipeline: Morris -> History Matching (NROY) -> Sobol S1+S2.
+SA pipeline: Morris -> History Matching (NROY, via history_matching.py) -> Sobol S1+S2.
 
 ## FLAME GPU 2 (optional 3rd GPU)
 
@@ -136,36 +191,51 @@ Boot sequence (`flame_setup.py`): auto-configures engine + W&B + Optuna. Status:
 | File | Purpose |
 |---|---|
 | `simulation/sim_loop.py` | Tick loop, agents, scoring, SA, export, FLAME integration |
-| `simulation/scenario.py` | ScenarioConfig loader + validator + dry-run CLI |
-| `simulation/agents.py` | AgentFactory, AgentSpec, prompt rendering |
+| `simulation/scenario.py` | ScenarioConfig loader + Pydantic validator + dry-run CLI |
+| `simulation/agents.py` | AgentFactory, AgentSpec, AgentSet, prompt template rendering |
 | `simulation/scoring.py` | ScoreEngine base + EMA/Logistic implementations |
 | `simulation/transitions.py` | Transition function registry + built-ins |
-| `simulation/event_stream.py` | Unified event stream |
-| `simulation/action_schema.py` | Structured action schemas + parsing |
+| `simulation/event_stream.py` | Unified event stream (SimEvent, EventStream) |
+| `simulation/action_schema.py` | Structured action schemas + JSON parsing + fallback |
 | `simulation/agent_memory.py` | Per-agent memory store + DuckDB persistence backend |
-| `simulation/safety.py` | Observer mode + safety classification |
-| `simulation/react_observer.py` | ReACT observer (live + post-sim analysis) |
+| `simulation/safety.py` | Observer mode (ANALYSE/INTERVENE) + safety classification |
+| `simulation/react_observer.py` | ReACT observer (live) + PostSimAnalyser (post-sim) |
 | `simulation/graph_memory.py` | Real-time graph memory + GraphRAG seeding |
 | `simulation/topology.py` | Dual-environment topology manager |
 | `simulation/ontology_generator.py` | LLM-generated ontology + persona generation |
 | `simulation/storage.py` | DuckDB storage layer (entities, memories, personas, reports) |
 | `simulation/graph_rag.py` | Document → Knowledge Graph extraction pipeline |
-| `simulation/dynamics.py` | 8-module analysis toolkit |
+| `simulation/possibility_report.py` | Structured possibility branches output |
+| `simulation/dynamics.py` | 8-module analysis toolkit (ODE, bifurcation, Lyapunov, etc.) |
+| `simulation/history_matching.py` | Morris + NROY history matching for SA |
 | `simulation/agent_rolesv3.py` | Legacy roles, anchors, codebook, compliance |
 | `simulation/flame/` | FLAME GPU 2 engine, bridge, models |
 | `simulation/flame_setup.py` | FLAME boot sequence |
 | `simulation/tracking.py` | W&B tracking (optional) |
 | `simulation/optimize.py` | Optuna optimization (optional) |
-| `orchestrator.py` | httpx HTTP/2 client for vLLM |
-| `gateway.py` | FastAPI proxy, doc store, sim API |
+| `stats/core.py` | Stance drift, polarization, opinion clusters, influence network |
+| `ml/evolution.py` | Evolutionary strategy (AgentGenome, EvolutionEngine) |
+| `ml/beliefs.py` | Bayesian belief updates |
+| `ml/bandit.py` | Multi-armed bandit strategy selection |
+| `parallel/tick_scheduler.py` | MultiRunScheduler (capacity-aware parallel runs) |
+| `orchestrator.py` | httpx HTTP/2 async client for dual vLLM backends |
+| `gateway.py` | FastAPI proxy, doc store, embedding, sim API, UI |
 
 ## Gateway API
 
 `/` UI | `/health` | `/v1/chat/completions` proxy | `/v1/embeddings` e5 | `/v1/models` | `/v1/documents` CRUD+query+extract_graph | `/v1/graph` GET/DELETE | `/v1/graph/query` POST | `/v1/memories` GET | `/v1/memories/{run_id}` GET | `/v1/interview` POST | `/simulation/preflight` | `/simulation/detect` | `/simulation/start` POST (supports `continue_from`) | `/simulation/status` GET | `/simulation/results` GET | `/simulation/analyse` POST | `/simulation/analyse/status` GET | `/simulation/analyse/report` GET
 
+## Testing
+
+Tests use pytest with manual `sys.path` insertion (no conftest.py). LLM calls are mocked — no vLLM needed. Pydantic model fixtures provide minimal valid configs.
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/docker-build.yml`): builds and pushes Docker image on push to `main` when Dockerfile, entrypoint, requirements, or start scripts change. Image: `giansn/dualmirakl:runpod-cu128` + `:latest`. Cache: GitHub Actions (gha type).
+
 ## Deployment
 
-RunPod: `giansn/dualmirakl:runpod-cu128`. Docker Compose: `docker compose up -d`. Entrypoint modes: all|authority|swarm|gateway|sim|shell.
+RunPod: `giansn/dualmirakl:runpod-cu128`. Docker Compose: `docker compose up -d`. Entrypoint modes: all|authority|swarm|gateway|sim|shell. See DOCKER.md for Blackwell GPU (sm_120) CUDA 12.9 requirements.
 
 ## Rules
 

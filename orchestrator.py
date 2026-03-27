@@ -50,7 +50,9 @@ async def chat(
     }
     r = await _get_client().post(f"{cfg['url']}/chat/completions", json=payload)
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    msg = r.json()["choices"][0]["message"]
+    # Nemotron reasoning parser may put output in reasoning_content with content=null
+    return msg.get("content") or msg.get("reasoning_content") or ""
 
 
 async def dual_query(prompt: str) -> dict:
@@ -79,6 +81,10 @@ async def agent_turn(
             if messages and msg["role"] == messages[-1]["role"]:
                 # Merge consecutive same-role messages
                 messages[-1]["content"] += "\n" + msg["content"]
+            elif msg["role"] == "assistant" and messages[-1]["role"] == "system":
+                # History starts with assistant — inject a synthetic user turn
+                messages.append({"role": "user", "content": "(continuing)"})
+                messages.append(msg)
             else:
                 messages.append(msg)
     messages.append({"role": "user", "content": user_message})

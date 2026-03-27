@@ -63,6 +63,38 @@ async def models():
         {"id": "e5-small-v2", "object": "model"},
     ]}
 
+@app.get("/gpu", response_class=HTMLResponse)
+async def gpu_monitor():
+    html_file = _proj_dir / "gpu_monitor.html"
+    html = html_file.read_text(encoding="utf-8")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/gpu/telemetry")
+async def gpu_telemetry():
+    import subprocess
+    result = subprocess.run(
+        ["nvidia-smi",
+         "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+         "--format=csv,noheader,nounits"],
+        capture_output=True, text=True, timeout=5,
+    )
+    gpus = []
+    for line in result.stdout.strip().split("\n"):
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 7:
+            gpus.append({
+                "index": int(parts[0]),
+                "name": parts[1],
+                "utilization": int(parts[2]),
+                "mem_used": int(parts[3]),
+                "mem_total": int(parts[4]),
+                "temp": int(parts[5]),
+                "power": float(parts[6]),
+            })
+    return {"gpus": gpus, "ts": __import__("time").time()}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def ui():
     html_file = _proj_dir / "interface.html"
@@ -80,8 +112,12 @@ async def health():
     s = {"e5-small-v2": "up"}  # CPU-local, always available
     for name, url in [("authority", AUTHORITY), ("swarm", SWARM)]:
         try:
-            r = await client.get(url.replace("/v1", "") + "/health", timeout=3.0)
-            s[name] = "up" if r.status_code == 200 else f"error {r.status_code}"
+            r = await client.get(url + "/models", timeout=3.0)
+            if r.status_code == 200:
+                models = [m["id"] for m in r.json().get("data", [])]
+                s[name] = "up" if name in models else f"down (serving {models}, not {name})"
+            else:
+                s[name] = f"error {r.status_code}"
         except Exception as e:
             s[name] = f"down ({e})"
     return s

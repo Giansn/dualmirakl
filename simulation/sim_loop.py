@@ -1118,9 +1118,12 @@ class ParticipantAgent:
         history_window: int = 4,
         susceptibility: Optional[float] = None,
         resilience: Optional[float] = None,
+        backend_override: Optional[str] = None,
     ):
         self.agent_id = agent_id
-        self.cfg = AGENT_ROLES["participant"]
+        self.cfg = {**AGENT_ROLES["participant"]}
+        if backend_override:
+            self.cfg["backend"] = backend_override
         self.history: list[dict] = []
         self.history_window = history_window
         rng = _get_rng()
@@ -1924,44 +1927,63 @@ async def run_simulation(
     environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context)
 
     # ── Create participants with archetype-driven parameters ──────────
+    # GPU split: round-robin participants across authority + swarm for parallel Phase B
+    _gpu_backends = ["swarm", "authority"]
+    _split_enabled = os.getenv("SIM_GPU_SPLIT", "1") == "1"
+
+    def _pick_backend(idx):
+        if not _split_enabled:
+            return None  # use default (swarm only)
+        return _gpu_backends[idx % len(_gpu_backends)]
+
     if scenario_config is not None:
         from simulation.agents import AgentFactory, sample_agent_params
         try:
             agent_set = AgentFactory.from_config(scenario_config, rng=_get_rng())
-            participant_specs = [s for s in agent_set.specs if s.role.type == "participant"]
+            participant_specs = list(agent_set.by_type("participant"))
             participants = []
-            for spec in participant_specs[:n_participants]:
+            for idx, spec in enumerate(participant_specs[:n_participants]):
                 params = sample_agent_params(spec.profile, _get_rng())
                 p = ParticipantAgent(
                     spec.agent_id,
                     history_window=history_window,
                     susceptibility=params["susceptibility"],
                     resilience=params["resilience"],
+                    backend_override=_pick_backend(idx),
                 )
                 participants.append(p)
                 logger.debug(
-                    "[%s] archetype=%s susc=%.3f resil=%.3f",
+                    "[%s] archetype=%s susc=%.3f resil=%.3f gpu=%s",
                     spec.agent_id,
                     spec.profile.id if spec.profile else "none",
                     params["susceptibility"], params["resilience"],
+                    p.cfg["backend"],
                 )
             # Pad if scenario defines fewer participants than requested
             while len(participants) < n_participants:
                 i = len(participants)
                 participants.append(
-                    ParticipantAgent(f"participant_{i}", history_window=history_window)
+                    ParticipantAgent(f"participant_{i}", history_window=history_window,
+                                    backend_override=_pick_backend(i))
                 )
         except Exception as e:
             logger.warning("AgentFactory failed (%s), falling back to default creation", e)
             participants = [
-                ParticipantAgent(f"participant_{i}", history_window=history_window)
+                ParticipantAgent(f"participant_{i}", history_window=history_window,
+                                backend_override=_pick_backend(i))
                 for i in range(n_participants)
             ]
     else:
         participants = [
-            ParticipantAgent(f"participant_{i}", history_window=history_window)
+            ParticipantAgent(f"participant_{i}", history_window=history_window,
+                            backend_override=_pick_backend(i))
             for i in range(n_participants)
         ]
+
+    if _split_enabled:
+        _auth_count = sum(1 for p in participants if p.cfg["backend"] == "authority")
+        _swarm_count = sum(1 for p in participants if p.cfg["backend"] == "swarm")
+        logger.info("GPU split: %d on authority (GPU 0), %d on swarm (GPU 1)", _auth_count, _swarm_count)
 
     # ── Contextual Bandit (adaptive strategy selection) ─────────────────
     _bandit = None
