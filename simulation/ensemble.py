@@ -293,3 +293,236 @@ async def run_ensemble(
     )
 
     return result
+
+
+# ── Nested Monte Carlo ensemble ──────────────────────────────────────────────
+
+@dataclass
+class NestedEnsembleResult:
+    """Result of a nested ensemble (outer epistemic × inner aleatory+LLM)."""
+
+    experiment_id: str
+    param_sets: list[dict] = field(default_factory=list)
+    inner_results: list[list[dict]] = field(default_factory=list)  # per param set
+    variance_decomposition: dict = field(default_factory=dict)
+    ensemble_summary: dict = field(default_factory=dict)
+    total_runs: int = 0
+    total_completed: int = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "experiment_id": self.experiment_id,
+            "n_param_sets": len(self.param_sets),
+            "param_sets": self.param_sets,
+            "total_runs": self.total_runs,
+            "total_completed": self.total_completed,
+            "variance_decomposition": self.variance_decomposition,
+            "ensemble_summary": self.ensemble_summary,
+        }
+
+
+async def run_nested_ensemble(
+    parameter_grid: list[dict],
+    n_inner: int = 5,
+    scenario_config=None,
+    base_seed: int = 42,
+    experiment_name: str | None = None,
+    on_run: Callable | None = None,
+    n_ticks: int = 12,
+    n_participants: int = 4,
+    **sim_kwargs,
+) -> NestedEnsembleResult:
+    """
+    Nested Monte Carlo ensemble for variance decomposition.
+
+    Outer loop iterates over parameter_grid (epistemic uncertainty).
+    Inner loop runs n_inner simulations per param set with different seeds
+    (aleatory + LLM uncertainty).
+
+    Variance decomposition:
+        var_epistemic = weighted variance of per-param-set mean scores
+        var_within    = weighted mean of per-param-set score variances
+        var_total     = var_epistemic + var_within
+
+    Args:
+        parameter_grid: List of dicts with ScenarioConfig.replicate() kwargs.
+            Example: [{"scoring_alpha": 0.1}, {"scoring_alpha": 0.2}]
+        n_inner: Number of inner runs per parameter set.
+        scenario_config: Base ScenarioConfig to replicate from.
+        base_seed: Starting seed. Run i,j gets seed = base_seed + i*n_inner + j.
+        experiment_name: Name for the experiment record.
+        on_run: Progress callback.
+        **sim_kwargs: Pass-through to run_simulation().
+
+    Returns:
+        NestedEnsembleResult with variance decomposition.
+    """
+    from simulation.sim_loop import run_simulation
+
+    # Extract ticks from scenario if provided
+    _n_ticks = n_ticks
+    if scenario_config is not None:
+        _n_ticks = scenario_config.environment.tick_count
+
+    # Create experiment
+    exp_db = None
+    experiment_id = f"nested_{int(time.time())}"
+    try:
+        from simulation.experiment_db import ExperimentDB
+        exp_db = ExperimentDB()
+        experiment_id = exp_db.create_experiment(
+            name=experiment_name or "nested_ensemble",
+            description=f"{len(parameter_grid)} param sets × {n_inner} inner runs",
+            config={
+                "parameter_grid": parameter_grid,
+                "n_inner": n_inner,
+                "base_seed": base_seed,
+            },
+        )
+    except Exception as e:
+        logger.debug("Experiment DB not available: %s", e)
+
+    result = NestedEnsembleResult(
+        experiment_id=experiment_id,
+        param_sets=parameter_grid,
+    )
+
+    group_means: list[float] = []
+    group_variances: list[float] = []
+    group_sizes: list[int] = []
+    all_score_logs: list[list[list[float]]] = []
+    run_count = 0
+
+    for outer_idx, param_set in enumerate(parameter_grid):
+        # Create scenario variant for this param set
+        variant = scenario_config
+        if scenario_config is not None and param_set:
+            try:
+                variant = scenario_config.replicate(**param_set)
+            except Exception as e:
+                logger.warning("Failed to replicate config for param set %d: %s", outer_idx, e)
+                continue
+
+        inner_runs: list[dict] = []
+        inner_metric_values: list[float] = []
+
+        for inner_idx in range(n_inner):
+            seed = base_seed + outer_idx * n_inner + inner_idx
+            run_count += 1
+            run_info: dict = {
+                "param_set_id": outer_idx,
+                "param_set": param_set,
+                "inner_idx": inner_idx,
+                "seed": seed,
+                "status": "running",
+            }
+
+            logger.info(
+                "Nested run [%d/%d][%d/%d] (seed=%d)",
+                outer_idx + 1, len(parameter_grid),
+                inner_idx + 1, n_inner, seed,
+            )
+
+            try:
+                participants, world_state = await run_simulation(
+                    n_ticks=_n_ticks,
+                    n_participants=n_participants,
+                    seed=seed,
+                    scenario_config=variant,
+                    **sim_kwargs,
+                )
+
+                final_scores = [p.behavioral_score for p in participants]
+                score_logs = [p.score_log for p in participants]
+                mean_score = float(np.mean(final_scores))
+
+                run_info.update({
+                    "status": "completed",
+                    "mean_final_score": round(mean_score, 6),
+                })
+                inner_metric_values.append(mean_score)
+                all_score_logs.append(score_logs)
+                result.total_completed += 1
+
+            except Exception as e:
+                run_info["status"] = "failed"
+                run_info["error"] = str(e)
+                logger.warning("Nested run failed: %s", e)
+
+            inner_runs.append(run_info)
+
+            if on_run:
+                try:
+                    on_run({
+                        "param_set_id": outer_idx,
+                        "inner_idx": inner_idx,
+                        "completed_runs": result.total_completed,
+                        "total_runs": len(parameter_grid) * n_inner,
+                        "pct": int(run_count / (len(parameter_grid) * n_inner) * 100),
+                    })
+                except Exception:
+                    pass
+
+        result.inner_results.append(inner_runs)
+
+        # Compute per-group statistics
+        if len(inner_metric_values) >= 2:
+            arr = np.array(inner_metric_values)
+            group_means.append(float(np.mean(arr)))
+            group_variances.append(float(np.var(arr)))
+            group_sizes.append(len(inner_metric_values))
+        elif len(inner_metric_values) == 1:
+            group_means.append(inner_metric_values[0])
+            group_variances.append(0.0)
+            group_sizes.append(1)
+
+    result.total_runs = run_count
+
+    # Variance decomposition
+    if len(group_means) >= 2:
+        from stats.validation import decompose_variance
+        result.variance_decomposition = decompose_variance(
+            group_means, group_variances, group_sizes,
+        )
+    elif len(group_means) == 1:
+        result.variance_decomposition = {
+            "var_epistemic": 0.0,
+            "var_within": group_variances[0] if group_variances else 0.0,
+            "var_total": group_variances[0] if group_variances else 0.0,
+            "pct_epistemic": 0.0,
+            "pct_within": 1.0,
+        }
+
+    # Percentile bands across ALL runs
+    if all_score_logs:
+        result.ensemble_summary = {
+            "percentile_bands": _compute_percentile_bands(all_score_logs, _n_ticks),
+            "n_param_sets": len(parameter_grid),
+            "n_inner": n_inner,
+            "n_completed": result.total_completed,
+        }
+
+        # Write to DuckDB with variance decomposition
+        if exp_db and result.variance_decomposition:
+            try:
+                bands = result.ensemble_summary["percentile_bands"]
+                vd = result.variance_decomposition
+                for step, band_stats in bands.items():
+                    band_stats_with_var = {
+                        **band_stats,
+                        "var_epistemic": vd.get("var_epistemic"),
+                        "var_aleatory": vd.get("var_within"),  # aleatory+LLM combined
+                        "var_llm": None,  # full LLM isolation deferred
+                    }
+                    exp_db.write_ensemble_summary(
+                        experiment_id, int(step), "mean_score", band_stats_with_var,
+                    )
+            except Exception as e:
+                logger.debug("Nested ensemble summary write failed: %s", e)
+
+    logger.info(
+        "Nested ensemble complete: %d param sets × %d inner = %d runs (%d completed)",
+        len(parameter_grid), n_inner, run_count, result.total_completed,
+    )
+
+    return result

@@ -147,6 +147,14 @@ flame:
 #   max_runs: 20                         # hard upper bound (null = n_runs)
 #   base_seed: 42                        # seeds: base_seed, base_seed+1, ...
 
+# ── Archetype Batching (optional) ────────────────────────────────────────────
+# Reduces LLM calls for large populations. One call per archetype group,
+# scoring diverges via per-agent susceptibility/resilience. Disabled by default.
+# batching:
+#   enabled: false
+#   mode: "representative"                 # "representative" (K calls) | "cache" (dedup only)
+#   min_group_size: 4                      # groups smaller than this use normal calls
+
 # ── Environment ───────────────────────────────────────────────────────────────
 environment:
   tick_count: 100

@@ -190,6 +190,25 @@ class EnsembleConfig(BaseModel):
     base_seed: int = 42
 
 
+class BatchingConfig(BaseModel):
+    """Archetype-based batching for large-N populations (AgentTorch pattern).
+
+    When enabled in 'representative' mode, one LLM call per archetype group
+    replaces N individual calls. Scoring diverges via per-agent susceptibility
+    and resilience (Beta-sampled), so trajectories remain heterogeneous.
+    """
+    enabled: bool = False
+    mode: str = "representative"   # "representative" (K calls) | "cache" (dedup only)
+    min_group_size: int = 4        # archetype groups smaller than this use normal calls
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v):
+        if v not in ("representative", "cache"):
+            raise ValueError(f"batching mode must be 'representative' or 'cache', got '{v}'")
+        return v
+
+
 class TopologyConfig(BaseModel):
     """Dual-environment topology configuration (MiroFish-inspired)."""
     id: str = "broadcast"
@@ -255,6 +274,7 @@ class ScenarioConfig(BaseModel):
         default_factory=PersonaGenerationConfig,
     )
     ensemble: EnsembleConfig = Field(default_factory=EnsembleConfig)
+    batching: BatchingConfig = Field(default_factory=BatchingConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
 
     # ── Loaders ───────────────────────────────────────────────────────────

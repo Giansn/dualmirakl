@@ -1218,6 +1218,13 @@ class ParticipantAgent:
         system = self._build_system_prompt(strategy_constraint=strategy_constraint)
         system += schema_to_prompt(PARTICIPANT_ACTIONS, "participant")
 
+        # Prompt versioning: hash the full prompt for drift detection
+        try:
+            from simulation.response_cache import compute_prompt_hash
+            self._last_prompt_hash = compute_prompt_hash(system + "\n" + prompt)
+        except Exception:
+            self._last_prompt_hash = None
+
         response = await _resilient_agent_turn(
             agent_id=self.agent_id,
             backend=self.cfg["backend"],
@@ -1464,6 +1471,84 @@ class ObserverAgent:
         return approved_ivs
 
 
+# ── Archetype batching (Phase B) ──────────────────────────────────────────────
+
+async def _batch_phase_b(
+    tick: int,
+    participants: list[ParticipantAgent],
+    world_state: WorldState,
+    stimuli: dict[str, str],
+    archetype_groups: dict[str, list[str]],
+    min_group_size: int,
+    max_tokens: int,
+    bandit_selections: dict[str, str],
+) -> list[str]:
+    """Representative-mode archetype batching for Phase B.
+
+    For each archetype group >= min_group_size: call LLM once via the first
+    agent in the group, reuse its response for all others. Scoring diverges
+    via per-agent susceptibility/resilience.
+
+    Small groups and ungrouped agents fall back to normal concurrent calls.
+    """
+    agent_lookup = {p.agent_id: p for p in participants}
+    ordered_ids = [p.agent_id for p in participants]
+    responses_map: dict[str, str] = {}
+    batched_from_map: dict[str, str] = {}
+
+    # Identify which agents get batched vs normal
+    batched_agent_ids: set[str] = set()
+    representative_tasks = []
+
+    for _profile_id, agent_ids in archetype_groups.items():
+        group_agents = [agent_lookup[aid] for aid in agent_ids if aid in agent_lookup]
+        if len(group_agents) >= min_group_size:
+            # Representative: first agent in group
+            rep = group_agents[0]
+            representative_tasks.append((rep, agent_ids))
+            batched_agent_ids.update(agent_ids)
+
+    # Concurrent calls: representatives + unbatched agents
+    unbatched = [p for p in participants if p.agent_id not in batched_agent_ids]
+
+    async def _call_agent(p):
+        return p.agent_id, await p.step(
+            tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens,
+            strategy_constraint=bandit_selections.get(p.agent_id, ""),
+        )
+
+    # Call representatives
+    rep_coros = [_call_agent(rep) for rep, _ in representative_tasks]
+    # Call unbatched agents normally
+    unbatched_coros = [_call_agent(p) for p in unbatched]
+
+    all_results = await asyncio.gather(*(rep_coros + unbatched_coros))
+
+    for agent_id, resp in all_results:
+        responses_map[agent_id] = resp
+
+    # Distribute representative responses to all group members
+    for rep, agent_ids in representative_tasks:
+        rep_response = responses_map[rep.agent_id]
+        for aid in agent_ids:
+            if aid != rep.agent_id:
+                responses_map[aid] = rep_response
+                batched_from_map[aid] = rep.agent_id
+                # Update agent history with the shared response
+                agent = agent_lookup[aid]
+                agent.history.append({"role": "assistant", "content": rep_response})
+                agent._last_parsed = rep._last_parsed if hasattr(rep, '_last_parsed') else None
+                if hasattr(rep, '_last_prompt_hash'):
+                    agent._last_prompt_hash = rep._last_prompt_hash
+
+    # Store batched_from info on agents for event emission
+    for p in participants:
+        p._batched_from = batched_from_map.get(p.agent_id)
+
+    # Return in original participant order
+    return [responses_map[aid] for aid in ordered_ids]
+
+
 # ── Tick orchestration ────────────────────────────────────────────────────────
 
 async def run_tick(
@@ -1481,6 +1566,8 @@ async def run_tick(
     topology_manager: Optional[TopologyManager] = None,
     topology_configs: Optional[list] = None,
     bandit=None,
+    archetype_groups: Optional[dict[str, list[str]]] = None,
+    batch_config=None,
 ) -> Optional[dict]:
     """
     Execute one tick with three throughput optimizations:
@@ -1576,17 +1663,30 @@ async def run_tick(
                 _bandit_selections[p.agent_id] = ""
                 constraint = ""
 
-    responses = await asyncio.gather(*[
-        p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens,
-               strategy_constraint=_bandit_selections.get(p.agent_id, ""))
-        for p in participants
-    ])
+    # Use archetype batching if configured, otherwise normal concurrent calls
+    if (batch_config is not None and batch_config.enabled
+            and batch_config.mode == "representative" and archetype_groups):
+        responses = await _batch_phase_b(
+            tick, participants, world_state, stimuli,
+            archetype_groups, batch_config.min_group_size,
+            max_tokens, _bandit_selections,
+        )
+    else:
+        responses = await asyncio.gather(*[
+            p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens,
+                   strategy_constraint=_bandit_selections.get(p.agent_id, ""))
+            for p in participants
+        ])
 
-    # Emit responses to event stream (with structured data if available)
+    # Emit responses to event stream (with structured data + prompt hash)
     for p, resp in zip(participants, responses):
         payload = {"content": resp}
         if hasattr(p, '_last_parsed') and p._last_parsed:
             payload["structured"] = p._last_parsed
+        if hasattr(p, '_last_prompt_hash') and p._last_prompt_hash:
+            payload["prompt_hash"] = p._last_prompt_hash
+        if hasattr(p, '_batched_from') and p._batched_from:
+            payload["batched_from"] = p._batched_from
         world_state.stream.emit(tick, "B", RESPONSE, p.agent_id, payload)
 
     # -- Phase C+D overlap [Opt 3] ─────────────────────────────────────────
@@ -2001,6 +2101,27 @@ async def run_simulation(
             for i in range(n_participants)
         ]
 
+    # ── Archetype batching setup ─────────────────────────────────────────
+    _archetype_groups: dict[str, list[str]] | None = None
+    _batch_config = None
+    if scenario_config is not None:
+        _batch_config = getattr(scenario_config, "batching", None)
+        if _batch_config and _batch_config.enabled:
+            try:
+                _archetype_groups = {}
+                for spec in participant_specs:
+                    pid = spec.profile.id if spec.profile else "default"
+                    _archetype_groups.setdefault(pid, []).append(spec.agent_id)
+                logger.info(
+                    "Archetype batching enabled (%s): %d groups, %s",
+                    _batch_config.mode,
+                    len(_archetype_groups),
+                    {k: len(v) for k, v in _archetype_groups.items()},
+                )
+            except NameError:
+                _archetype_groups = None
+                logger.debug("Archetype batching: participant_specs not available")
+
     if _split_enabled:
         _auth_count = sum(1 for p in participants if p.cfg["backend"] == "authority")
         _swarm_count = sum(1 for p in participants if p.cfg["backend"] == "swarm")
@@ -2159,6 +2280,8 @@ async def run_simulation(
                     topology_manager=_topo_manager,
                     topology_configs=_topo_configs,
                     bandit=_bandit,
+                    archetype_groups=_archetype_groups,
+                    batch_config=_batch_config,
                 )
 
             # Compact tick line

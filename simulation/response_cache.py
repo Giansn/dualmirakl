@@ -1,19 +1,25 @@
 """
-LLM response cache for dualmirakl.
+LLM response cache and prompt versioning for dualmirakl.
 
 SHA-256 hash of (messages, model_id, temperature, seed) → stored response.
 DuckDB-backed with module-level singleton. Enables deterministic replay
 and massive cost savings on ensemble runs.
 
+Also provides `compute_prompt_hash()` for prompt versioning — tracks
+prompt text identity in event payloads for drift detection.
+
 Toggle: CACHE_ENABLED env var (default "1").
 
 Usage:
-    from simulation.response_cache import cache
+    from simulation.response_cache import cache, compute_prompt_hash
 
     hit = cache.lookup(prompt_text, "swarm", 0.7, seed=42)
     if hit is None:
         response = await call_llm(...)
         cache.store(prompt_text, "swarm", 0.7, 42, response)
+
+    # Prompt versioning
+    h = compute_prompt_hash("system prompt + user message")
 """
 
 from __future__ import annotations
@@ -26,6 +32,15 @@ import os
 logger = logging.getLogger(__name__)
 
 CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "1") == "1"
+
+
+def compute_prompt_hash(prompt_text: str) -> str:
+    """SHA-256 of prompt text for versioning (not model/temp/seed — just the prompt).
+
+    Used to tag event payloads with a fingerprint of the prompt that generated
+    each LLM response. Enables prompt drift detection across code versions.
+    """
+    return hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
 
 
 class ResponseCache:
