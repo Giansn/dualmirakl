@@ -2,7 +2,7 @@
 Statistical validation of simulation results.
 
 Convergence checks, bootstrap confidence intervals,
-multi-run consistency.
+multi-run consistency, nested variance decomposition.
 """
 
 from __future__ import annotations
@@ -102,4 +102,61 @@ def multi_run_consistency(
         "bootstrap_ci": ci,
         "normality_p": float(normality_p),
         "range": [float(np.min(values)), float(np.max(values))],
+    }
+
+
+def decompose_variance(
+    group_means: list[float],
+    group_variances: list[float],
+    group_sizes: list[int],
+) -> dict:
+    """
+    ANOVA-style nested variance decomposition.
+
+    Splits total variance into between-group (epistemic) and within-group
+    (aleatory + LLM) components. Used by nested ensemble to populate
+    var_epistemic and var_within in ensemble_summaries.
+
+    Args:
+        group_means: Mean of convergence metric per parameter set.
+        group_variances: Variance of metric within each parameter set.
+        group_sizes: Number of inner runs per parameter set.
+
+    Returns:
+        {var_epistemic, var_within, var_total, pct_epistemic, pct_within}
+    """
+    means = np.array(group_means, dtype=float)
+    variances = np.array(group_variances, dtype=float)
+    sizes = np.array(group_sizes, dtype=float)
+
+    if len(means) < 2:
+        total_var = float(variances[0]) if len(variances) > 0 else 0.0
+        return {
+            "var_epistemic": 0.0,
+            "var_within": total_var,
+            "var_total": total_var,
+            "pct_epistemic": 0.0,
+            "pct_within": 1.0,
+        }
+
+    total_n = float(np.sum(sizes))
+    weights = sizes / total_n
+
+    # Grand mean (weighted)
+    grand_mean = float(np.sum(weights * means))
+
+    # Between-group variance (epistemic): weighted variance of group means
+    var_epistemic = float(np.sum(weights * (means - grand_mean) ** 2))
+
+    # Within-group variance (aleatory + LLM): weighted mean of group variances
+    var_within = float(np.sum(weights * variances))
+
+    var_total = var_epistemic + var_within
+
+    return {
+        "var_epistemic": round(var_epistemic, 8),
+        "var_within": round(var_within, 8),
+        "var_total": round(var_total, 8),
+        "pct_epistemic": round(var_epistemic / var_total, 4) if var_total > 0 else 0.0,
+        "pct_within": round(var_within / var_total, 4) if var_total > 0 else 1.0,
     }

@@ -223,6 +223,17 @@ def ensure_schema(conn) -> None:
         )
     """)
 
+    # ── Prompt versioning (Phase B) ──────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS prompt_versions (
+            prompt_hash  VARCHAR PRIMARY KEY,
+            prompt_text  VARCHAR NOT NULL,
+            agent_type   VARCHAR,
+            first_seen   TIMESTAMP DEFAULT current_timestamp,
+            run_id       VARCHAR
+        )
+    """)
+
     logger.debug("DuckDB schema ensured")
 
 

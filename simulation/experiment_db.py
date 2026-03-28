@@ -185,3 +185,20 @@ class ExperimentDB:
                 [run_id],
             ).fetchdf()
         return rows.to_dict("records") if len(rows) > 0 else []
+
+    # ── Prompt versioning ────────────────────────────────────────────────
+
+    def record_prompt_version(
+        self,
+        prompt_hash: str,
+        prompt_text: str,
+        agent_type: str,
+        run_id: str,
+    ) -> None:
+        """Store a prompt version (INSERT OR IGNORE — idempotent)."""
+        self.db.execute(
+            """INSERT OR IGNORE INTO prompt_versions
+               (prompt_hash, prompt_text, agent_type, run_id)
+               VALUES (?, ?, ?, ?)""",
+            [prompt_hash, prompt_text, agent_type, run_id],
+        )

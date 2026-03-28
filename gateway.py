@@ -608,6 +608,55 @@ async def sim_ensemble(req: Request):
     return {"status": "ensemble_started", "config": body}
 
 
+@app.post("/simulation/nested_ensemble")
+async def sim_nested_ensemble(req: Request):
+    """Start a nested ensemble (outer epistemic x inner aleatory+LLM)."""
+    if _sim_state["status"] == "running":
+        return {"error": "Simulation already running", "status": _sim_state}
+
+    body = await req.json() if req.headers.get("content-type") == "application/json" else {}
+
+    _sim_state["status"] = "running"
+    _sim_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    _sim_state["tick"] = 0
+    _sim_state["pct"] = 0
+    _sim_state["events"] = []
+    _sim_state["scores"] = []
+    _sim_state["run_dir"] = None
+
+    def _run():
+        import asyncio as _aio
+        from simulation.ensemble import run_nested_ensemble
+
+        async def _nested():
+            try:
+                def _on_run(info):
+                    _sim_state["tick"] = info.get("completed_runs", 0)
+                    _sim_state["n_ticks"] = info.get("total_runs", 0)
+                    _sim_state["pct"] = info.get("pct", 0)
+
+                result = await run_nested_ensemble(
+                    parameter_grid=body.get("parameter_grid", [{}]),
+                    n_inner=body.get("n_inner", 5),
+                    base_seed=body.get("base_seed", 42),
+                    on_run=_on_run,
+                    experiment_name=body.get("experiment_name"),
+                    n_ticks=body.get("n_ticks", 12),
+                    n_participants=body.get("n_participants", 4),
+                )
+                _sim_state["status"] = "completed"
+                _sim_state["nested_result"] = result.to_dict()
+            except Exception as e:
+                import traceback as _tb
+                _sim_state["status"] = f"error: {e}"
+                _tb.print_exc()
+
+        _aio.run(_nested())
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "nested_ensemble_started", "config": body}
+
+
 @app.get("/simulation/status")
 async def sim_status():
     return _sim_state
