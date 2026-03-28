@@ -599,7 +599,8 @@ function scrollBot() { const el=document.getElementById('mc'); requestAnimationF
 function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,140)+'px'; document.getElementById('sendBtn').disabled=!el.value.trim(); }
 function handleKey(e) { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); if(!S.generating&&document.getElementById('msgIn').value.trim()) sendMessage();} }
 
-function showCbar(id,txt) { const el=document.getElementById(id); el.classList.add('vis'); if(txt) document.getElementById(id.replace('cbar','')+'Tx').textContent=txt; }
+const _cbarTxMap={cbarFile:'fileStatusTx',cbarRag:'ragTx',cbarCmp:'cmpTx'};
+function showCbar(id,txt) { const el=document.getElementById(id); if(!el) return; el.classList.add('vis'); if(txt){const tx=document.getElementById(_cbarTxMap[id]||id+'Tx'); if(tx) tx.textContent=txt;} }
 function hideCbar(id) { document.getElementById(id).classList.remove('vis'); }
 
 // ── CHATS ──
@@ -625,8 +626,8 @@ async function handleFile(event) {
   bar.classList.add('vis'); tx.textContent=`Reading ${file.name}\u2026`;
   try {
     let text = file.type==='application/pdf' ? await extractPdf(file) : await file.text();
-    const trunc = text.length>12000;
-    text = text.slice(0,12000);
+    const trunc = text.length>120000;
+    text = text.slice(0,120000);
     S.attachedFile = {name:file.name, text};
     tx.textContent=`Embedding ${file.name}\u2026`;
     await embedStore(text, S.cid||'global', 'document');
@@ -707,9 +708,12 @@ function clearAttachment() {
 // ── EMBEDDINGS ──
 async function embed(text) {
   try {
+    const batch = Array.isArray(text);
     const r=await fetch(`${url.emb()}/v1/embeddings`,{method:'POST',headers:url.hdrs(),body:JSON.stringify({input:text,model:'e5-small-v2'})});
-    const d=await r.json(); return d.data?.[0]?.embedding||null;
-  } catch { return null; }
+    const d=await r.json();
+    if(batch) return d.data?.map(it=>it.embedding)||[];
+    return d.data?.[0]?.embedding||null;
+  } catch { return Array.isArray(text)?[]:null; }
 }
 function cosine(a,b) {
   if(!a||!b||a.length!==b.length) return 0;
@@ -724,13 +728,19 @@ function chunkText(t,sz) {
 }
 async function embedStore(text,chatId,role) {
   const chunks=chunkText(text,cfg().chunk);
-  for(const ch of chunks){const v=await embed(ch); if(v) S.embeds.push({text:ch,embedding:v,chatId,role,ts:Date.now()});}
+  if(!chunks.length) return;
+  const vecs=await embed(chunks);
+  const ts=Date.now();
+  for(let i=0;i<chunks.length;i++){if(vecs[i]) S.embeds.push({text:chunks[i],embedding:vecs[i],chatId,role,ts});}
   if(S.embeds.length>500) S.embeds=S.embeds.slice(-500);
   updEmbedCnt();
 }
 async function ragRetrieve(query) {
   if(!S.rag||!S.embeds.length) return [];
-  const c=cfg(), qv=await embed(query); if(!qv) return [];
+  const c=cfg();
+  // Timeout embed call to prevent UI freeze
+  const qv = await Promise.race([embed(query), new Promise(r=>setTimeout(()=>r(null),5000))]);
+  if(!qv) return [];
   const chatId = S.cid;
   return S.embeds
     .filter(it => it.chatId === chatId || it.role === 'document')
@@ -820,7 +830,7 @@ async function buildCtx(chat,query) {
   }
 
   const inp=toks-c.maxTok; updBudget(inp,flex,burst);
-  if(burst) for(const m of winM) embedStore(m.content,chat.id,m.role);
+  if(burst) Promise.all(winM.map(m=>embedStore(m.content,chat.id,m.role))).catch(()=>{});
   return {apiMsgs,inp,ragChunks,burst};
 }
 
@@ -832,7 +842,7 @@ async function sendMessage() {
   const chat=getChat();
   chat.messages.push({role:'user',content:text,ts:new Date().toISOString()});
   inp.value=''; autoResize(inp); document.getElementById('sendBtn').disabled=true;
-  renderMessages(); embedStore(text,chat.id,'user');
+  renderMessages(); embedStore(text,chat.id,'user').catch(()=>{});
   S.generating=true; await maybeCompress(chat);
   const {apiMsgs,inp:inputToks,ragChunks,burst}=await buildCtx(chat,text);
   const ty=document.getElementById('ty'); ty.classList.add('vis'); scrollBot();
@@ -875,7 +885,7 @@ async function sendMessage() {
     }
     const total=(performance.now()-t0)/1000; if(total>0) S.lastTps=(outToks/total).toFixed(1);
     amsg.badges.push({t:'bdg-t',l:`${inputToks}\u2192${outToks}t`});
-    embedStore(amsg.content,chat.id,'assistant');
+    embedStore(amsg.content,chat.id,'assistant').catch(()=>{});
     if(chat.messages.length<=2&&chat.title==='New Chat') genTitle(chat.messages).then(t=>{chat.title=t;renderChatList();});
     renderMessages();
   } catch(e) {

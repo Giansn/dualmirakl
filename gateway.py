@@ -108,7 +108,14 @@ async def ui():
     for dot_id, key in [("stAuth", "authority"), ("stSwarm", "swarm"), ("stEmbed", "e5-small-v2")]:
         cls = "dot on" if s.get(key) == "up" else "dot off"
         html = html.replace(f'class="dot chk" id="{dot_id}"', f'class="{cls}" id="{dot_id}"')
-    return HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    import hashlib
+    etag = hashlib.md5(html.encode()).hexdigest()[:12]
+    return HTMLResponse(html, headers={
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "ETag": f'"{etag}"',
+    })
 
 
 @app.get("/health")
@@ -225,12 +232,12 @@ async def upload_document(req: Request):
     existing["n_documents"] = len(existing["documents"])
     existing["n_chunks"] = sum(d["n_chunks"] for d in existing["documents"])
 
-    # Build summary: first 3000 chars of all documents (for direct agent injection)
+    # Build summary: concatenated text of all documents (for direct agent injection)
     all_text = "\n\n".join(
         "\n".join(c["text"] for c in d["chunks"])
         for d in existing["documents"]
     )
-    existing["summary"] = all_text[:3000]
+    existing["summary"] = all_text[:30000]
 
     _context_file.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
 
