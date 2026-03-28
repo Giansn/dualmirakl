@@ -5,7 +5,7 @@
 # Servers are started manually: bash start_all.sh
 # =============================================================================
 
-PROJ=/per.volume/dualmirakl
+PROJ=/workspace/dualmirakl
 mkdir -p "$PROJ/logs"
 
 LOG="$PROJ/logs/autostart.log"
@@ -16,7 +16,7 @@ echo "════════════════════════�
 exec >> "$LOG" 2>&1
 
 # ── Environment ───────────────────────────────────────────────────────────────
-export HF_HOME=/per.volume/huggingface
+export HF_HOME=/workspace/huggingface
 export PATH="/usr/local/bin:$PATH"
 
 if [ -f "$PROJ/.env" ]; then
@@ -28,4 +28,4 @@ fi
 git -C "$PROJ" config user.email "dualmirakl@runpod" 2>/dev/null
 git -C "$PROJ" config user.name  "dualmirakl"        2>/dev/null
 
-echo "[autostart] Ready. Start servers with: bash /per.volume/dualmirakl/start_all.sh"
+echo "[autostart] Ready. Start servers with: bash /workspace/dualmirakl/start_all.sh"

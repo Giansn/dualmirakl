@@ -17,7 +17,7 @@ AUTHORITY = os.getenv("AUTHORITY_URL", "http://localhost:8000/v1")
 SWARM     = os.getenv("SWARM_URL",     "http://localhost:8001/v1")
 
 # e5-small-v2 loaded once at startup — CPU inference ~2-5ms per call
-_embed_path = os.path.join(os.getenv("HF_HOME", "/per.volume/huggingface"), "hub", "e5-small-v2")
+_embed_path = os.path.join(os.getenv("HF_HOME", "/workspace/huggingface"), "hub", "e5-small-v2")
 _embed = SentenceTransformer(_embed_path)
 
 client = httpx.AsyncClient(

@@ -25,6 +25,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 import numpy as np
 from dataclasses import dataclass, field
@@ -126,7 +127,7 @@ def _try_init_flame(
 
 DEFAULT_EMBED_PATH = os.environ.get(
     "SIM_EMBED_MODEL",
-    os.path.join(os.environ.get("HF_HOME", "/per.volume/huggingface"), "hub", "e5-small-v2"),
+    os.path.join(os.environ.get("HF_HOME", "/workspace/huggingface"), "hub", "e5-small-v2"),
 )
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0  # seconds
@@ -978,6 +979,23 @@ class EnvironmentAgent:
         self.history.append({"role": "assistant", "content": response})
         return response
 
+    @staticmethod
+    def _extract_json(raw: str) -> dict:
+        """Extract JSON object from LLM response, handling thinking tags and markdown."""
+        text = raw.strip()
+        # Strip <think>...</think> reasoning blocks (Nemotron, DeepSeek-R1, etc.)
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        # Strip markdown code fences
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+            text = re.sub(r"\n?```\s*$", "", text)
+        # Find first { ... last }
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise json.JSONDecodeError("No JSON object found", text, 0)
+        return json.loads(text[start:end + 1])
+
     async def batch_decide(
         self, participants: list["ParticipantAgent"], world_state: WorldState,
         max_tokens: int = 256,
@@ -1018,11 +1036,7 @@ class EnvironmentAgent:
         self.history.append({"role": "assistant", "content": response})
 
         try:
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
-            stimuli = json.loads(cleaned)
-            # Ensure all values are strings (LLM may return nested objects)
+            stimuli = self._extract_json(response)
             stimuli = {k: str(v) if not isinstance(v, str) else v for k, v in stimuli.items()}
             missing = [p.agent_id for p in participants if p.agent_id not in stimuli]
             if missing:
@@ -1084,10 +1098,7 @@ class EnvironmentAgent:
         )
 
         try:
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
-            stimuli = json.loads(cleaned)
+            stimuli = self._extract_json(response)
             missing = [p.agent_id for p in participants if p.agent_id not in stimuli]
             if missing:
                 raise ValueError(f"Missing participants in clustered response: {missing}")
