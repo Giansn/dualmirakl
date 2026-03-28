@@ -16,6 +16,10 @@ _proj_dir = Path(__file__).parent
 AUTHORITY = os.getenv("AUTHORITY_URL", "http://localhost:8000/v1")
 SWARM     = os.getenv("SWARM_URL",     "http://localhost:8001/v1")
 
+# GPU Harmony defaults — enable dual-GPU pipelining for all simulation runs
+os.environ.setdefault("SIM_GPU_SPLIT", "1")
+os.environ.setdefault("SIM_PIPELINE", "1")
+
 # e5-small-v2 loaded once at startup — CPU inference ~2-5ms per call
 _embed_path = os.path.join(os.getenv("HF_HOME", "/per.volume/huggingface"), "hub", "e5-small-v2")
 _embed = SentenceTransformer(_embed_path)
@@ -388,14 +392,21 @@ async def sim_start(req: Request):
     from simulation.sim_loop import detect_missing_context
     detection = detect_missing_context()
 
+    n_seeds = body.get("n_seeds", 1)
+    base_seed = body.get("seed", 42)
+    n_ticks_req = body.get("n_ticks", 12)
+    total_ticks = n_ticks_req * n_seeds
+
     _sim_state["status"] = "running"
     _sim_state["tick"] = 0
-    _sim_state["n_ticks"] = body.get("n_ticks", 12)
+    _sim_state["n_ticks"] = total_ticks
     _sim_state["pct"] = 0
     _sim_state["scores"] = []
     _sim_state["events"] = []
     _sim_state["started_at"] = datetime.now(timezone.utc).isoformat()
     _sim_state["run_dir"] = None
+    _sim_state["current_seed"] = 1
+    _sim_state["n_seeds"] = n_seeds
 
     # Run simulation in background thread (doesn't block gateway)
     import threading
@@ -407,41 +418,57 @@ async def sim_start(req: Request):
         async def _sim():
             try:
                 _sim_live["loop"] = _aio.get_event_loop()
+                multi_run_logs: list[list[list[float]]] = []
+                all_interventions: list[dict] = []
+                last_participants = None
+                last_world_state = None
 
-                def _on_tick(info):
-                    _sim_state["tick"] = info["tick"]
-                    _sim_state["n_ticks"] = info["n_ticks"]
-                    _sim_state["pct"] = info["pct"]
-                    _sim_state["scores"] = info["scores"]
-                    for ev in info["events"]:
-                        _sim_state["events"].append({
-                            "tick": info["tick"],
-                            "pct": info["pct"],
-                            **ev,
-                        })
-                    # Store live refs for interview endpoint
-                    if "participants" in info:
-                        _sim_live["participants"] = info["participants"]
-                    if "world_state" in info:
-                        _sim_live["world_state"] = info["world_state"]
+                for seed_idx in range(n_seeds):
+                    current_seed = base_seed + seed_idx
+                    _sim_state["current_seed"] = seed_idx + 1
+                    tick_offset = seed_idx * n_ticks_req
 
-                participants, world_state = await run_simulation(
-                    n_ticks=body.get("n_ticks", 12),
-                    n_participants=body.get("n_participants", 4),
-                    k=body.get("k", 4),
-                    alpha=body.get("alpha", 0.15),
-                    max_tokens=body.get("max_tokens", 192),
-                    seed=body.get("seed", 42),
-                    score_mode=body.get("score_mode", "ema"),
-                    logistic_k=body.get("logistic_k", 6.0),
-                    on_tick=_on_tick,
-                    flame_enabled=body.get("flame_enabled"),
-                    flame_config=body.get("flame_config"),
-                    continue_from=body.get("continue_from"),
-                )
-                # Run dynamics analysis on results
+                    def _on_tick(info, _offset=tick_offset):
+                        _sim_state["tick"] = _offset + info["tick"]
+                        _sim_state["n_ticks"] = total_ticks
+                        _sim_state["pct"] = int((_offset + info["tick"]) / total_ticks * 100)
+                        _sim_state["scores"] = info["scores"]
+                        for ev in info["events"]:
+                            _sim_state["events"].append({
+                                "tick": info["tick"],
+                                "pct": _sim_state["pct"],
+                                "seed": current_seed,
+                                **ev,
+                            })
+                        if "participants" in info:
+                            _sim_live["participants"] = info["participants"]
+                        if "world_state" in info:
+                            _sim_live["world_state"] = info["world_state"]
+
+                    participants, world_state = await run_simulation(
+                        n_ticks=n_ticks_req,
+                        n_participants=body.get("n_participants", 4),
+                        k=body.get("k", 4),
+                        alpha=body.get("alpha", 0.15),
+                        max_tokens=body.get("max_tokens", 192),
+                        seed=current_seed,
+                        score_mode=body.get("score_mode", "ema"),
+                        logistic_k=body.get("logistic_k", 6.0),
+                        on_tick=_on_tick,
+                        flame_enabled=body.get("flame_enabled"),
+                        flame_config=body.get("flame_config"),
+                        continue_from=body.get("continue_from"),
+                    )
+                    multi_run_logs.append([p.score_log for p in participants])
+                    last_participants = participants
+                    last_world_state = world_state
+
+                # Use last run's participants for final state
+                participants = last_participants
+
+                # Run dynamics analysis on primary run
                 from simulation.dynamics import analyze_simulation
-                score_logs = [p.score_log for p in participants]
+                score_logs = multi_run_logs[0]  # primary run for dynamics
                 config = {
                     "alpha": body.get("alpha", 0.15),
                     "kappa": body.get("kappa", 0.0),
@@ -453,7 +480,6 @@ async def sim_start(req: Request):
                 # Save analysis alongside simulation output
                 from simulation.sim_loop import OUTPUT_DIR
                 data_dir = Path(OUTPUT_DIR)
-                # Find the most recent run dir
                 run_dirs = sorted(data_dir.iterdir(), reverse=True) if data_dir.exists() else []
                 if run_dirs:
                     run_dir = run_dirs[0]
@@ -462,8 +488,48 @@ async def sim_start(req: Request):
                     )
                     _sim_state["run_dir"] = str(run_dir)
 
+                    # Load interventions from run
+                    _ivs = []
+                    try:
+                        _ivf = run_dir / "interventions.json"
+                        if _ivf.exists():
+                            _ivs = json.loads(_ivf.read_text())
+                    except Exception:
+                        pass
+
+                    # Possibility branches report
+                    try:
+                        import numpy as _np
+                        from simulation.possibility_report import compute_possibility_report
+                        _report_config = {
+                            **config,
+                            "dampening": 1.0,
+                            "susceptibility": float(_np.mean([p.susceptibility for p in participants])),
+                            "resilience": float(_np.mean([p.resilience for p in participants])),
+                        }
+                        _wc = ""
+                        try:
+                            _wcf = _proj_dir / "context" / "world_context.json"
+                            if _wcf.exists():
+                                _wcd = json.loads(_wcf.read_text())
+                                _wc = " ".join(c.get("text","") for c in _wcd.get("chunks",[]))
+                        except Exception:
+                            pass
+                        _poss = compute_possibility_report(
+                            score_logs=score_logs,
+                            config=_report_config,
+                            run_id=run_dir.name,
+                            multi_run_logs=multi_run_logs if n_seeds > 1 else None,
+                            world_context=_wc,
+                            interventions=_ivs,
+                        )
+                        (run_dir / "possibility_branches.json").write_text(_poss.to_json())
+                    except Exception as _pe:
+                        import traceback as _tb2
+                        _tb2.print_exc()
+
                 _sim_state["status"] = "completed"
-                _sim_state["tick"] = body.get("n_ticks", 12)
+                _sim_state["tick"] = total_ticks
             except Exception as e:
                 import traceback as _tb
                 _sim_state["status"] = f"error: {e}"
@@ -479,7 +545,7 @@ async def sim_start(req: Request):
 
     return {
         "status": "started",
-        "config": body,
+        "config": {**body, "n_seeds": n_seeds},
         "context_detection": detection,
     }
 
@@ -499,7 +565,7 @@ async def sim_results():
 
     for fname in ["config.json", "trajectories.json", "observations.json",
                    "compliance.json", "interventions.json", "dynamics_analysis.json",
-                   "flame_population.json"]:
+                   "possibility_branches.json", "flame_population.json"]:
         fpath = run_dir / fname
         if fpath.exists():
             results[fname.replace(".json", "")] = json.loads(fpath.read_text())

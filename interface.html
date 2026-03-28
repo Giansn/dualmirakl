@@ -333,6 +333,43 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
       <div class="sim-hd" style="border:none;padding:0 0 16px">
         <h4 style="font-size:16px;font-weight:400;color:var(--t1);letter-spacing:.5px"><span class="sd" id="simDot" style="width:6px;height:6px;border-radius:50%;background:var(--t2);display:inline-block;margin-right:8px"></span>Simulation</h4>
       </div>
+      <!-- Config panel -->
+      <div id="simConfigPanel" style="margin-bottom:16px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Ticks</label>
+            <input type="range" id="simTicks" min="4" max="120" value="24" style="width:100%" oninput="updSimConfig()">
+            <div style="font-size:12px;margin-top:2px"><span id="simTicksVal">24</span> ticks</div>
+          </div>
+          <div>
+            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Tick = simulated time</label>
+            <select id="simTickUnit" style="background:var(--bg2);color:var(--fg);border:1px solid var(--bd);border-radius:4px;padding:4px 8px;width:100%" onchange="updSimConfig()">
+              <option value="1h">1 hour</option>
+              <option value="4h">4 hours</option>
+              <option value="1d">1 day</option>
+              <option value="1w">1 week</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Participants</label>
+            <input type="range" id="simAgents" min="2" max="16" value="6" style="width:100%" oninput="updSimConfig()">
+            <div style="font-size:12px;margin-top:2px"><span id="simAgentsVal">6</span> agents</div>
+          </div>
+          <div>
+            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Observer every K ticks</label>
+            <input type="range" id="simK" min="1" max="12" value="4" style="width:100%" oninput="updSimConfig()">
+            <div style="font-size:12px;margin-top:2px">K=<span id="simKVal">4</span></div>
+          </div>
+          <div>
+            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Seeds (runs for probability)</label>
+            <input type="range" id="simSeeds" min="1" max="20" value="1" style="width:100%" oninput="updSimConfig()">
+            <div style="font-size:12px;margin-top:2px"><span id="simSeedsVal">1</span> seed<span id="simSeedsSuffix"></span></div>
+          </div>
+        </div>
+        <div id="simEstimates" style="font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.06);padding-top:8px">
+          Simulated: 24 hours &middot; Est. runtime: ~3 min
+        </div>
+      </div>
       <div class="sim-progress" id="simProgressWrap" style="display:none">
         <div class="sim-pbar-bg"><div class="sim-pbar-fill" id="simPbarFill" style="width:0%"></div></div>
         <span class="sim-pct" id="simPct">0%</span>
@@ -774,7 +811,13 @@ async function buildCtx(chat,query) {
   }
 
   const apiMsgs=[{role:'system',content:sys}];
-  for(const m of winM) apiMsgs.push({role:m.role,content:m.content});
+  for(const m of winM) {
+    if(m.isHtml) {
+      apiMsgs.push({role:m.role,content:'[Simulation results were displayed to the user. Answer questions about the simulation based on your knowledge of the run.]'});
+    } else {
+      apiMsgs.push({role:m.role,content:m.content});
+    }
+  }
 
   const inp=toks-c.maxTok; updBudget(inp,flex,burst);
   if(burst) for(const m of winM) embedStore(m.content,chat.id,m.role);
@@ -886,7 +929,7 @@ function renderMessages() {
       <div class="msg-av">${isU?'Y':'\u2B21'}</div>
       <div class="msg-ct">
         <div class="msg-hd"><span class="msg-sn">${isU?'You':'Authority'}</span><span class="msg-tm">${fmtT(m.ts)}</span>${cmpBdg}${bdgs}</div>
-        <div class="msg-bd">${fmt(m.content)}</div>
+        <div class="msg-bd">${m.isHtml?m.content:fmt(m.content)}</div>
         ${!isU&&inW?`<div class="msg-ac"><button class="mac" onclick="copyMsg(${i})">Copy</button><button class="mac" onclick="regen()">Regen</button></div>`:''}
       </div></div>`;
   }
@@ -983,12 +1026,34 @@ if (_dz) {
 
 // ── SIMULATION ──
 
+const _tickUnits = {'1h':{label:'hour',mult:1},'4h':{label:'hours',mult:4},'1d':{label:'day',mult:1},'1w':{label:'week',mult:1}};
+function updSimConfig() {
+  const ticks = +document.getElementById('simTicks').value;
+  const agents = +document.getElementById('simAgents').value;
+  const k = +document.getElementById('simK').value;
+  const seeds = +document.getElementById('simSeeds').value;
+  const unit = document.getElementById('simTickUnit').value;
+  document.getElementById('simTicksVal').textContent = ticks;
+  document.getElementById('simAgentsVal').textContent = agents;
+  document.getElementById('simKVal').textContent = k;
+  document.getElementById('simSeedsVal').textContent = seeds;
+  document.getElementById('simSeedsSuffix').textContent = seeds > 1 ? 's' : '';
+  const u = _tickUnits[unit] || _tickUnits['1h'];
+  const simTime = ticks * u.mult;
+  const simLabel = unit === '1h' ? `${simTime} hours` : unit === '4h' ? `${simTime} hours (${(simTime/24).toFixed(1)} days)` : unit === '1d' ? `${simTime} days` : `${simTime} weeks`;
+  const estSec = (ticks * agents * 5 + Math.ceil(ticks / k) * 15) * seeds;
+  const estLabel = estSec < 120 ? `~${Math.ceil(estSec/10)*10}s` : `~${Math.ceil(estSec/60)} min`;
+  document.getElementById('simEstimates').textContent = `Simulated: ${simLabel} · ${seeds} seed${seeds>1?'s':''} · Est. runtime: ${estLabel}`;
+}
+
 function renderSimScores(scores) {
   const el = document.getElementById('simScores');
   if (!scores || !scores.length) { el.innerHTML = ''; return; }
+  const labels = ['healthy','moderate','elevated','concerning'];
   el.innerHTML = scores.map((s, i) => {
     const cls = s >= 0.7 ? 'high' : s >= 0.5 ? 'mid' : '';
-    return `<span class="sim-score-chip ${cls}">p${i} ${s.toFixed(2)}</span>`;
+    const lbl = s >= 0.7 ? labels[3] : s >= 0.5 ? labels[2] : s >= 0.3 ? labels[1] : labels[0];
+    return `<span class="sim-score-chip ${cls}">P${i} ${s.toFixed(2)} <span style="opacity:.5;font-size:10px">${lbl}</span></span>`;
   }).join('');
 }
 
@@ -1036,7 +1101,12 @@ async function startSimulation() {
     const r = await fetch(`${gwUrl}/simulation/start`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({})
+      body: JSON.stringify({
+        n_ticks: +document.getElementById('simTicks').value,
+        n_participants: +document.getElementById('simAgents').value,
+        k: +document.getElementById('simK').value,
+        n_seeds: +document.getElementById('simSeeds').value,
+      })
     });
 
     if (!r.ok) {
@@ -1085,7 +1155,10 @@ async function pollSimStatus() {
     renderSimEvents(d.events);
 
     if (d.status === 'running') {
-      statusEl.textContent = `tick ${tick}/${nTicks}`;
+      const nSeeds = d.n_seeds || 1;
+      const curSeed = d.current_seed || 1;
+      const seedTxt = nSeeds > 1 ? ` (seed ${curSeed}/${nSeeds})` : '';
+      statusEl.textContent = `tick ${tick}/${nTicks}${seedTxt}`;
       statusEl.className = 'sim-val running';
     } else if (d.status === 'completed') {
       if (S.simRunning) {
@@ -1127,33 +1200,155 @@ async function viewSimResults() {
     const chat = getChat();
     chat.title = 'Simulation Results';
 
-    // Format a readable summary instead of raw JSON
-    let summary = '**Simulation Results**\n\n';
+    const pb = d.possibility_branches || {};
+    const risk = pb.risk_assessment || {};
+
+    let html = '<div style="font-family:var(--ff);color:var(--fg);max-width:680px">';
+
+    // ── Config header ──
     if (d.config?.config) {
       const c = d.config.config;
-      summary += `**Config:** ${c.n_ticks} ticks, ${c.n_participants} agents, K=${c.k}, \u03b1=${c.alpha}, ${c.score_mode}\n`;
-      summary += `**Duration:** ${d.config.duration_s}s\n\n`;
+      const nSeeds = c.n_seeds || 1;
+      const seedTxt = nSeeds > 1 ? ` \u00b7 ${nSeeds} seeds` : '';
+      html += `<div style="opacity:.5;font-size:11px;margin-bottom:16px">${c.n_ticks} ticks \u00b7 ${c.n_participants} agents \u00b7 K=${c.k} \u00b7 \u03b1=${c.alpha} \u00b7 ${c.score_mode}${seedTxt} \u00b7 ${d.config.duration_s}s</div>`;
     }
-    if (d.trajectories) {
-      summary += '**Final Scores:**\n';
-      for (const [id, t] of Object.entries(d.trajectories)) {
-        const bar = '\u2588'.repeat(Math.round(t.final_score * 20)) + '\u2591'.repeat(20 - Math.round(t.final_score * 20));
-        summary += `  ${id}: ${bar} ${t.final_score.toFixed(3)} (sus=${t.susceptibility?.toFixed(2)||'?'} res=${t.resilience?.toFixed(2)||'?'})\n`;
+
+    // ── Risk level badge ──
+    const riskLevel = risk.risk_level || 'unknown';
+    const riskColors = {low:'#00d4aa',moderate:'#ffa502',elevated:'#ff8c42',critical:'#ff6b6b'};
+    const riskColor = riskColors[riskLevel] || '#888';
+    html += `<div style="display:inline-block;padding:4px 12px;border-radius:4px;font-size:12px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;background:${riskColor}22;color:${riskColor};border:1px solid ${riskColor}44;margin-bottom:16px">${riskLevel} risk</div>`;
+
+    // ── Executive summary ──
+    if (pb.summary) {
+      html += `<div style="font-size:14px;line-height:1.7;margin-bottom:20px;padding:12px 16px;background:rgba(255,255,255,.03);border-radius:8px;border-left:3px solid var(--ac)">${pb.summary}</div>`;
+    }
+
+    // ── Key findings ──
+    if (pb.key_findings?.length) {
+      html += '<div style="margin-bottom:20px">';
+      html += '<div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--ac)">Key Findings</div>';
+      const sevColors = {info:'#00d4aa',warning:'#ffa502',critical:'#ff6b6b'};
+      for (const f of pb.key_findings) {
+        const fc = sevColors[f.severity] || '#888';
+        const borderStyle = f.severity === 'critical' ? `border-left:3px solid ${fc}` : `border-left:3px solid ${fc}44`;
+        html += `<div style="font-size:12px;line-height:1.6;margin-bottom:6px;padding:8px 12px;background:${fc}08;border-radius:4px;${borderStyle}">`;
+        html += `<span style="margin-right:6px">${f.icon}</span>`;
+        html += `<span style="color:${fc};font-weight:500">${f.text}</span>`;
+        html += `</div>`;
       }
-      summary += '\n';
+      html += '</div>';
     }
-    if (d.dynamics_analysis) {
-      const da = d.dynamics_analysis;
-      if (da.lyapunov) summary += `**Regime:** ${da.lyapunov.regime} (\u03bb=${da.lyapunov.max_lyapunov})\n`;
-      if (da.emergence) summary += `**Emergence:** MI=${da.emergence.mutual_information} bimodality=${da.emergence.bimodality} ${da.emergence.is_emergent ? '\u2713 emergent' : ''}\n`;
-      if (da.transfer_entropy) summary += `**Info flow:** total TE=${da.transfer_entropy.total_te} asymmetry=${da.transfer_entropy.asymmetry}\n`;
+
+    // ── Agent trajectories (sparklines) ──
+    if (d.trajectories) {
+      html += '<div style="margin-bottom:20px">';
+      html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--ac)">Agent Trajectories</div>';
+      const colors = ['#00d4aa','#ffa502','#ff6b6b','#a29bfe','#fd79a8','#6c5ce7','#00cec9','#fdcb6e'];
+      const scoreLabel = (s) => s >= 0.7 ? 'compulsive' : s >= 0.5 ? 'elevated' : s >= 0.3 ? 'moderate' : 'healthy';
+      const scoreCls = (s) => s >= 0.7 ? '#ff6b6b' : s >= 0.5 ? '#ffa502' : '#00d4aa';
+      let i = 0;
+      for (const [id, t] of Object.entries(d.trajectories)) {
+        const log = t.score_log || [];
+        const col = colors[i % colors.length];
+        const W = 220, H = 32;
+        const threshY = H - 0.7 * H;
+        const pts = log.map((v, j) => `${(j/(log.length-1))*W},${H - v*H}`).join(' ');
+        // Fill area under curve for visual weight
+        const fillPts = pts + ` ${W},${H} 0,${H}`;
+        const svg = `<svg width="${W}" height="${H}" style="vertical-align:middle">
+          <line x1="0" y1="${threshY}" x2="${W}" y2="${threshY}" stroke="#ff6b6b33" stroke-width="1" stroke-dasharray="3,3"/>
+          <polygon points="${fillPts}" fill="${col}11"/>
+          <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5"/>
+        </svg>`;
+        const finalScore = t.final_score?.toFixed(3) || '?';
+        const delta = log.length > 1 ? (log[log.length-1] - log[0]) : 0;
+        const arrow = delta > 0.02 ? '\u2197' : delta < -0.02 ? '\u2198' : '\u2192';
+        const sLabel = scoreLabel(t.final_score);
+        const sColor = scoreCls(t.final_score);
+        const susLbl = t.susceptibility > 0.5 ? 'high-sus' : t.susceptibility > 0.25 ? 'mod-sus' : 'low-sus';
+        // Check if this agent has a projection
+        const proj = risk.projections?.[`P${i}`];
+        const projTxt = proj ? ` \u00b7 \u23f1${proj}t to 0.7` : '';
+        html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px">`;
+        html += `<span style="width:30px;opacity:.7;font-weight:600">P${i}</span>`;
+        html += svg;
+        html += `<span style="font-weight:600;width:42px">${finalScore}</span>`;
+        html += `<span style="color:${sColor};font-size:11px;width:70px">${arrow} ${sLabel}</span>`;
+        html += `<span style="opacity:.4;font-size:10px">${susLbl}${projTxt}</span>`;
+        html += `</div>`;
+        i++;
+      }
+      html += '</div>';
     }
+
+    // ── Intervention timeline ──
+    if (d.interventions?.length) {
+      html += '<div style="margin-bottom:20px">';
+      html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--ac)">Interventions</div>';
+      for (const iv of d.interventions) {
+        html += `<div style="font-size:12px;margin-bottom:4px;padding:6px 8px;background:rgba(255,165,2,.08);border-radius:4px;border-left:3px solid #ffa502">`;
+        html += `<span style="opacity:.5">T${iv.activated_at||'?'}</span> `;
+        html += `<span style="font-weight:600">${iv.type||'?'}</span> `;
+        html += `<span style="opacity:.7">${iv.description||''}</span>`;
+        html += `</div>`;
+      }
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:12px;opacity:.4;margin-bottom:20px">No interventions triggered</div>';
+    }
+
+    // ── Outcome branches (collapsed details) ──
+    if (pb.branches?.length) {
+      html += '<details style="margin-bottom:20px">';
+      html += '<summary style="font-size:13px;font-weight:600;color:var(--ac);cursor:pointer;margin-bottom:8px">Outcome Branches (' + pb.branches.length + ')</summary>';
+      for (const b of pb.branches) {
+        const pct = (b.probability * 100).toFixed(1);
+        const barW = Math.max(2, b.probability * 100);
+        const regime = b.metrics?.lyapunov_regime || '?';
+        const conv = b.metrics?.convergence ? 'converged' : 'drifting';
+        html += `<div style="background:rgba(255,255,255,.04);border-radius:6px;padding:10px 12px;margin-bottom:6px">`;
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">`;
+        html += `<span style="font-weight:600;font-size:13px">${b.label}</span>`;
+        html += `<span style="font-size:18px;font-weight:700;color:var(--ac)">${pct}%</span>`;
+        html += `</div>`;
+        html += `<div style="background:rgba(255,255,255,.08);border-radius:3px;height:5px;margin-bottom:8px"><div style="width:${barW}%;height:100%;background:var(--ac);border-radius:3px"></div></div>`;
+        html += `<div style="font-size:12px;opacity:.7">${b.narrative}</div>`;
+        html += `<div style="font-size:10px;opacity:.4;margin-top:4px">attractor: ${b.attractor_center?.toFixed(3)||'?'} \u00b7 regime: ${regime} \u00b7 ${conv} \u00b7 basin: [${b.basin_range?.[0]?.toFixed(2)||'?'}, ${b.basin_range?.[1]?.toFixed(2)||'?'}]</div>`;
+        html += `</div>`;
+      }
+      html += '</details>';
+    }
+
+    // ── Risk metrics summary ──
+    if (risk.group_mean !== undefined) {
+      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">';
+      const metric = (label, val, color) => `<div style="font-size:11px;padding:6px 10px;background:rgba(255,255,255,.03);border-radius:4px;border:1px solid rgba(255,255,255,.06)"><span style="opacity:.5">${label}</span> <span style="color:${color||'var(--fg)'};font-weight:600">${val}</span></div>`;
+      html += metric('Group mean', risk.group_mean?.toFixed(3), riskColor);
+      html += metric('Trend', risk.group_trend + ' (' + (risk.group_delta > 0 ? '+' : '') + risk.group_delta?.toFixed(3) + ')', risk.group_trend === 'rising' ? '#ffa502' : risk.group_trend === 'falling' ? '#00d4aa' : '#888');
+      html += metric('Spread', '\u03c3=' + risk.score_spread?.toFixed(3));
+      html += metric('At risk', risk.n_at_risk + ' agents', risk.n_at_risk > 0 ? '#ff6b6b' : '#00d4aa');
+      html += metric('Interventions', risk.intervention_count);
+      html += '</div>';
+    }
+
+    // ── Warnings ──
+    if (pb.warnings?.length) {
+      html += '<div style="font-size:11px;opacity:.4;border-top:1px solid rgba(255,255,255,.08);padding-top:8px">';
+      for (const w of pb.warnings) {
+        html += `<div>\u26a0 ${w}</div>`;
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
 
     chat.messages.push({
       role: 'assistant',
-      content: summary,
+      content: html,
       ts: new Date().toISOString(),
-      badges: [{t: 'bdg-t', l: 'sim'}]
+      badges: [{t: 'bdg-t', l: 'sim'}],
+      isHtml: true
     });
     renderChatList();
     renderMessages();

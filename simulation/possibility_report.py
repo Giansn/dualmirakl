@@ -79,6 +79,14 @@ class ReportMetadata:
 
 
 @dataclass
+class KeyFinding:
+    """A single actionable finding from the simulation."""
+    icon: str               # emoji/symbol for UI
+    text: str               # plain-language finding
+    severity: str = "info"  # "info" | "warning" | "critical"
+
+
+@dataclass
 class PossibilityReport:
     """Complete structured output: ranked possibility branches."""
     run_id: str
@@ -87,6 +95,9 @@ class PossibilityReport:
     branches: list[PossibilityBranch]
     metadata: ReportMetadata
     warnings: list[str] = field(default_factory=list)
+    summary: str = ""                                        # executive summary
+    key_findings: list[KeyFinding] = field(default_factory=list)
+    risk_assessment: dict = field(default_factory=dict)      # threshold-based risks
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -113,19 +124,99 @@ def _classify_agents_to_basins(
     return assignments
 
 
+@dataclass
+class DomainVocabulary:
+    """Domain-specific labels for score ranges and outcomes."""
+    domain: str = "generic"
+    subject: str = "agents"           # "adolescents", "traders", "nodes"
+    score_noun: str = "engagement"    # "compulsive usage", "risk exposure"
+    low_label: str = "Self-regulated"
+    mid_label: str = "Moderate engagement"
+    high_label: str = "Compulsive patterns"
+    polarized_label: str = "Polarized: resilient vs. at-risk"
+    low_desc: str = "maintain healthy self-regulation"
+    mid_desc: str = "show moderate, variable engagement"
+    high_desc: str = "develop compulsive patterns"
+    threshold_label: str = "concerning"  # label for score > 0.7
+
+
+_DOMAIN_VOCABS = {
+    "social_media_adolescent": DomainVocabulary(
+        domain="social_media_adolescent",
+        subject="adolescents",
+        score_noun="usage intensity",
+        low_label="Healthy self-regulation",
+        mid_label="Moderate usage with occasional overuse",
+        high_label="Compulsive usage patterns",
+        polarized_label="Split: self-regulated vs. compulsive users",
+        low_desc="maintain healthy boundaries with social media",
+        mid_desc="show variable engagement with intermittent overuse episodes",
+        high_desc="develop compulsive usage patterns requiring intervention",
+        threshold_label="compulsive",
+    ),
+    "misinformation": DomainVocabulary(
+        domain="misinformation",
+        subject="participants",
+        score_noun="belief polarization",
+        low_label="Grounded consensus",
+        mid_label="Moderate susceptibility",
+        high_label="Deep misinformation adoption",
+        polarized_label="Echo chamber bifurcation",
+        low_desc="maintain evidence-based beliefs",
+        mid_desc="show susceptibility to misleading content but self-correct",
+        high_desc="adopt and amplify misinformation narratives",
+        threshold_label="radicalized",
+    ),
+    "market": DomainVocabulary(
+        domain="market",
+        subject="traders",
+        score_noun="herd behavior intensity",
+        low_label="Independent trading",
+        mid_label="Moderate herding",
+        high_label="Full herd behavior",
+        polarized_label="Market bifurcation: contrarians vs. herd",
+        low_desc="trade independently based on fundamentals",
+        mid_desc="show intermittent herding with some independent decisions",
+        high_desc="follow the herd, amplifying market volatility",
+        threshold_label="herding",
+    ),
+}
+
+_DOMAIN_KEYWORDS = {
+    "social_media_adolescent": ["adolescent", "social media", "screen time", "compulsive", "scrolling", "media usage", "teenager", "digital wellbeing"],
+    "misinformation": ["misinformation", "belief", "echo chamber", "fake news", "polarization", "disinformation"],
+    "market": ["trader", "market", "herd", "stock", "financial", "portfolio"],
+}
+
+
+def infer_domain_vocabulary(world_context: str = "") -> DomainVocabulary:
+    """Match world context keywords to a built-in domain vocabulary."""
+    if not world_context:
+        return DomainVocabulary()
+    ctx_lower = world_context.lower()
+    best_domain, best_score = "generic", 0
+    for domain, keywords in _DOMAIN_KEYWORDS.items():
+        score = sum(1 for kw in keywords if kw in ctx_lower)
+        if score > best_score:
+            best_domain, best_score = domain, score
+    if best_score >= 2:
+        logger.info("Domain vocabulary: %s (matched %d keywords)", best_domain, best_score)
+        return _DOMAIN_VOCABS[best_domain]
+    return DomainVocabulary()
+
+
 def _generate_label(center: float, basin_size: float, is_bimodal: bool,
-                    n_basins: int = 1) -> str:
-    """Generate a short label for a branch."""
+                    n_basins: int = 1, vocab: DomainVocabulary = None) -> str:
+    """Generate a domain-specific label for a branch."""
+    v = vocab or DomainVocabulary()
     if is_bimodal and n_basins > 1:
-        return "Polarized Split"
+        return v.polarized_label
     if center < 0.3:
-        return "Low-Score Equilibrium"
-    elif center < 0.5:
-        return "Mid-Low Consensus"
+        return v.low_label
     elif center < 0.7:
-        return "Mid-High Consensus"
+        return v.mid_label
     else:
-        return "High-Score Lock-in"
+        return v.high_label
 
 
 def _generate_narrative(
@@ -133,37 +224,265 @@ def _generate_narrative(
     basin_range: tuple[float, float],
     metrics: BranchMetrics,
     levers: list[ParameterLever],
+    probability: float = 1.0,
+    n_agents_in_basin: int = 0,
+    n_agents_total: int = 0,
+    vocab: DomainVocabulary = None,
 ) -> str:
-    """Deterministic template-based narrative. No LLM involved."""
+    """Deterministic domain-aware narrative. No LLM involved."""
+    v = vocab or DomainVocabulary()
     parts = []
+    pct = f"{probability*100:.0f}%"
+    agent_frac = f"{n_agents_in_basin} of {n_agents_total} {v.subject}" if n_agents_total > 0 else v.subject
 
     if center < 0.3:
-        parts.append(f"Agents settle into a low-score equilibrium near {center:.2f}.")
+        parts.append(f"{pct} probability: {agent_frac} {v.low_desc} (score near {center:.2f}).")
     elif center > 0.7:
-        parts.append(f"Agents converge toward a high-score state near {center:.2f}.")
+        parts.append(f"{pct} probability: {agent_frac} {v.high_desc} (score near {center:.2f}).")
     else:
-        parts.append(f"Agents stabilize around the mid-range ({center:.2f}).")
+        parts.append(f"{pct} probability: {agent_frac} {v.mid_desc} (score near {center:.2f}).")
 
     width = basin_range[1] - basin_range[0]
     if width > 0.6:
-        parts.append("This outcome is robust — a wide range of starting conditions lead here.")
+        parts.append("This outcome is robust across a wide range of starting conditions.")
     elif width < 0.2:
-        parts.append("This outcome is fragile — it requires specific initial conditions.")
+        parts.append("This outcome is sensitive to initial conditions.")
 
     if metrics.lyapunov_regime == "chaotic":
-        parts.append("Dynamics within this basin are chaotic: exact trajectories are unpredictable.")
+        parts.append("Individual trajectories are unpredictable (chaotic regime).")
     elif not metrics.convergence:
-        parts.append("Agents have not fully converged; scores are still drifting.")
+        parts.append(f"{v.score_noun.capitalize()} levels are still drifting — longer runs may shift this outcome.")
 
     if metrics.polarization > 0.04:
-        parts.append(f"Significant spread within this outcome (polarization={metrics.polarization:.3f}), suggesting subgroups.")
+        parts.append(f"Subgroups are forming within this outcome (polarization={metrics.polarization:.3f}).")
 
     if levers:
         top = levers[0]
-        verb = "increasing" if top.direction == "toward" else "decreasing"
-        parts.append(f"Most influential parameter: '{top.name}' (S1={top.sensitivity:.3f}); {verb} it pushes {top.direction} this outcome.")
+        parts.append(f"Key lever: '{top.name}' (sensitivity={top.sensitivity:.3f}).")
 
     return " ".join(parts)
+
+
+def _analyze_trajectories(
+    score_logs: list[list[float]],
+    interventions: list[dict],
+    n_ticks: int,
+    vocab: DomainVocabulary,
+    config: dict,
+) -> tuple[str, list[KeyFinding], dict]:
+    """Produce executive summary, key findings, and risk assessment from raw data."""
+    n_agents = len(score_logs)
+    v = vocab
+    findings: list[KeyFinding] = []
+
+    # ── Per-agent analysis ──
+    finals = [log[-1] for log in score_logs if log]
+    initials = [log[0] for log in score_logs if log]
+    group_mean = float(np.mean(finals)) if finals else 0.0
+    group_init = float(np.mean(initials)) if initials else 0.0
+    group_delta = group_mean - group_init
+
+    # Peak scores per agent
+    peaks = [max(log) for log in score_logs if log]
+    peak_agents = [i for i, log in enumerate(score_logs) if log and max(log) >= 0.7]
+    sustained_high = []  # agents with score > 0.7 for 3+ consecutive ticks
+    for i, log in enumerate(score_logs):
+        run = 0
+        for s in log:
+            if s >= 0.7:
+                run += 1
+                if run >= 3:
+                    sustained_high.append(i)
+                    break
+            else:
+                run = 0
+
+    # Trend: linear slope per agent (simple regression)
+    slopes = []
+    for log in score_logs:
+        if len(log) >= 4:
+            x = np.arange(len(log))
+            slope = float(np.polyfit(x, log, 1)[0])
+            slopes.append(slope)
+        else:
+            slopes.append(0.0)
+
+    rising = [i for i, s in enumerate(slopes) if s > 0.002]
+    falling = [i for i, s in enumerate(slopes) if s < -0.002]
+    stable = [i for i in range(n_agents) if i not in rising and i not in falling]
+
+    # Projected ticks to reach 0.7 for rising agents not yet there
+    projections = {}
+    for i in rising:
+        if finals[i] < 0.7 and slopes[i] > 0:
+            ticks_to_07 = (0.7 - finals[i]) / slopes[i]
+            projections[i] = int(ticks_to_07)
+
+    # Susceptibility categories
+    susceptibilities = []
+    for log in score_logs:
+        if len(log) >= 2:
+            max_jump = max(abs(log[j+1] - log[j]) for j in range(len(log)-1))
+            susceptibilities.append(max_jump)
+        else:
+            susceptibilities.append(0.0)
+
+    # ── Executive summary ──
+    summary_parts = []
+    duration_desc = f"{n_ticks}-tick simulation of {n_agents} {v.subject}"
+    summary_parts.append(f"In this {duration_desc}:")
+
+    if sustained_high:
+        n_sh = len(sustained_high)
+        summary_parts.append(
+            f"{n_sh} of {n_agents} {v.subject} reached {v.threshold_label} levels "
+            f"(score >{chr(160)}0.7 sustained for 3+ ticks)."
+        )
+    elif peak_agents:
+        n_pa = len(peak_agents)
+        summary_parts.append(
+            f"{n_pa} of {n_agents} {v.subject} briefly crossed the {v.threshold_label} threshold "
+            f"but did not sustain it."
+        )
+    else:
+        summary_parts.append(
+            f"No {v.subject} reached the {v.threshold_label} threshold (0.7)."
+        )
+
+    if group_delta > 0.05:
+        summary_parts.append(
+            f"Group {v.score_noun} drifted upward from {group_init:.2f} to {group_mean:.2f} "
+            f"(+{group_delta:.2f}), suggesting gradual escalation."
+        )
+    elif group_delta < -0.05:
+        summary_parts.append(
+            f"Group {v.score_noun} declined from {group_init:.2f} to {group_mean:.2f} "
+            f"({group_delta:.2f}), indicating de-escalation."
+        )
+    else:
+        summary_parts.append(
+            f"Group {v.score_noun} remained stable around {group_mean:.2f}."
+        )
+
+    if projections:
+        nearest = min(projections.items(), key=lambda x: x[1])
+        agent_id, ticks_left = nearest
+        summary_parts.append(
+            f"At current rates, P{agent_id} is projected to reach {v.threshold_label} levels "
+            f"in ~{ticks_left} additional ticks."
+        )
+
+    summary = " ".join(summary_parts)
+
+    # ── Key findings ──
+    # 1. Overall trend
+    if len(rising) > len(falling):
+        findings.append(KeyFinding(
+            icon="\u2197",
+            text=f"{len(rising)} of {n_agents} {v.subject} show upward {v.score_noun} trends "
+                 f"(avg slope +{np.mean([slopes[i] for i in rising]):.4f}/tick).",
+            severity="warning" if len(rising) > n_agents // 2 else "info",
+        ))
+    elif len(falling) > len(rising):
+        findings.append(KeyFinding(
+            icon="\u2198",
+            text=f"{len(falling)} of {n_agents} {v.subject} show declining {v.score_noun}.",
+            severity="info",
+        ))
+
+    # 2. Convergence / divergence
+    score_spread = float(np.std(finals)) if len(finals) > 1 else 0.0
+    if score_spread < 0.05:
+        findings.append(KeyFinding(
+            icon="\u2261",
+            text=f"Strong group convergence (std={score_spread:.3f}): {v.subject} are "
+                 f"settling on similar behavior patterns.",
+            severity="info",
+        ))
+    elif score_spread > 0.15:
+        findings.append(KeyFinding(
+            icon="\u2194",
+            text=f"Group is diverging (std={score_spread:.3f}): subgroups forming "
+                 f"with distinct {v.score_noun} levels.",
+            severity="warning",
+        ))
+
+    # 3. Threshold crossings
+    if sustained_high:
+        findings.append(KeyFinding(
+            icon="\u26a0",
+            text=f"P{', P'.join(str(i) for i in sustained_high)} sustained {v.threshold_label} "
+                 f"levels for 3+ ticks — this meets the concern threshold.",
+            severity="critical",
+        ))
+    elif peak_agents:
+        findings.append(KeyFinding(
+            icon="\u26a1",
+            text=f"P{', P'.join(str(i) for i in peak_agents)} spiked above 0.7 "
+                 f"but recovered — volatile, not yet {v.threshold_label}.",
+            severity="warning",
+        ))
+
+    # 4. Intervention effectiveness
+    if interventions:
+        n_iv = len(interventions)
+        # Check if scores dropped after interventions
+        effective = 0
+        for iv in interventions:
+            tick = iv.get("activated_at", 0)
+            if tick > 0 and tick < n_ticks:
+                post_scores = [log[min(tick + 2, len(log)-1)] for log in score_logs if len(log) > tick]
+                pre_scores = [log[tick - 1] for log in score_logs if len(log) > tick]
+                if post_scores and pre_scores and np.mean(post_scores) < np.mean(pre_scores):
+                    effective += 1
+        if effective > 0:
+            findings.append(KeyFinding(
+                icon="\u2714",
+                text=f"{effective} of {n_iv} interventions showed measurable effect "
+                     f"(group score decreased after trigger).",
+                severity="info",
+            ))
+        else:
+            findings.append(KeyFinding(
+                icon="\u2718",
+                text=f"{n_iv} intervention(s) triggered but none produced measurable score "
+                     f"reduction — consider earlier or stronger interventions.",
+                severity="warning",
+            ))
+    else:
+        if group_mean > 0.5:
+            findings.append(KeyFinding(
+                icon="\u2718",
+                text=f"No interventions triggered despite group mean of {group_mean:.2f} — "
+                     f"intervention thresholds may be set too high.",
+                severity="warning",
+            ))
+
+    # 5. Projections
+    if projections:
+        for agent_id, ticks_left in sorted(projections.items(), key=lambda x: x[1]):
+            findings.append(KeyFinding(
+                icon="\u23f1",
+                text=f"P{agent_id} projected to reach {v.threshold_label} threshold in "
+                     f"~{ticks_left} ticks at current trajectory.",
+                severity="warning" if ticks_left < n_ticks else "info",
+            ))
+
+    # ── Risk assessment ──
+    risk = {
+        "threshold_crossed": len(sustained_high) > 0,
+        "n_at_risk": len(peak_agents),
+        "n_sustained_high": len(sustained_high),
+        "group_mean": round(group_mean, 3),
+        "group_trend": "rising" if group_delta > 0.03 else "falling" if group_delta < -0.03 else "stable",
+        "group_delta": round(group_delta, 3),
+        "score_spread": round(score_spread, 3),
+        "projections": {f"P{k}": v for k, v in projections.items()},
+        "intervention_count": len(interventions),
+        "risk_level": "critical" if sustained_high else "elevated" if peak_agents or group_mean > 0.6 else "moderate" if group_mean > 0.4 else "low",
+    }
+
+    return summary, findings, risk
 
 
 def compute_possibility_report(
@@ -171,6 +490,8 @@ def compute_possibility_report(
     config: dict,
     run_id: str = "unknown",
     multi_run_logs: Optional[list[list[list[float]]]] = None,
+    world_context: str = "",
+    interventions: Optional[list[dict]] = None,
 ) -> PossibilityReport:
     """
     Main entry point. Call after simulation completes.
@@ -180,11 +501,14 @@ def compute_possibility_report(
         config: run parameters (alpha, kappa, dampening, susceptibility, resilience, etc.)
         run_id: identifier for this run
         multi_run_logs: optional list of score_logs from repeated runs (for bootstrap CI)
+        world_context: uploaded domain context text (for domain-specific labels)
+        interventions: list of intervention dicts from the run
     """
     t0 = time.monotonic()
     warnings: list[str] = []
     n_agents = len(score_logs)
     n_ticks = max((len(log) for log in score_logs), default=0)
+    vocab = infer_domain_vocabulary(world_context)
 
     alpha = config.get("alpha", 0.15)
     kappa = config.get("kappa", 0.0)
@@ -280,7 +604,7 @@ def compute_possibility_report(
             converged_branch = False
 
         label = _generate_label(attractor.center, attractor.basin_size, is_bimodal,
-                               n_basins=len(attractors))
+                               n_basins=len(attractors), vocab=vocab)
         metrics = BranchMetrics(
             mean_final_score=float(np.mean(branch_finals)) if branch_finals else attractor.center,
             score_std=float(np.std(branch_finals)) if len(branch_finals) > 1 else 0.0,
@@ -295,6 +619,10 @@ def compute_possibility_report(
             attractor.center,
             (attractor.basin_low, attractor.basin_high),
             metrics, [],
+            probability=raw_prob,
+            n_agents_in_basin=n_in_basin,
+            n_agents_total=n_agents,
+            vocab=vocab,
         )
 
         branches.append(PossibilityBranch(
@@ -338,6 +666,12 @@ def compute_possibility_report(
     # Sort by probability descending
     branches.sort(key=lambda b: b.probability, reverse=True)
 
+    # ── Step 8: Executive summary + key findings ─────────────────────────
+    _interventions = interventions or []
+    summary, key_findings, risk_assessment = _analyze_trajectories(
+        score_logs, _interventions, n_ticks, vocab, config,
+    )
+
     computation_time = time.monotonic() - t0
 
     return PossibilityReport(
@@ -354,6 +688,9 @@ def compute_possibility_report(
             computation_time_s=round(computation_time, 2),
         ),
         warnings=warnings,
+        summary=summary,
+        key_findings=key_findings,
+        risk_assessment=risk_assessment,
     )
 
 
