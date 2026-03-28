@@ -1,26 +1,35 @@
 """
-GPU Harmony — tick-pipelined dual-GPU execution.
+GPU Harmony v2 — phase-overlapped dual-GPU execution.
 
-Three concurrent workers connected by async queues:
+Key insight: Phase C (embedding) is CPU-only. During Phase C, both GPUs
+are idle. We fill this gap by generating T(n+1) stimuli on authority
+while CPU embeds T(n) responses.
+
+Four concurrent workers connected by async queues:
 
   ┌──────────────────┐     stim_q      ┌──────────────────┐
   │  Stimulus Worker  │ ──────────────► │   Swarm Worker    │
-  │  (GPU 0: Phase A) │                 │  (GPU 1: Phase B) │
+  │  (GPU 0: Phase A) │                 │  (GPU 0+1: B)     │
   └──────────────────┘                  └────────┬─────────┘
                                                   │ resp_q
   ┌──────────────────┐                           ▼
-  │  Observer Worker  │ ◄────────────────────────┘
+  │  Score Worker     │ ◄────────────────────────┘
+  │  (CPU: Phase C)   │ ────► score_q
+  └──────────────────┘              │
+  ┌──────────────────┐              ▼
+  │  Observer Worker  │ ◄───────────┘
   │  (GPU 0: Phase D) │
   └──────────────────┘
 
-Timeline with pipeline:
-  GPU 0: [T1:A][T2:A*]........[T1:D][T3:A*]........[T2:D]
-  GPU 1: ......[T1:B=========].......[T2:B=========]......
-  CPU:   ..................[T1:C]...............[T2:C].....
+Timeline (12-tick, K=4):
 
-  * = speculative prefetch using pre-tick world state.
-  T(n+1):A runs while T(n):B is in progress — both GPUs active.
-  T(n):D overlaps with T(n+1):B — both GPUs active again.
+  Tick:    T1          T2          T3          T4(obs)     T5
+  GPU 0: [A1][B1×N/2]  [A2][B2×N/2]  [A3][B3×N/2]  [A4][B4×N/2][D4]  [A5]...
+  GPU 1:     [B1×N/2]      [B2×N/2]      [B3×N/2]      [B4×N/2]      [B5]...
+  CPU:            [C1]          [C2]          [C3]          [C4]
+
+  A(n+1) starts as soon as B(n) responses are queued → fills the Phase C gap.
+  On observer ticks, D runs after C completes (authority handles observer_a+b).
 """
 from __future__ import annotations
 
@@ -34,14 +43,15 @@ logger = logging.getLogger(__name__)
 
 class GPUHarmony:
     """
-    Tick-pipelined coordinator with three async workers and queue-based IPC.
+    Phase-overlapped coordinator: stimulus prefetch fills the CPU-embedding gap.
 
-    Stimulus worker (GPU 0): generates stimuli, runs AHEAD of other phases.
-    Swarm worker (GPU 1): processes participant responses.
-    Observer worker (GPU 0): scoring + observers, consumes responses.
+    Stimulus worker (GPU 0/authority): generates stimuli, runs 1-2 ticks ahead.
+    Swarm worker (GPU 0+1): processes participant responses on both GPUs.
+    Score worker (CPU): embedding + score update, signals observer when done.
+    Observer worker (GPU 0): observer_a + observer_b on observer ticks.
 
-    The stimulus worker runs 1 tick ahead, so GPU 0 generates T(n+1) stimuli
-    while GPU 1 is still processing T(n) participants.
+    The stimulus worker generates T(n+1) stimuli during T(n)'s Phase C
+    (CPU embedding), keeping authority busy when it would otherwise be idle.
     """
 
     def __init__(
@@ -71,9 +81,10 @@ class GPUHarmony:
         self.logistic_k = logistic_k
         self.bandit = bandit
 
-        # Queues: stimulus worker → swarm worker → observer worker
+        # Pipeline queues (maxsize=2 allows 2-tick lookahead)
         self._stim_q: asyncio.Queue = asyncio.Queue(maxsize=2)
         self._resp_q: asyncio.Queue = asyncio.Queue(maxsize=2)
+        self._score_q: asyncio.Queue = asyncio.Queue(maxsize=2)
 
         # Completed tick results for caller
         self._tick_done_q: asyncio.Queue = asyncio.Queue()
@@ -84,27 +95,29 @@ class GPUHarmony:
         await asyncio.gather(
             self._stimulus_worker(n_ticks),
             self._swarm_worker(n_ticks),
+            self._score_worker(n_ticks),
             self._observer_worker(n_ticks),
         )
         elapsed = time.monotonic() - t0
-        logger.info("GPU Harmony: %d ticks in %.1fs (%.1fs/tick)", n_ticks, elapsed, elapsed / n_ticks)
+        logger.info("GPU Harmony v2: %d ticks in %.1fs (%.1fs/tick)", n_ticks, elapsed, elapsed / n_ticks)
 
-    # ── Worker 1: Stimulus generation (Phase A on env backend) ───────────
+    # ── Worker 1: Stimulus generation (authority GPU, runs ahead) ──────
 
     async def _stimulus_worker(self, n_ticks: int):
         """
-        Generates stimuli and pushes to stim_q.
-        Runs AHEAD: produces T(n+1) stimuli while T(n) is still in Phase B.
+        Generates stimuli on authority and pushes to stim_q.
+        Runs AHEAD: produces T(n+1) stimuli during T(n)'s Phase C (CPU).
+        Backpressure: blocks on stim_q.put if 2 stimuli are already queued.
         """
         from simulation.sim_loop import check_compliance, STIMULUS, COMPLIANCE
 
         for tick in range(1, n_ticks + 1):
-            # Pre-phase: persona summaries
+            # Pre-phase: persona summaries (concurrent, lightweight)
             await asyncio.gather(*[
                 p._maybe_update_persona_summary(tick) for p in self.participants
             ])
 
-            # Phase A: batch stimuli
+            # Phase A: batch stimuli (authority GPU)
             stimuli = await self.env.batch_decide(
                 self.participants, self.ws,
                 max_tokens=max(64, self.max_tokens // 2),
@@ -125,16 +138,15 @@ class GPUHarmony:
                         "role": "environment", "violations": violations,
                     })
 
-            # Push stimuli into pipeline — blocks if swarm is still busy (backpressure)
             await self._stim_q.put((tick, stimuli))
             logger.debug(f"[Tick {tick}] Phase A done → stimuli queued")
 
-    # ── Worker 2: Participant responses (Phase B on swarm + authority) ────
+    # ── Worker 2: Participant responses (both GPUs) ────────────────────
 
     async def _swarm_worker(self, n_ticks: int):
         """
-        Consumes stimuli, runs all participants concurrently (split across GPUs),
-        pushes responses to resp_q.
+        Consumes stimuli, runs all participants concurrently (split across
+        both GPUs via backend_override on each ParticipantAgent).
         """
         for _ in range(n_ticks):
             tick, stimuli = await self._stim_q.get()
@@ -160,81 +172,47 @@ class GPUHarmony:
             await self._resp_q.put((tick, stimuli, responses))
             logger.debug(f"[Tick {tick}] Phase B done → responses queued")
 
-    # ── Worker 3: Scoring + Observers (Phase C+D on authority GPU) ───────
+    # ── Worker 3: Scoring (CPU — embedding + score update) ─────────────
 
-    async def _observer_worker(self, n_ticks: int):
+    async def _score_worker(self, n_ticks: int):
         """
-        Consumes responses, runs embedding (CPU) + observers (authority GPU).
-        While this runs, stimulus_worker is already generating NEXT tick's stimuli
-        and swarm_worker will start the next Phase B — that's the pipeline overlap.
+        Phase C: CPU-only embedding + score update.
+        While this runs on CPU, the stimulus worker can generate T(n+1)
+        stimuli on authority GPU — that's the key overlap.
         """
         from simulation.sim_loop import (
             embed_score_batch, update_score,
             extract_narrative, ObsEntry,
-            RESPONSE, SCORE, OBSERVATION, EV_INTERVENTION,
+            RESPONSE, SCORE,
         )
 
         ws = self.ws
         participants = self.participants
-        observers = self.observers
-        n = len(participants)
 
         for _ in range(n_ticks):
             tick, stimuli, responses = await self._resp_q.get()
-            is_observer_tick = (tick % ws.k == 0)
             ivs_before = len(ws.active_interventions)
+            is_observer_tick = (tick % ws.k == 0)
 
             # Emit responses
             for p, resp in zip(participants, responses):
                 payload = {"content": resp}
                 if hasattr(p, '_last_parsed') and p._last_parsed:
                     payload["structured"] = p._last_parsed
+                if hasattr(p, '_last_prompt_hash') and p._last_prompt_hash:
+                    payload["prompt_hash"] = p._last_prompt_hash
+                if hasattr(p, '_batched_from') and p._batched_from:
+                    payload["batched_from"] = p._batched_from
                 ws.stream.emit(tick, "B", RESPONSE, p.agent_id, payload)
 
-            # Phase C+D
+            # Phase C: embedding (CPU) — no GPU needed
             dampening = ws.score_dampening()
-
-            if is_observer_tick:
-                obs_a, obs_b = observers[0], observers[1]
-                if hasattr(obs_a, 'set_participants'):
-                    obs_a.set_participants(participants)
-
-                async def _embed():
-                    texts = [
-                        extract_narrative(getattr(p, '_last_parsed', None), r)
-                        for p, r in zip(participants, responses)
-                    ]
-                    parsed = [getattr(p, '_last_parsed', None) for p in participants]
-                    return embed_score_batch(texts, parsed_actions=parsed)
-
-                async def _observe_a():
-                    return await obs_a.analyse(tick, ws, n)
-
-                (signals_and_ses, analysis) = await asyncio.gather(
-                    _embed(), _observe_a()
-                )
-
-                obs_payload = {"content": analysis}
-                if hasattr(obs_a, '_last_parsed') and obs_a._last_parsed:
-                    obs_payload["structured"] = obs_a._last_parsed
-                ws.stream.emit(tick, "D", OBSERVATION, "observer_a", obs_payload)
-
-                ivs = await obs_b.intervene(tick, ws, n, analysis)
-                ws.active_interventions.extend(ivs)
-
-                for iv in ivs:
-                    ws.stream.emit(tick, "D", EV_INTERVENTION, "observer_b", {
-                        "type": iv.type, "description": iv.description,
-                        "modifier": iv.modifier, "activated_at": iv.activated_at,
-                        "duration": iv.duration, "source": iv.source,
-                    })
-            else:
-                texts = [
-                    extract_narrative(getattr(p, '_last_parsed', None), r)
-                    for p, r in zip(participants, responses)
-                ]
-                parsed = [getattr(p, '_last_parsed', None) for p in participants]
-                signals_and_ses = embed_score_batch(texts, parsed_actions=parsed)
+            texts = [
+                extract_narrative(getattr(p, '_last_parsed', None), r)
+                for p, r in zip(participants, responses)
+            ]
+            parsed = [getattr(p, '_last_parsed', None) for p in participants]
+            signals_and_ses = embed_score_batch(texts, parsed_actions=parsed)
 
             # Score update
             for participant, response, (signal, signal_se) in zip(participants, responses, signals_and_ses):
@@ -266,6 +244,51 @@ class GPUHarmony:
                     reward = last_entry.signal if last_entry and last_entry.participant_id == p.agent_id else 0.5
                     self.bandit.update(p.agent_id, "", reward)
 
+            # Pass to observer worker (or signal tick done directly)
+            await self._score_q.put((tick, stimuli, responses, signals_and_ses, is_observer_tick, ivs_before))
+
+    # ── Worker 4: Observers (authority GPU, observer ticks only) ───────
+
+    async def _observer_worker(self, n_ticks: int):
+        """
+        Phase D: observer_a analysis + observer_b intervention.
+        Only does GPU work on observer ticks (every K ticks).
+        On non-observer ticks, just signals tick completion.
+        """
+        from simulation.sim_loop import OBSERVATION, EV_INTERVENTION
+
+        ws = self.ws
+        participants = self.participants
+        observers = self.observers
+        n = len(participants)
+
+        for _ in range(n_ticks):
+            tick, stimuli, responses, signals_and_ses, is_observer_tick, ivs_before = await self._score_q.get()
+
+            if is_observer_tick:
+                obs_a, obs_b = observers[0], observers[1]
+                if hasattr(obs_a, 'set_participants'):
+                    obs_a.set_participants(participants)
+
+                # Phase D1: observer_a analysis (authority GPU)
+                analysis = await obs_a.analyse(tick, ws, n)
+
+                obs_payload = {"content": analysis}
+                if hasattr(obs_a, '_last_parsed') and obs_a._last_parsed:
+                    obs_payload["structured"] = obs_a._last_parsed
+                ws.stream.emit(tick, "D", OBSERVATION, "observer_a", obs_payload)
+
+                # Phase D2: observer_b intervention (authority GPU)
+                ivs = await obs_b.intervene(tick, ws, n, analysis)
+                ws.active_interventions.extend(ivs)
+
+                for iv in ivs:
+                    ws.stream.emit(tick, "D", EV_INTERVENTION, "observer_b", {
+                        "type": iv.type, "description": iv.description,
+                        "modifier": iv.modifier, "activated_at": iv.activated_at,
+                        "duration": iv.duration, "source": iv.source,
+                    })
+
             # Signal tick complete to caller
             await self._tick_done_q.put((tick, participants, ivs_before))
-            logger.debug(f"[Tick {tick}] Phase C+D done → tick complete")
+            logger.debug(f"[Tick {tick}] {'Phase C+D' if is_observer_tick else 'Phase C'} done → tick complete")
