@@ -2044,26 +2044,19 @@ async def run_simulation(
     _split_enabled = os.getenv("SIM_GPU_SPLIT", "1") == "1"
     _gpu_backends = ["swarm", "authority"]
 
-    # Pipeline mode: environment on swarm (GPU 1) so Phase A overlaps with Phase D (authority/GPU 0)
+    # Pipeline mode: tick-pipelined execution via GPUHarmony.
+    # Environment stays on authority (its natural slot) — stimulus generation
+    # overlaps with participant responses because both are async.
     _pipeline = os.getenv("SIM_PIPELINE", "1") == "1" and _split_enabled
-    _env_backend = "swarm" if _pipeline else None
+    _env_backend = None  # authority (default) — no longer forced to swarm
     environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context,
                                    backend_override=_env_backend)
     if _pipeline:
-        logger.info("Pipeline mode: environment on swarm, observers on authority — Phase A||D overlap enabled")
+        logger.info("Pipeline mode: environment+observers on authority, participants split — harmony enabled")
 
     def _pick_backend(idx):
         if not _split_enabled:
             return None  # use default (swarm only)
-        # Weighted split: more participants on swarm to keep authority free
-        # for observer phases (D) and overlap with stimulus (A).
-        # Pattern for 6 agents: [S, S, A, S, S, A] = 4:2 swarm:authority
-        # Pattern for 4 agents: [S, S, A, S] = 3:1 swarm:authority
-        # General: every 3rd agent goes to authority, rest to swarm.
-        if _pipeline and (idx + 1) % 3 == 0:
-            return "authority"
-        elif _pipeline:
-            return "swarm"
         return _gpu_backends[idx % len(_gpu_backends)]
 
     if scenario_config is not None:
