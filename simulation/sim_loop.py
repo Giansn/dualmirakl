@@ -1044,7 +1044,7 @@ class EnvironmentAgent:
             return stimuli
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"batch_decide parse failed ({e}), falling back to sequential")
-            logger.debug(f"batch_decide raw response ({len(response)} chars): {response[:300]}")
+            logger.warning(f"batch_decide raw response ({len(response)} chars): {response[:300]}")
             stimuli = {}
             for p in participants:
                 stimuli[p.agent_id] = await self.decide(p, world_state, max_tokens=max(64, max_tokens // 2))
