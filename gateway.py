@@ -2,7 +2,7 @@ import os
 import asyncio
 from pathlib import Path
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from sentence_transformers import SentenceTransformer
 import httpx
 
@@ -660,6 +660,42 @@ async def sim_calibrate_status():
         "status": _sim_state.get("calibration_status", "idle"),
         "result": _sim_state.get("calibration_result"),
     }
+
+
+@app.get("/simulation/report")
+async def sim_report(req: Request):
+    """Generate self-contained HTML report from latest simulation results."""
+    from simulation.report import generate_report
+
+    ensemble = _sim_state.get("ensemble_result") or _sim_state.get("nested_result")
+    dynamics = None
+    tree = None
+    calibration = _sim_state.get("calibration_result")
+
+    # Try to load dynamics analysis from latest run dir
+    if _sim_state.get("run_dir"):
+        try:
+            da_path = Path(_sim_state["run_dir"]) / "dynamics_analysis.json"
+            if da_path.exists():
+                dynamics = json.loads(da_path.read_text())
+        except Exception:
+            pass
+
+    html = generate_report(
+        ensemble_result=ensemble,
+        dynamics_analysis=dynamics,
+        scenario_tree=tree,
+        calibration_result=calibration,
+    )
+
+    download = req.query_params.get("download")
+    if download:
+        return Response(
+            content=html,
+            media_type="text/html",
+            headers={"Content-Disposition": "attachment; filename=dualmirakl_report.html"},
+        )
+    return HTMLResponse(html)
 
 
 @app.get("/simulation/status")
