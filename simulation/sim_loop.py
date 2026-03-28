@@ -2044,11 +2044,12 @@ async def run_simulation(
     _split_enabled = os.getenv("SIM_GPU_SPLIT", "1") == "1"
     _gpu_backends = ["swarm", "authority"]
 
-    # Pipeline mode v2: environment on authority (GPU 0) — stimulus generation
-    # overlaps with Phase C (CPU embedding). Stimulus worker runs ahead, filling
-    # the gap when both GPUs would otherwise be idle during CPU-only scoring.
+    # Pipeline mode v2: 4-worker architecture (stimulus, swarm, score, observer).
+    # Environment on swarm balances total token load across GPUs.
+    # The stimulus worker runs ahead via queue backpressure — generates T(n+1)
+    # stimuli while score worker (CPU) processes T(n) embeddings.
     _pipeline = os.getenv("SIM_PIPELINE", "1") == "1" and _split_enabled
-    _env_backend = None  # authority (default) — stimulus prefetch during Phase C
+    _env_backend = "swarm" if _pipeline else None
     environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context,
                                    backend_override=_env_backend)
     if _pipeline:
