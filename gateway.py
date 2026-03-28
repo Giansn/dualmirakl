@@ -657,6 +657,84 @@ async def sim_nested_ensemble(req: Request):
     return {"status": "nested_ensemble_started", "config": body}
 
 
+@app.post("/simulation/scenario_tree")
+async def sim_scenario_tree(req: Request):
+    """Build a scenario tree from the most recent ensemble result."""
+    body = await req.json() if req.headers.get("content-type") == "application/json" else {}
+
+    # Find all_score_logs from the latest ensemble/nested result
+    logs = None
+    for key in ("ensemble_result", "nested_result"):
+        r = _sim_state.get(key)
+        if r and "all_score_logs" in r:
+            logs = r["all_score_logs"]
+            break
+
+    if not logs:
+        return {"error": "No ensemble data available. Run an ensemble first."}
+
+    from simulation.scenario_tree import build_scenario_tree, reduce_tree, tree_to_dict
+    tree = build_scenario_tree(
+        logs,
+        max_depth=body.get("max_depth", 3),
+        max_branches=body.get("max_branches", 4),
+        min_branch_prob=body.get("min_branch_prob", 0.05),
+    )
+    target = body.get("target_scenarios")
+    if target and isinstance(target, int):
+        tree = reduce_tree(tree, target)
+
+    return {"scenario_tree": tree_to_dict(tree)}
+
+
+@app.post("/simulation/calibrate")
+async def sim_calibrate(req: Request):
+    """Run ABC-SMC calibration in background."""
+    if _sim_state.get("calibration_status") == "running":
+        return {"error": "Calibration already running"}
+
+    body = await req.json() if req.headers.get("content-type") == "application/json" else {}
+    _sim_state["calibration_status"] = "running"
+
+    def _run():
+        import asyncio as _aio
+        from simulation.abc_calibration import abc_smc, make_abc_sim_func, ABCPrior
+
+        try:
+            param_names = body.get("param_names", ["alpha", "dampening", "susceptibility", "resilience"])
+            bounds = body.get("bounds", [(0.05, 0.4), (0.3, 1.0), (0.1, 0.9), (0.0, 0.5)])
+            priors = [ABCPrior(name=n, type="uniform", low=b[0], high=b[1])
+                      for n, b in zip(param_names, bounds)]
+            observed = body.get("observed", {"mean_score": 0.5, "score_std": 0.1})
+
+            sim_func = make_abc_sim_func(param_names, bounds)
+            result = abc_smc(
+                sim_func=sim_func,
+                priors=priors,
+                observed=observed,
+                n_particles=body.get("n_particles", 100),
+                n_populations=body.get("n_populations", 5),
+            )
+            _sim_state["calibration_status"] = "completed"
+            _sim_state["calibration_result"] = result.to_dict()
+        except Exception as e:
+            import traceback
+            _sim_state["calibration_status"] = f"error: {e}"
+            traceback.print_exc()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "calibration_started", "config": body}
+
+
+@app.get("/simulation/calibrate/status")
+async def sim_calibrate_status():
+    """Return calibration progress."""
+    return {
+        "status": _sim_state.get("calibration_status", "idle"),
+        "result": _sim_state.get("calibration_result"),
+    }
+
+
 @app.get("/simulation/status")
 async def sim_status():
     return _sim_state

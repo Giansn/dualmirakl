@@ -242,6 +242,122 @@ class HistoryMatcher:
 
         return nroy_points
 
+    def run_with_emulator(
+        self,
+        sim_func: Callable[[np.ndarray], dict[str, float]],
+        emulator_after_wave: int = 1,
+        verification_fraction: float = 0.2,
+        verbose: bool = True,
+    ) -> np.ndarray:
+        """
+        GP-accelerated History Matching.
+
+        Runs direct simulation for waves 1..emulator_after_wave, then switches
+        to GP emulator predictions for implausibility calculation. Verifies a
+        fraction of emulator-predicted NROY points with direct simulation.
+
+        Falls back to direct simulation if emulator R² < 0.7.
+        """
+        from simulation.gp_emulator import GPEmulator
+
+        rng = np.random.RandomState(self.seed)
+        nroy_points = None
+        training_X: list[np.ndarray] = []
+        training_y: dict[str, list[float]] = {t.name: [] for t in self.targets}
+
+        for wave_id in range(1, self.n_waves + 1):
+            use_emulator = wave_id > emulator_after_wave and len(training_X) >= 10
+
+            if verbose:
+                mode = "emulator" if use_emulator else "direct"
+                print(f"\n── History Matching Wave {wave_id}/{self.n_waves} ({mode}) ──")
+
+            # Sample
+            if nroy_points is None or len(nroy_points) < 3:
+                points = self._sample_initial(self.samples_per_wave, rng)
+            else:
+                points = self._sample_nroy(self.samples_per_wave, nroy_points, rng)
+
+            if use_emulator:
+                # Fit GP emulators (one per target)
+                X_train = np.array(training_X)
+                emulators: dict[str, GPEmulator] = {}
+                emulator_ok = True
+
+                for target in self.targets:
+                    y_train = np.array(training_y[target.name])
+                    gp = GPEmulator()
+                    gp.fit(X_train, y_train)
+                    cv = gp.validate(n_folds=min(5, len(y_train)))
+                    if cv["r2"] < 0.7:
+                        if verbose:
+                            print(f"  Emulator for '{target.name}' R²={cv['r2']:.2f} < 0.7 — fallback to direct")
+                        emulator_ok = False
+                        break
+                    emulators[target.name] = gp
+
+                if emulator_ok:
+                    # Predict with emulators
+                    outputs = []
+                    for x in points:
+                        out = {}
+                        for target in self.targets:
+                            mean, _ = emulators[target.name].predict(x.reshape(1, -1))
+                            out[target.name] = float(mean[0])
+                        outputs.append(out)
+
+                    # Verify a fraction with direct simulation
+                    n_verify = max(1, int(len(points) * verification_fraction))
+                    verify_indices = rng.choice(len(points), n_verify, replace=False)
+                    for idx in verify_indices:
+                        try:
+                            real_out = sim_func(points[idx])
+                            outputs[idx] = real_out
+                            training_X.append(points[idx].copy())
+                            for t in self.targets:
+                                training_y[t.name].append(real_out.get(t.name, 0.0))
+                        except Exception:
+                            pass
+                else:
+                    use_emulator = False
+
+            if not use_emulator:
+                # Direct simulation
+                outputs = []
+                for x in points:
+                    try:
+                        out = sim_func(x)
+                        outputs.append(out)
+                        training_X.append(x.copy())
+                        for t in self.targets:
+                            training_y[t.name].append(out.get(t.name, 0.0))
+                    except Exception as e:
+                        logger.warning(f"  Wave {wave_id} sim failed: {e}")
+                        outputs.append({})
+
+            # Compute implausibility and filter
+            impl = self._compute_implausibility(outputs)
+            nroy_mask = impl <= self.threshold
+            nroy_points = points[nroy_mask]
+
+            wave = Wave(
+                wave_id=wave_id,
+                n_samples=len(points),
+                n_nroy=int(np.sum(nroy_mask)),
+                nroy_fraction=float(np.mean(nroy_mask)),
+                nroy_points=nroy_points,
+                implausibility_scores=impl,
+            )
+            self.waves.append(wave)
+
+            if verbose:
+                print(f"  NROY: {wave.n_nroy}/{wave.n_samples} ({wave.nroy_fraction:.0%})")
+
+            if wave.n_nroy < 3:
+                break
+
+        return nroy_points
+
     def summary(self) -> dict:
         """Return summary statistics from all waves."""
         return {

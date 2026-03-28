@@ -33,6 +33,7 @@ class EnsembleResult:
     runs: list[dict] = field(default_factory=list)
     ensemble_summary: dict = field(default_factory=dict)
     convergence: dict = field(default_factory=dict)
+    all_score_logs: list[list[list[float]]] = field(default_factory=list)  # per run, per agent, per tick
 
     def to_dict(self) -> dict:
         """JSON-serializable representation."""
@@ -256,6 +257,9 @@ async def run_ensemble(
         if convergence_achieved:
             break
 
+    # Store raw trajectory data for scenario tree construction
+    result.all_score_logs = all_score_logs
+
     # Aggregate: percentile bands per step
     if all_score_logs:
         result.ensemble_summary = {
@@ -306,6 +310,7 @@ class NestedEnsembleResult:
     inner_results: list[list[dict]] = field(default_factory=list)  # per param set
     variance_decomposition: dict = field(default_factory=dict)
     ensemble_summary: dict = field(default_factory=dict)
+    all_score_logs: list[list[list[float]]] = field(default_factory=list)
     total_runs: int = 0
     total_completed: int = 0
 
@@ -477,6 +482,8 @@ async def run_nested_ensemble(
             group_sizes.append(1)
 
     result.total_runs = run_count
+
+    result.all_score_logs = all_score_logs
 
     # Variance decomposition
     if len(group_means) >= 2:
