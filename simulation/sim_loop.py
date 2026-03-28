@@ -2044,16 +2044,18 @@ async def run_simulation(
     _split_enabled = os.getenv("SIM_GPU_SPLIT", "1") == "1"
     _gpu_backends = ["swarm", "authority"]
 
-    # Pipeline mode v2: 4-worker architecture (stimulus, swarm, score, observer).
+    # Pipeline mode v3: 4-worker architecture + adaptive GPU balancing.
     # Environment on swarm balances total token load across GPUs.
     # The stimulus worker runs ahead via queue backpressure — generates T(n+1)
     # stimuli while score worker (CPU) processes T(n) embeddings.
+    # AdaptiveBalancer reads GPU power via pynvml and shifts participants
+    # between GPUs every tick to equalize load at ~195W per GPU.
     _pipeline = os.getenv("SIM_PIPELINE", "1") == "1" and _split_enabled
     _env_backend = "swarm" if _pipeline else None
     environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context,
                                    backend_override=_env_backend)
     if _pipeline:
-        logger.info("Pipeline v2: environment+observers on authority, stimulus prefetch during Phase C")
+        logger.info("Pipeline v3: adaptive GPU balancing, stimulus prefetch during Phase C")
 
     def _pick_backend(idx):
         if not _split_enabled:
