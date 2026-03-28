@@ -2044,8 +2044,7 @@ async def run_simulation(
     _split_enabled = os.getenv("SIM_GPU_SPLIT", "1") == "1"
     _gpu_backends = ["swarm", "authority"]
 
-    # Pipeline mode: environment on swarm (GPU 1) so Phase A overlaps with Phase D (authority/GPU 0).
-    # Participant split: authority gets fewer participants since it also handles observers.
+    # Pipeline mode: environment on swarm (GPU 1) so Phase A overlaps with Phase D (authority/GPU 0)
     _pipeline = os.getenv("SIM_PIPELINE", "1") == "1" and _split_enabled
     _env_backend = "swarm" if _pipeline else None
     environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context,
@@ -2056,15 +2055,6 @@ async def run_simulation(
     def _pick_backend(idx):
         if not _split_enabled:
             return None  # use default (swarm only)
-        # In pipeline mode: authority also handles observers (Phase D),
-        # so give it MORE participants to keep it busy during Phase B gaps.
-        # Pattern: [auth, swarm, auth, swarm, auth, auth] for 6 agents = 4:2 auth:swarm
-        # This compensates for swarm also running environment (Phase A).
-        if _pipeline:
-            # Every 3rd agent goes to swarm, rest to authority
-            if (idx + 1) % 3 == 0:
-                return "swarm"
-            return "authority"
         return _gpu_backends[idx % len(_gpu_backends)]
 
     if scenario_config is not None:
