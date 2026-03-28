@@ -180,6 +180,16 @@ class ReactConfig(BaseModel):
     ])
 
 
+class EnsembleConfig(BaseModel):
+    """Configuration for multi-run ensemble execution."""
+    enabled: bool = False
+    n_runs: int = 10
+    convergence_metric: str = "mean_score"
+    cv_threshold: float = 0.05
+    max_runs: Optional[int] = None
+    base_seed: int = 42
+
+
 class TopologyConfig(BaseModel):
     """Dual-environment topology configuration (MiroFish-inspired)."""
     id: str = "broadcast"
@@ -244,6 +254,7 @@ class ScenarioConfig(BaseModel):
     persona_generation: PersonaGenerationConfig = Field(
         default_factory=PersonaGenerationConfig,
     )
+    ensemble: EnsembleConfig = Field(default_factory=EnsembleConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
 
     # ── Loaders ───────────────────────────────────────────────────────────

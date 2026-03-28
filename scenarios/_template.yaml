@@ -137,6 +137,16 @@ flame:
   influencer_weight: 0.8
   sub_steps: 4
 
+# ── Ensemble (optional) ──────────────────────────────────────────────────────
+# Multi-run ensemble for statistical credibility. Disabled by default.
+# ensemble:
+#   enabled: false
+#   n_runs: 10                           # target number of runs
+#   convergence_metric: "mean_score"     # metric for early stopping
+#   cv_threshold: 0.05                   # coefficient of variation threshold
+#   max_runs: 20                         # hard upper bound (null = n_runs)
+#   base_seed: 42                        # seeds: base_seed, base_seed+1, ...
+
 # ── Environment ───────────────────────────────────────────────────────────────
 environment:
   tick_count: 100
