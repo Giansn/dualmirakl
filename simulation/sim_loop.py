@@ -989,12 +989,14 @@ class EnvironmentAgent:
         if text.startswith("```"):
             text = re.sub(r"^```(?:json)?\s*\n?", "", text)
             text = re.sub(r"\n?```\s*$", "", text)
-        # Find first { ... last }
+        # Find first { and use raw_decode to parse exactly one JSON object
         start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end == -1 or end <= start:
+        if start == -1:
             raise json.JSONDecodeError("No JSON object found", text, 0)
-        return json.loads(text[start:end + 1])
+        obj, _ = json.JSONDecoder().raw_decode(text, start)
+        if not isinstance(obj, dict):
+            raise json.JSONDecodeError("Expected JSON object, got " + type(obj).__name__, text, start)
+        return obj
 
     async def batch_decide(
         self, participants: list["ParticipantAgent"], world_state: WorldState,
