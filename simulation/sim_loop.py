@@ -2055,6 +2055,15 @@ async def run_simulation(
     def _pick_backend(idx):
         if not _split_enabled:
             return None  # use default (swarm only)
+        # Weighted split: more participants on swarm to keep authority free
+        # for observer phases (D) and overlap with stimulus (A).
+        # Pattern for 6 agents: [S, S, A, S, S, A] = 4:2 swarm:authority
+        # Pattern for 4 agents: [S, S, A, S] = 3:1 swarm:authority
+        # General: every 3rd agent goes to authority, rest to swarm.
+        if _pipeline and (idx + 1) % 3 == 0:
+            return "authority"
+        elif _pipeline:
+            return "swarm"
         return _gpu_backends[idx % len(_gpu_backends)]
 
     if scenario_config is not None:
