@@ -1892,6 +1892,19 @@ async def run_simulation(
     except Exception as e:
         logger.debug("Memory persistence not available: %s", e)
 
+    # ── Experiment tracking: register this run ─────────────────────────
+    _exp_db = None
+    try:
+        from simulation.experiment_db import ExperimentDB
+        _exp_db = ExperimentDB()
+        _exp_db.register_run(
+            run_id=_run_id,
+            parameters=run_config,
+            sim_seed=seed,
+        )
+    except Exception as e:
+        logger.debug("Experiment tracking not available: %s", e)
+
     # ── Continue from prior run: load memories ────────────────────────
     if continue_from and _memory_backend:
         try:
@@ -2217,6 +2230,22 @@ async def run_simulation(
                 except Exception as e:
                     logger.debug("Memory flush failed at tick %d: %s", tick, e)
 
+            # Experiment tracking: record per-tick metrics
+            if _exp_db:
+                try:
+                    _tick_metrics = {
+                        "mean_score": float(np.mean([p.behavioral_score for p in participants])),
+                        "std_score": float(np.std([p.behavioral_score for p in participants])),
+                        "min_score": float(min(p.behavioral_score for p in participants)),
+                        "max_score": float(max(p.behavioral_score for p in participants)),
+                    }
+                    _exp_db.record_tick(_run_id, tick, _tick_metrics)
+                    for p in participants:
+                        _exp_db.record_tick(_run_id, tick, {"score": p.behavioral_score}, agent_id=p.agent_id)
+                    _exp_db.flush_ticks()
+                except Exception as e:
+                    logger.debug("Tick tracking failed at tick %d: %s", tick, e)
+
             # W&B per-tick logging (no-op if wandb not installed)
             tracker.log_tick(
                 tick,
@@ -2274,6 +2303,13 @@ async def run_simulation(
     if flame_engine is not None:
         run_config["flame"] = flame_engine.config
     run_dir = export_results(participants, world_state, run_config, duration_s)
+
+    # Experiment tracking: mark run complete
+    if _exp_db:
+        try:
+            _exp_db.complete_run(_run_id, duration_s)
+        except Exception as e:
+            logger.debug("Run completion tracking failed: %s", e)
 
     # Export graph memory alongside simulation data
     if world_state.graph is not None:

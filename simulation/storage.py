@@ -153,6 +153,76 @@ def ensure_schema(conn) -> None:
         )
     """)
 
+    # ── Experiment tracking (Phase A) ────────────────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS experiments (
+            experiment_id  VARCHAR PRIMARY KEY,
+            name           VARCHAR NOT NULL,
+            description    VARCHAR DEFAULT '',
+            config         JSON,
+            model_version  VARCHAR,
+            git_hash       VARCHAR,
+            llm_model      VARCHAR,
+            llm_version    VARCHAR,
+            created_at     TIMESTAMP DEFAULT current_timestamp
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS runs (
+            run_id            VARCHAR PRIMARY KEY,
+            experiment_id     VARCHAR,
+            parameters        JSON,
+            sim_seed          INTEGER,
+            llm_seed          INTEGER,
+            temperature       FLOAT DEFAULT 0.7,
+            status            VARCHAR DEFAULT 'running',
+            wall_time_seconds FLOAT,
+            created_at        TIMESTAMP DEFAULT current_timestamp
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tick_data (
+            run_id      VARCHAR NOT NULL,
+            step        INTEGER NOT NULL,
+            metric_name VARCHAR NOT NULL,
+            value       FLOAT NOT NULL,
+            agent_id    VARCHAR
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ensemble_summaries (
+            experiment_id  VARCHAR NOT NULL,
+            step           INTEGER NOT NULL,
+            metric_name    VARCHAR NOT NULL,
+            n_runs         INTEGER NOT NULL,
+            mean           FLOAT,
+            std            FLOAT,
+            p5             FLOAT,
+            p25            FLOAT,
+            median         FLOAT,
+            p75            FLOAT,
+            p95            FLOAT,
+            var_aleatory   FLOAT,
+            var_epistemic  FLOAT,
+            var_llm        FLOAT
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS response_cache (
+            prompt_hash    VARCHAR PRIMARY KEY,
+            model_id       VARCHAR NOT NULL,
+            temperature    FLOAT NOT NULL,
+            seed           INTEGER,
+            response_text  VARCHAR NOT NULL,
+            created_at     TIMESTAMP DEFAULT current_timestamp,
+            hit_count      INTEGER DEFAULT 0
+        )
+    """)
+
     logger.debug("DuckDB schema ensured")
 
 

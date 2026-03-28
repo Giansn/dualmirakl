@@ -35,12 +35,32 @@ async def close_client() -> None:
         await _client.aclose()
 
 
+def _messages_to_cache_key(messages: list[dict]) -> str:
+    """Deterministic string representation of messages for cache hashing."""
+    import json as _json
+    return _json.dumps(messages, sort_keys=True, ensure_ascii=True)
+
+
 async def chat(
     backend: Literal["authority", "swarm"],
     messages: list[dict],
     max_tokens: int = 512,
     temperature: float = 0.7,
 ) -> str:
+    # Response cache: check for cached response
+    try:
+        from simulation.response_cache import cache as _cache
+        if _cache._enabled:
+            _prompt_key = _messages_to_cache_key(messages)
+            _model_id = MODELS[backend]["name"]
+            _cached = _cache.lookup(_prompt_key, _model_id, temperature)
+            if _cached is not None:
+                return _cached
+    except Exception:
+        _cache = None
+        _prompt_key = None
+        _model_id = None
+
     cfg = MODELS[backend]
     payload = {
         "model": cfg["name"],
@@ -52,7 +72,16 @@ async def chat(
     r.raise_for_status()
     msg = r.json()["choices"][0]["message"]
     # Nemotron reasoning parser may put output in reasoning_content with content=null
-    return msg.get("content") or msg.get("reasoning_content") or ""
+    response_text = msg.get("content") or msg.get("reasoning_content") or ""
+
+    # Response cache: store new response
+    try:
+        if _cache is not None and _cache._enabled and _prompt_key is not None:
+            _cache.store(_prompt_key, _model_id, temperature, None, response_text)
+    except Exception:
+        pass
+
+    return response_text
 
 
 async def dual_query(prompt: str) -> dict:
