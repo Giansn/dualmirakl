@@ -1018,12 +1018,13 @@ class EnvironmentAgent:
 
         prompt = (
             f"Generate a stimulus for each of the following {len(participants)} participants. "
-            f"Respond with a JSON object mapping participant_id \u2192 stimulus string.{constraint_note}\n\n"
+            f"Respond with ONLY a JSON object mapping participant_id to stimulus string. "
+            f"No explanation, no reasoning, just the JSON.{constraint_note}\n\n"
             + "\n".join(participant_summaries)
         )
 
-        # Cap batch output: ~80 tokens per participant stimulus is typical
-        batch_max = min(max_tokens * len(participants), max(256, 80 * len(participants)))
+        # Budget: reasoning models may emit CoT before JSON, so allow headroom
+        batch_max = max(512, 120 * len(participants))
 
         response = await _resilient_agent_turn(
             agent_id="environment",
@@ -1044,7 +1045,7 @@ class EnvironmentAgent:
             return stimuli
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"batch_decide parse failed ({e}), falling back to sequential")
-            logger.warning(f"batch_decide raw response ({len(response)} chars): {response[:300]}")
+            logger.debug(f"batch_decide raw response ({len(response)} chars): {response[:300]}")
             stimuli = {}
             for p in participants:
                 stimuli[p.agent_id] = await self.decide(p, world_state, max_tokens=max(64, max_tokens // 2))
@@ -1082,12 +1083,13 @@ class EnvironmentAgent:
         prompt = (
             f"Generate a community-style stimulus for each participant. "
             f"Members of the same cluster share a common context — reference "
-            f"what their neighbors are doing. Respond with a JSON object "
-            f"mapping participant_id → stimulus string.{constraint_note}\n\n"
+            f"what their neighbors are doing. Respond with ONLY a JSON object "
+            f"mapping participant_id to stimulus string. "
+            f"No explanation, no reasoning, just the JSON.{constraint_note}\n\n"
             + "\n".join(cluster_summaries)
         )
 
-        batch_max = min(max_tokens * len(participants), max(256, 80 * len(participants)))
+        batch_max = max(512, 120 * len(participants))
 
         response = await _resilient_agent_turn(
             agent_id="environment_clustered",
