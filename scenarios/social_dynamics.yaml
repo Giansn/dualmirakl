@@ -161,20 +161,28 @@ archetypes:
 
 actions:
   schemas:
-    - "respond"
     - "disengage"
+    - "withdraw"
+    - "respond"
+    - "engage"
     - "escalate"
 
   instances:
+    - id: "disengage_from_scenario"
+      schema: "disengage"
+      prompt_fragment: "Do you step away from the current activity entirely?"
+    - id: "withdraw_emotionally"
+      schema: "withdraw"
+      prompt_fragment: "Do you pull back emotionally while remaining present?"
     - id: "respond_to_stimulus"
       schema: "respond"
       prompt_fragment: "How do you respond to the current situation?"
-    - id: "disengage_from_scenario"
-      schema: "disengage"
-      prompt_fragment: "Do you step away from the current activity?"
+    - id: "engage_more_deeply"
+      schema: "engage"
+      prompt_fragment: "Do you lean in and get more actively involved?"
     - id: "escalate_engagement"
       schema: "escalate"
-      prompt_fragment: "Do you increase your level of engagement?"
+      prompt_fragment: "Do you push your engagement to a more intense level?"
 
 scoring:
   mode: "ema"
@@ -237,6 +245,22 @@ context_categories:
   - id: "temporal_structure"
     description: "Time horizon, tick granularity, phases"
     required: false
+
+outcome_criteria:
+  targets:
+    - name: "mean_score"
+      low: 0.30
+      high: 0.70
+    - name: "score_std"
+      low: 0.05
+      high: 0.25
+    - name: "polarization"
+      low: 0.0
+      high: 0.40
+  validation_metrics:
+    - "crps"
+    - "wasserstein"
+  convergence_required: true
 
 flame:
   enabled: false

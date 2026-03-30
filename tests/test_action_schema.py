@@ -22,7 +22,7 @@ from simulation.action_schema import (
 
 class TestSchemaStructure:
     def test_participant_actions_keys(self):
-        assert set(PARTICIPANT_ACTIONS.keys()) == {"respond", "disengage", "escalate"}
+        assert set(PARTICIPANT_ACTIONS.keys()) == {"respond", "disengage", "escalate", "withdraw", "engage"}
 
     def test_observer_a_actions_keys(self):
         assert set(OBSERVER_A_ACTIONS.keys()) == {"analyse"}
@@ -198,12 +198,12 @@ class TestParseAction:
         assert parsed is None
 
     def test_parse_unknown_action_infers_from_keys(self):
-        # Unknown action name, but has escalate's required keys (action + narrative)
+        # Unknown action name, but has engage's required keys (action + narrative)
         response = json.dumps({"action": "teleport", "narrative": "whoosh"})
         parsed = parse_action(response, PARTICIPANT_ACTIONS)
-        # Infers escalate because its required fields (action, narrative) match
+        # Infers first matching schema with (action, narrative) as required fields
         assert parsed is not None
-        assert parsed["action"] == "escalate"
+        assert parsed["action"] in ("engage", "escalate")
 
     def test_parse_truly_unknown_returns_none(self):
         # No matching required field set

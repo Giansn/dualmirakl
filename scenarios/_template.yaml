@@ -129,6 +129,22 @@ context_categories:
     description: "Properties and behaviors of the simulated entities"
     required: true
 
+# ── Outcome Criteria (optional) ──────────────────────────────────────────────
+# Domain-agnostic validation targets. Pipeline Stage 6 scores ensemble
+# output against these criteria. Remove this section if no validation needed.
+# outcome_criteria:
+#   targets:
+#     - name: "mean_score"       # metric name (mean_score, score_std, polarization, etc.)
+#       low: 0.30                # lower bound of plausible range
+#       high: 0.70               # upper bound
+#       observed: 0.50           # optional: observed value for CRPS/Brier scoring
+#       weight: 1.0              # relative importance
+#   validation_metrics:          # scoring rules to compute
+#     - "crps"                   # Continuous Ranked Probability Score
+#     - "wasserstein"            # Earth Mover's Distance
+#   prediction_horizon: 0        # 0 = final state, N = predict N ticks ahead
+#   convergence_required: true   # require ensemble convergence for validation pass
+
 # ── FLAME GPU 2 (optional) ───────────────────────────────────────────────────
 flame:
   enabled: false

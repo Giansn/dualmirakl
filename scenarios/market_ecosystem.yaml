@@ -206,6 +206,22 @@ context_categories:
     description: "Past market events and their impacts on trader behavior"
     required: false
 
+outcome_criteria:
+  targets:
+    - name: "mean_score"
+      low: 0.35
+      high: 0.65
+    - name: "score_std"
+      low: 0.10
+      high: 0.35
+      weight: 1.5
+    - name: "score_range"
+      low: 0.20
+      high: 0.80
+  validation_metrics:
+    - "crps"
+  convergence_required: false
+
 flame:
   enabled: false
   population_size: 10000

@@ -18,6 +18,8 @@ SWARM     = os.getenv("SWARM_URL",     "http://localhost:8001/v1")
 
 # e5-small-v2 loaded once at startup — CPU inference ~2-5ms per call
 _embed_path = os.path.join(os.getenv("HF_HOME", "/workspace/huggingface"), "hub", "e5-small-v2")
+if not os.path.exists(_embed_path):
+    _embed_path = "intfloat/e5-small-v2"  # fallback: download from HuggingFace Hub
 _embed = SentenceTransformer(_embed_path)
 
 client = httpx.AsyncClient(
@@ -72,27 +74,32 @@ async def gpu_monitor():
 
 @app.get("/gpu/telemetry")
 async def gpu_telemetry():
-    import subprocess
-    result = subprocess.run(
-        ["nvidia-smi",
-         "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
-         "--format=csv,noheader,nounits"],
-        capture_output=True, text=True, timeout=5,
-    )
-    gpus = []
-    for line in result.stdout.strip().split("\n"):
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) >= 7:
-            gpus.append({
-                "index": int(parts[0]),
-                "name": parts[1],
-                "utilization": int(parts[2]),
-                "mem_used": int(parts[3]),
-                "mem_total": int(parts[4]),
-                "temp": int(parts[5]),
-                "power": float(parts[6]),
-            })
-    return {"gpus": gpus, "ts": __import__("time").time()}
+    import subprocess, shutil
+    if not shutil.which("nvidia-smi"):
+        return {"gpus": [], "ts": __import__("time").time(), "error": "nvidia-smi not found"}
+    try:
+        result = subprocess.run(
+            ["nvidia-smi",
+             "--query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        gpus = []
+        for line in result.stdout.strip().split("\n"):
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 7:
+                gpus.append({
+                    "index": int(parts[0]),
+                    "name": parts[1],
+                    "utilization": int(parts[2]),
+                    "memory_used": int(parts[3]),
+                    "memory_total": int(parts[4]),
+                    "temp": int(parts[5]),
+                    "power_draw": float(parts[6]),
+                })
+        return {"gpus": gpus, "ts": __import__("time").time()}
+    except Exception as e:
+        return {"gpus": [], "ts": __import__("time").time(), "error": str(e)}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -694,6 +701,93 @@ async def sim_report(req: Request):
             content=html,
             media_type="text/html",
             headers={"Content-Disposition": "attachment; filename=dualmirakl_report.html"},
+        )
+    return HTMLResponse(html)
+
+
+@app.post("/simulation/pipeline")
+async def sim_pipeline(req: Request):
+    """Run the full output pipeline (ensemble + analysis + validation + report)."""
+    if _sim_state["status"] == "running":
+        return {"error": "Simulation already running", "status": _sim_state}
+
+    body = await req.json() if req.headers.get("content-type") == "application/json" else {}
+
+    _sim_state["status"] = "running"
+    _sim_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    _sim_state["tick"] = 0
+    _sim_state["pct"] = 0
+    _sim_state["events"] = []
+    _sim_state["scores"] = []
+    _sim_state["run_dir"] = None
+
+    def _run():
+        import asyncio as _aio
+        from simulation.output_pipeline import OutputPipeline, PipelineStageConfig
+        from simulation.scenario import ScenarioConfig
+
+        async def _pipeline():
+            try:
+                scenario_path = body.get("scenario", "scenarios/social_dynamics.yaml")
+                config = ScenarioConfig.load(scenario_path)
+                config.validate_scenario(strict=True)
+
+                stage_cfg = PipelineStageConfig()
+                for stage_name in body.get("skip_stages", []):
+                    if hasattr(stage_cfg, stage_name):
+                        object.__setattr__(stage_cfg, stage_name, False)
+
+                def _on_stage(name, status):
+                    _sim_state["events"].append({
+                        "type": "pipeline_stage", "stage": name, "status": status,
+                    })
+
+                pipeline = OutputPipeline(
+                    scenario_config=config,
+                    stage_config=stage_cfg,
+                    on_stage=_on_stage,
+                )
+                result = await pipeline.run(
+                    n_runs=body.get("n_runs", 10),
+                    base_seed=body.get("base_seed", 42),
+                )
+                _sim_state["status"] = "completed"
+                _sim_state["pipeline_result"] = result.to_dict()
+                _sim_state["run_dir"] = str(pipeline.output_dir)
+            except Exception as e:
+                import traceback as _tb
+                _sim_state["status"] = f"error: {e}"
+                _tb.print_exc()
+
+        _aio.run(_pipeline())
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "pipeline_started", "config": body}
+
+
+@app.get("/simulation/pipeline/result")
+async def sim_pipeline_result():
+    """Return pipeline result JSON."""
+    pr = _sim_state.get("pipeline_result")
+    if not pr:
+        return {"error": "No pipeline result available", "status": _sim_state.get("status", "idle")}
+    return pr
+
+
+@app.get("/simulation/pipeline/report")
+async def sim_pipeline_report(req: Request):
+    """Return the HTML report from the latest pipeline run."""
+    run_dir = _sim_state.get("run_dir")
+    if not run_dir:
+        return {"error": "No pipeline run completed"}
+    report_path = Path(run_dir) / "report.html"
+    if not report_path.exists():
+        return {"error": "Report not found in pipeline output"}
+    html = report_path.read_text()
+    if req.query_params.get("download"):
+        return Response(
+            content=html, media_type="text/html",
+            headers={"Content-Disposition": "attachment; filename=pipeline_report.html"},
         )
     return HTMLResponse(html)
 
