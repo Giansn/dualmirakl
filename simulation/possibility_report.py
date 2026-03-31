@@ -234,10 +234,16 @@ def compute_possibility_report(
     # ── Step 3: Lyapunov + Convergence per branch ────────────────────────
     from simulation.dynamics import estimate_system_lyapunov, compute_emergence
 
+    lyapunov_threshold = config.get("lyapunov_threshold", 0.05)
     lyapunov_result = estimate_system_lyapunov(score_logs)
-    regime = lyapunov_result.get("regime", "marginal")
     lyapunov_max = lyapunov_result.get("max_lyapunov", 0.0)
-    lyapunov_threshold = 0.05
+    # Classify regime using configurable threshold
+    if lyapunov_max > lyapunov_threshold:
+        regime = "chaotic"
+    elif lyapunov_max < -lyapunov_threshold:
+        regime = "stable"
+    else:
+        regime = "marginal"
 
     if lyapunov_result.get("sample_size_warning"):
         warnings.append(lyapunov_result["sample_size_warning"])
@@ -424,6 +430,12 @@ def compute_possibility_report(
             b.in_conformal_set = True
         if len(branches) > 1:
             conformal_coverage = None  # no valid coverage guarantee
+
+    if multi_run_logs and len(multi_run_logs) < 5:
+        warnings.append(
+            f"Fewer than 5 runs ({len(multi_run_logs)} provided): "
+            "conformal prediction set has no coverage guarantee."
+        )
 
     # ── Step 7: Discovery prior branch (undetected basins) ────────────
     # Reserve mass for basins the ODE sweep may have missed.

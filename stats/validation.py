@@ -32,7 +32,7 @@ def convergence_check(
     n = len(series)
     first = series[:n // 3]
     last = series[-n // 3:]
-    t_stat, p_value = sp_stats.ttest_ind(first, last)
+    t_stat, p_value = sp_stats.ttest_ind(first, last, equal_var=False)
 
     return {
         "converged": ratio < threshold and p_value > 0.05,
@@ -49,9 +49,10 @@ def bootstrap_ci(
     n_bootstrap: int = 10_000,
     alpha: float = 0.05,
     statistic=np.mean,
+    seed: int = 42,
 ) -> dict:
     """Bootstrap confidence interval for a statistic."""
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
     n = len(values)
     boot_stats = np.zeros(n_bootstrap)
 
