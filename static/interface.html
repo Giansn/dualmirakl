@@ -4026,39 +4026,36 @@ function dismissSplash() {
   const wic = document.querySelector('.wic');
   if (!bgImg || !wic) { splash.classList.add('hidden'); return; }
 
-  // Get positions
-  const fromRect = bgImg.getBoundingClientRect();
-  const fromCx = fromRect.left + fromRect.width / 2;
-  const fromCy = fromRect.top + fromRect.height / 2;
+  const fromCx = window.innerWidth / 2;
+  const fromCy = window.innerHeight / 2;
 
-  // Target: where the welcome sigil will be (approximate — content is behind splash)
-  // The welcome area is centered in main (after 260px sidebar), vertically ~30% from top
-  const mainLeft = 260;
-  const mainWidth = window.innerWidth - mainLeft;
-  const toCx = mainLeft + mainWidth / 2;
-  const toCy = window.innerHeight * 0.28;
-  const toSize = 160;
-
-  // Phase 1: fade text, start moving the sigil
+  // Phase 1: fade text immediately
   splash.classList.add('transitioning');
 
-  // Animate the background image to the target position
+  // Briefly make splash transparent to measure .wic position underneath
+  splash.style.pointerEvents = 'none';
+  const wicRect = wic.getBoundingClientRect();
+  const toCx = wicRect.left + wicRect.width / 2;
+  const toCy = wicRect.top + wicRect.height / 2;
+  const toSize = wicRect.width || 160;
+
+  // Phase 2: animate sigil along straight line from center to .wic
   requestAnimationFrame(() => {
     bgImg.style.width = toSize + 'px';
     bgImg.style.height = toSize + 'px';
     bgImg.style.position = 'fixed';
     bgImg.style.left = (toCx - toSize / 2) + 'px';
     bgImg.style.top = (toCy - toSize / 2) + 'px';
-    bgImg.style.opacity = '0.6';
+    bgImg.style.opacity = '0.5';
   });
 
-  // Spawn trail particles along the flight path
+  // Trail particles along straight line
   spawnTrailParticles(fromCx, fromCy, toCx, toCy);
 
-  // Phase 2: after sigil arrives, fade splash and reveal main
+  // Phase 3: fade splash after sigil lands
   setTimeout(() => {
     splash.classList.add('hidden');
-  }, 800);
+  }, 1000);
 }
 
 function spawnTrailParticles(x1, y1, x2, y2) {
