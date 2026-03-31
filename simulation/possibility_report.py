@@ -553,8 +553,16 @@ def compute_possibility_report(
     # ── Step 3: Lyapunov + Convergence per branch ────────────────────────
     from simulation.dynamics import estimate_system_lyapunov, compute_emergence
 
+    lyapunov_threshold = config.get("lyapunov_threshold", 0.05)
     lyapunov_result = estimate_system_lyapunov(score_logs)
-    regime = lyapunov_result.get("regime", "marginal")
+    lyapunov_max = lyapunov_result.get("max_lyapunov", 0.0)
+    # Override regime using configurable threshold
+    if lyapunov_max > lyapunov_threshold:
+        regime = "chaotic"
+    elif lyapunov_max < -lyapunov_threshold:
+        regime = "stable"
+    else:
+        regime = "marginal"
 
     if lyapunov_result.get("sample_size_warning"):
         warnings.append(lyapunov_result["sample_size_warning"])

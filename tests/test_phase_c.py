@@ -422,3 +422,40 @@ class TestEnsembleScoreLogs:
         r = NestedEnsembleResult(experiment_id="test")
         assert hasattr(r, "all_score_logs")
         assert r.all_score_logs == []
+
+
+# ── Calibrated probability tests ────────────────────────────────────────────
+
+class TestCalibratedProbabilities:
+
+    @staticmethod
+    def _make_logs(n_agents=4, n_ticks=12, seed=42):
+        """Generate synthetic per-agent score logs."""
+        rng = np.random.RandomState(seed)
+        logs = []
+        for a in range(n_agents):
+            base = 0.3 + 0.4 * (a / max(n_agents - 1, 1))
+            scores = [max(0.0, min(1.0, base + rng.normal(0, 0.05))) for _ in range(n_ticks)]
+            logs.append(scores)
+        return logs
+
+    @staticmethod
+    def _make_config(**overrides):
+        """Create a minimal config dict with defaults, applying overrides."""
+        cfg = {
+            "alpha": 0.15,
+            "kappa": 0.0,
+            "dampening": 1.0,
+            "score_mode": "ema",
+        }
+        cfg.update(overrides)
+        return cfg
+
+    def test_configurable_lyapunov_threshold(self):
+        from simulation.possibility_report import compute_possibility_report
+        # Both should run without error; different thresholds affect entropy blend
+        r1 = compute_possibility_report(self._make_logs(), self._make_config(lyapunov_threshold=0.01))
+        r2 = compute_possibility_report(self._make_logs(), self._make_config(lyapunov_threshold=0.99))
+        # Both should produce valid probabilities
+        assert abs(sum(b.probability for b in r1.branches) - 1.0) < 0.01
+        assert abs(sum(b.probability for b in r2.branches) - 1.0) < 0.01
