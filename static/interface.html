@@ -4157,7 +4157,7 @@ function dismissSplash() {
   const inputH = 70;
   const availH = window.innerHeight - topbarH - inputH;
   const toCx = sidebarW + mainW / 2;
-  const toCy = topbarH + availH * 0.35; // sigil sits in upper third of welcome
+  const toCy = topbarH + availH * 0.28; // sigil sits above center in welcome
   const toSize = 160;
 
   // Phase 1: fade text
@@ -4179,7 +4179,7 @@ function dismissSplash() {
 }
 
 function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
-  const n = 50;
+  const n = 120;
   const goldenAngle = 137.508 * (Math.PI / 180);
   const halfFrom = fromSize / 2;
   const halfTo = toSize / 2;
@@ -4202,7 +4202,7 @@ function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
     const endY = toY + Math.sin(startAngle) * endR;
 
     const size = 2 + (1 - i / n) * 2;
-    const stagger = i * 8;
+    const stagger = i * 3;
 
     setTimeout(() => {
       const p = document.createElement('div');
