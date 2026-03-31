@@ -657,6 +657,12 @@ def compute_possibility_report(
         if len(branches) > 1:
             warnings.append("Single-run data: no bootstrap CI. Run multiple seeds for confidence intervals.")
 
+    if multi_run_logs and len(multi_run_logs) < 5:
+        warnings.append(
+            f"Fewer than 5 runs ({len(multi_run_logs)} provided): "
+            "conformal prediction set has no coverage guarantee."
+        )
+
     # ── Step 7: Normalize probabilities ──────────────────────────────────
     total = sum(b.probability for b in branches)
     if total > 0:

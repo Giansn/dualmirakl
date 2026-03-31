@@ -422,3 +422,24 @@ class TestEnsembleScoreLogs:
         r = NestedEnsembleResult(experiment_id="test")
         assert hasattr(r, "all_score_logs")
         assert r.all_score_logs == []
+
+
+# ── Calibrated probability tests ─────────────────────────────────────────────
+
+class TestCalibratedProbabilities:
+
+    @staticmethod
+    def _make_config():
+        return {"alpha": 0.15, "kappa": 0.0, "dampening": 1.0, "score_mode": "ema"}
+
+    @staticmethod
+    def _make_logs(n_agents=4, n_ticks=12, seed=42):
+        rng = np.random.RandomState(seed)
+        base = 0.3 + rng.uniform(0, 0.4)
+        return [[base + rng.normal(0, 0.05) for _ in range(n_ticks)] for _ in range(n_agents)]
+
+    def test_conformal_warning_few_runs(self):
+        from simulation.possibility_report import compute_possibility_report
+        multi = [self._make_logs(seed=i) for i in range(3)]
+        report = compute_possibility_report(multi[0], self._make_config(), multi_run_logs=multi)
+        assert any("conformal" in w.lower() for w in report.warnings)
