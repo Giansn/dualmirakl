@@ -73,8 +73,11 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .mi{max-width:720px;margin:0 auto;padding:0 24px}
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;text-align:center;animation:fi .5s ease}
 @keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-.wic{width:160px;height:160px;border-radius:0;overflow:visible;margin-bottom:24px;background:none;border:none}
+.wic{width:160px;height:160px;border-radius:0;overflow:visible;margin-bottom:24px;background:none;border:none;position:relative}
 .wic img{width:100%;height:100%;object-fit:contain}
+.particles{position:absolute;inset:-200px;pointer-events:none;overflow:visible}
+.particle{position:absolute;border-radius:50%;opacity:0;animation:particleDrift linear infinite}
+@keyframes particleDrift{0%{opacity:0;transform:translate(0,0) scale(1)}10%{opacity:.6}70%{opacity:.3}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(0.3)}}
 .welcome h2{font-size:16px;font-weight:400;margin-bottom:6px;letter-spacing:1px;text-transform:lowercase;color:var(--t1)}
 .welcome p{color:var(--t2);font-size:12px;max-width:420px;line-height:1.7;font-weight:300}
 .arch{margin-top:28px;padding:18px 22px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);text-align:left;max-width:460px;width:100%}
@@ -447,7 +450,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
   <div class="mc mode-content" id="mc" data-mode="chat">
     <div class="mi" id="mi">
       <div class="welcome" id="ws">
-        <div class="wic"><img src="/static/mirakl_sigil.svg" alt="mirakl sigil"></div>
+        <div class="wic"><img src="/static/mirakl_sigil.svg" alt="mirakl sigil"><div class="particles" id="particles"></div></div>
         <h2>dualmirakl</h2>
         <div class="welcome-actions">
           <div class="wa-card" onclick="document.getElementById('msgIn').focus()">
@@ -3987,6 +3990,33 @@ document.addEventListener('mouseover', function(e) {
     tt.style.top = (rect.bottom + 8) + 'px';
   }
 });
+
+// ── PARTICLES ──
+(function spawnParticles() {
+  const container = document.getElementById('particles');
+  if (!container) return;
+  const colors = ['#4ee8cc','#3cd8bc','#28b8a0','#d4a850','#e4c070','#787680'];
+  function spawn() {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 150 + Math.random() * 250;
+    const dx = Math.cos(angle) * dist;
+    const dy = Math.sin(angle) * dist;
+    const size = 1.5 + Math.random() * 3;
+    const dur = 4 + Math.random() * 6;
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    p.style.cssText = `width:${size}px;height:${size}px;background:${color};left:calc(50% - ${size/2}px);top:calc(50% - ${size/2}px);--dx:${dx}px;--dy:${dy}px;animation-duration:${dur}s;animation-delay:${Math.random()*2}s;box-shadow:0 0 ${size*2}px ${color}`;
+    container.appendChild(p);
+    p.addEventListener('animationiteration', () => {
+      const newAngle = Math.random() * Math.PI * 2;
+      const newDist = 150 + Math.random() * 250;
+      p.style.setProperty('--dx', Math.cos(newAngle) * newDist + 'px');
+      p.style.setProperty('--dy', Math.sin(newAngle) * newDist + 'px');
+    });
+  }
+  for (let i = 0; i < 30; i++) spawn();
+})();
 
 // ── SPLASH ──
 function dismissSplash() {
