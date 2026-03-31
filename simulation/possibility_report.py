@@ -425,6 +425,12 @@ def compute_possibility_report(
         if len(branches) > 1:
             conformal_coverage = None  # no valid coverage guarantee
 
+    if multi_run_logs and len(multi_run_logs) < 5:
+        warnings.append(
+            f"Fewer than 5 runs ({len(multi_run_logs)} provided): "
+            "conformal prediction set has no coverage guarantee."
+        )
+
     # ── Step 7: Discovery prior branch (undetected basins) ────────────
     # Reserve mass for basins the ODE sweep may have missed.
     # Only meaningful when there's a single detected attractor.

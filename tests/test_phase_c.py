@@ -547,3 +547,9 @@ class TestCalibratedProbabilities:
         # lyapunov_time should be set (either a float or None)
         for b in report.branches:
             assert hasattr(b, "lyapunov_time")
+
+    def test_conformal_warning_few_runs(self):
+        from simulation.possibility_report import compute_possibility_report
+        multi = [self._make_logs(seed=i) for i in range(3)]
+        report = compute_possibility_report(multi[0], self._make_config(), multi_run_logs=multi)
+        assert any("conformal" in w.lower() for w in report.warnings)
