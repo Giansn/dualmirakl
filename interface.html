@@ -600,10 +600,21 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
             <div id="worldDocs" style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">
               <span style="opacity:.5">No documents uploaded yet</span>
             </div>
-            <div style="display:flex;gap:6px;margin-top:8px">
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
               <button class="upload-btn" onclick="document.getElementById('worldFileIn').click()">&#9965; Upload Document</button>
               <input type="file" id="worldFileIn" accept=".pdf,.txt,.md,.csv" style="display:none" onchange="handleWorldFile(event)">
               <button class="results-btn" id="extractBtn" onclick="extractOntology()" style="display:none;font-size:10px;padding:4px 10px">Extract Archetypes</button>
+              <button class="mac" onclick="openWorldInsight()" id="insightBtn" style="display:none">insight</button>
+              <button class="mac" onclick="clearAllWorldData()" style="margin-left:auto;color:var(--r);border-color:var(--r)">clear all</button>
+            </div>
+
+            <!-- INSIGHT PANEL -->
+            <div id="worldInsightPanel" style="display:none;margin-top:10px;padding:12px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rax);max-height:400px;overflow-y:auto">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--a);text-transform:uppercase;letter-spacing:1px">World Knowledge Insight</span>
+                <button onclick="document.getElementById('worldInsightPanel').style.display='none'" style="background:none;border:none;color:var(--t2);cursor:pointer;font-size:14px">&times;</button>
+              </div>
+              <div id="worldInsightContent" style="font-size:11px;color:var(--t1);line-height:1.7"></div>
             </div>
           </div>
 
@@ -2540,6 +2551,7 @@ function renderWorldDocs() {
     <span style="opacity:.5">${(d.chars/1000).toFixed(1)}k</span>
     <button onclick="S.worldDocs.splice(${i},1);renderWorldDocs();refreshWorldStats()" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:10px">&times;</button>
   </div>`).join('');
+  updateInsightBtn();
 }
 
 function detectContextCategories(text) {
@@ -3297,6 +3309,117 @@ async function fetchAllSnapshots() {
   }
   if (progressEl) progressEl.textContent = 'all done';
   setTimeout(() => { if (progressEl) progressEl.textContent = ''; }, 3000);
+}
+
+// ── CLEAR ALL + INSIGHT ──
+
+async function clearAllWorldData() {
+  if (!confirm('Clear all world documents, snapshots, embeddings, and notes?')) return;
+  S.worldDocs = [];
+  S.snapSummaries = {};
+  S.embeds = S.embeds.filter(e => e.role !== 'document');
+  document.getElementById('worldNotes').value = '';
+  document.getElementById('collectorDigest').style.display = 'none';
+  document.getElementById('worldInsightPanel').style.display = 'none';
+  document.getElementById('worldOntology').style.display = 'none';
+  document.getElementById('insightBtn').style.display = 'none';
+  document.getElementById('extractBtn').style.display = 'none';
+  // Reset snapshot rows
+  document.querySelectorAll('.snapshot-row').forEach(r => {
+    r.classList.remove('loaded','loading');
+    const cap = r.dataset.topic.charAt(0).toUpperCase() + r.dataset.topic.slice(1);
+    const st = document.getElementById('snap' + cap);
+    if (st) { st.textContent = ''; st.style.color = ''; }
+    const sum = document.getElementById('summary' + cap);
+    if (sum) sum.style.display = 'none';
+    const exp = document.getElementById('expand' + cap);
+    if (exp) exp.style.display = 'none';
+  });
+  // Reset context category dots
+  ['Scenario','Population','Outcome','Intervention','Temporal'].forEach(c => {
+    const dot = document.getElementById('wcDot' + c);
+    const st = document.getElementById('wcStatus' + c);
+    if (dot) dot.className = 'dot off';
+    if (st) { st.textContent = c === 'Intervention' || c === 'Temporal' ? 'optional' : 'missing'; st.style.color = 'var(--t2)'; }
+  });
+  renderWorldDocs();
+  refreshWorldStats();
+  updEmbedCnt();
+  // Try to clear server-side too
+  try { await fetch(`${url.gw()}/v1/documents`, {method: 'DELETE'}); } catch {}
+}
+
+function openWorldInsight() {
+  const panel = document.getElementById('worldInsightPanel');
+  const content = document.getElementById('worldInsightContent');
+  panel.style.display = '';
+
+  // Build insight from all sources
+  let html = '';
+
+  // Documents
+  if (S.worldDocs.length) {
+    html += `<div style="margin-bottom:12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Documents (${S.worldDocs.length})</div>`;
+    S.worldDocs.forEach(d => {
+      html += `<div style="padding:3px 0;border-bottom:1px solid var(--bd);display:flex;gap:8px;align-items:baseline">
+        <span style="color:var(--a);font-size:10px">${d.name}</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">${(d.chars/1000).toFixed(1)}k chars</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);opacity:.5">${new Date(d.ts).toLocaleString()}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // Snapshot summaries by provider
+  const providers = {};
+  Object.entries(S.snapSummaries).forEach(([topic, data]) => {
+    if (!data.articles) return;
+    data.articles.forEach(a => {
+      const prov = a.provider || 'GDELT';
+      if (!providers[prov]) providers[prov] = [];
+      providers[prov].push({...a, topic});
+    });
+  });
+
+  // Also gather from collector digest
+  const digestEl = document.getElementById('collectorBullets');
+  if (digestEl && digestEl.innerHTML) {
+    html += `<div style="margin-bottom:12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Collector Digest</div>
+      <div style="font-size:10px;color:var(--t2);line-height:1.6">${digestEl.innerHTML}</div>
+    </div>`;
+  }
+
+  if (Object.keys(providers).length) {
+    html += `<div style="margin-bottom:12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Snapshot Sources</div>`;
+    for (const [prov, items] of Object.entries(providers)) {
+      html += `<div style="margin-bottom:8px">
+        <span style="display:inline-block;padding:1px 5px;border:1px solid var(--bd);border-radius:2px;font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--a);margin-bottom:3px">${prov} (${items.length})</span>`;
+      items.slice(0, 5).forEach(a => {
+        html += `<div style="padding:1px 0;font-size:10px;color:var(--t2);padding-left:8px">· ${a.title?.slice(0,80)}${a.title?.length > 80 ? '...' : ''}</div>`;
+      });
+      if (items.length > 5) html += `<div style="padding-left:8px;font-size:9px;color:var(--t2);opacity:.5">...and ${items.length - 5} more</div>`;
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  // RAG stats
+  const docChunks = S.embeds.filter(e => e.role === 'document').length;
+  html += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd);font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">
+    Total: ${S.worldDocs.length} docs · ${docChunks} embedded chunks · ${Object.keys(S.snapSummaries).length} snapshot topics
+  </div>`;
+
+  if (!html) html = '<span style="opacity:.5">No world data collected yet. Upload documents or run the snapshot collector.</span>';
+  content.innerHTML = html;
+}
+
+// Show insight button when we have data
+function updateInsightBtn() {
+  const btn = document.getElementById('insightBtn');
+  if (btn) btn.style.display = (S.worldDocs.length || Object.keys(S.snapSummaries).length) ? '' : 'none';
 }
 
 // ── WORLD NOTES ──
