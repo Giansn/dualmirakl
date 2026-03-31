@@ -77,7 +77,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .wic img{width:100%;height:100%;object-fit:contain}
 .particles{position:absolute;inset:-200px;pointer-events:none;overflow:visible}
 .particle{position:absolute;border-radius:50%;opacity:0;animation:particleDrift linear infinite}
-@keyframes particleDrift{0%{opacity:0;transform:translate(0,0) scale(1)}10%{opacity:.25}70%{opacity:.12}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(0.3)}}
+@keyframes particleDrift{0%{opacity:0;transform:translate(0,0) scale(1)}15%{opacity:.2}80%{opacity:.1}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(0.3)}}
 .welcome h2{font-size:16px;font-weight:400;margin-bottom:6px;letter-spacing:1px;text-transform:lowercase;color:var(--t1)}
 .welcome p{color:var(--t2);font-size:12px;max-width:420px;line-height:1.7;font-weight:300}
 .arch{margin-top:28px;padding:18px 22px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);text-align:left;max-width:460px;width:100%}
@@ -376,8 +376,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .splash{position:fixed;inset:0;z-index:9999;background:#171a1e;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:opacity .8s ease,visibility .8s ease;overflow:hidden}
 .splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
 .transition-burst{position:fixed;inset:0;z-index:9998;pointer-events:none;overflow:hidden}
-.burst-particle{position:absolute;border-radius:50%;opacity:0;animation:burstOut 1.8s ease-out forwards}
-@keyframes burstOut{0%{opacity:.4;transform:translate(0,0) scale(1)}30%{opacity:.25}100%{opacity:0;transform:translate(var(--bx),var(--by)) scale(0)}}
+.burst-particle{position:absolute;border-radius:50%;opacity:0;animation:burstOut 3s cubic-bezier(.05,.2,.4,1) forwards}
+@keyframes burstOut{0%{opacity:.5;transform:translate(0,0) scale(1)}15%{opacity:.4;transform:translate(calc(var(--bx) * 0.03),calc(var(--by) * 0.03)) scale(1)}40%{opacity:.3;transform:translate(calc(var(--bx) * 0.15),calc(var(--by) * 0.15)) scale(.8)}100%{opacity:0;transform:translate(var(--bx),var(--by)) scale(0)}}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg img{width:95vmin;height:95vmin;object-fit:contain;opacity:.5;animation:splashBgIn 2.5s ease both}
@@ -3999,26 +3999,20 @@ document.addEventListener('mouseover', function(e) {
   const container = document.getElementById('particles');
   if (!container) return;
   const colors = ['#38c8c8'];
-  function spawn() {
+  const goldenAngle = 137.508 * (Math.PI / 180);
+  const total = 24;
+  for (let i = 0; i < total; i++) {
     const p = document.createElement('div');
     p.className = 'particle';
-    const angle = Math.random() * Math.PI * 2;
-    const dist = 150 + Math.random() * 250;
+    const angle = i * goldenAngle;
+    const dist = 120 + Math.sqrt(i / total) * 280;
     const dx = Math.cos(angle) * dist;
     const dy = Math.sin(angle) * dist;
-    const size = 1 + Math.random() * 2;
-    const dur = 4 + Math.random() * 6;
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    p.style.cssText = `width:${size}px;height:${size}px;background:${color};left:calc(50% - ${size/2}px);top:calc(50% - ${size/2}px);--dx:${dx}px;--dy:${dy}px;animation-duration:${dur}s;animation-delay:${Math.random()*2}s;box-shadow:0 0 ${size*2}px ${color}`;
+    const size = 1 + (1 - i / total) * 1.5;
+    const dur = 15 + (i / total) * 20;
+    p.style.cssText = `width:${size}px;height:${size}px;background:#38c8c8;left:calc(50% - ${size/2}px);top:calc(50% - ${size/2}px);--dx:${dx}px;--dy:${dy}px;animation-duration:${dur}s;animation-delay:${i*0.3}s;box-shadow:0 0 ${size*2}px rgba(56,200,200,.3)`;
     container.appendChild(p);
-    p.addEventListener('animationiteration', () => {
-      const newAngle = Math.random() * Math.PI * 2;
-      const newDist = 150 + Math.random() * 250;
-      p.style.setProperty('--dx', Math.cos(newAngle) * newDist + 'px');
-      p.style.setProperty('--dy', Math.sin(newAngle) * newDist + 'px');
-    });
   }
-  for (let i = 0; i < 30; i++) spawn();
 })();
 
 // ── SPLASH ──
@@ -4036,40 +4030,30 @@ function triggerLogisticBurst() {
 
   const cx = window.innerWidth / 2;
   const cy = window.innerHeight / 2;
-  const colors = ['#38c8c8'];
-  const n = 40;
+  const n = 55;
 
-  // Logistic map: x(n+1) = r * x(n) * (1 - x(n))
-  // r=3.9 produces chaos — same as dualmirakl's test dynamics
-  const r = 3.9;
-  let x = 0.1;
-  const logisticValues = [];
-  for (let i = 0; i < n; i++) {
-    x = r * x * (1 - x);
-    logisticValues.push(x);
-  }
+  // Golden angle phyllotaxis: angle = i * 137.508° (golden angle)
+  // Same spiral pattern as sunflower seeds — mathematically optimal spacing.
+  // Distance follows sqrt(i) — Fermat spiral.
+  const goldenAngle = 137.508 * (Math.PI / 180);
 
   for (let i = 0; i < n; i++) {
     const p = document.createElement('div');
     p.className = 'burst-particle';
 
-    // Use logistic map value to determine angle (chaotic but structured)
-    const angle = logisticValues[i] * Math.PI * 2 + (i / n) * Math.PI * 0.5;
-    // Distance scales with a second logistic iteration
-    const dist = 200 + logisticValues[(i + 7) % n] * 600;
+    const angle = i * goldenAngle;
+    const dist = 80 + Math.sqrt(i / n) * 500;
 
     const bx = Math.cos(angle) * dist;
     const by = Math.sin(angle) * dist;
-    const size = 1 + logisticValues[(i + 3) % n] * 3;
-    const color = colors[i % colors.length];
-    const delay = logisticValues[(i + 11) % n] * 0.4;
+    const size = 1 + (1 - i / n) * 2.5; // larger near center, smaller at edge
+    const delay = i * 0.04; // staggered outward — slow start, fast finish
 
-    p.style.cssText = `left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;background:${color};--bx:${bx}px;--by:${by}px;animation-delay:${delay}s;box-shadow:0 0 ${size*3}px ${color}`;
+    p.style.cssText = `left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;background:#38c8c8;--bx:${bx}px;--by:${by}px;animation-delay:${delay}s;box-shadow:0 0 ${size*2}px rgba(56,200,200,.4)`;
     burst.appendChild(p);
   }
 
-  // Clean up after animation
-  setTimeout(() => burst.remove(), 2500);
+  setTimeout(() => burst.remove(), 5000);
 }
 
 document.addEventListener('keydown', function(e) {
