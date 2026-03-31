@@ -375,6 +375,9 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 /* SPLASH SCREEN */
 .splash{position:fixed;inset:0;z-index:9999;background:#171a1e;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:opacity .8s ease,visibility .8s ease;overflow:hidden}
 .splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
+.transition-burst{position:fixed;inset:0;z-index:9998;pointer-events:none;overflow:hidden}
+.burst-particle{position:absolute;border-radius:50%;opacity:0;animation:burstOut 1.8s ease-out forwards}
+@keyframes burstOut{0%{opacity:.9;transform:translate(0,0) scale(1)}30%{opacity:.7}100%{opacity:0;transform:translate(var(--bx),var(--by)) scale(0)}}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg img{width:95vmin;height:95vmin;object-fit:contain;opacity:.5;animation:splashBgIn 2.5s ease both}
@@ -4021,9 +4024,54 @@ document.addEventListener('mouseover', function(e) {
 // ── SPLASH ──
 function dismissSplash() {
   const el = document.getElementById('splash');
-  if (el) el.classList.add('hidden');
+  if (!el || el.classList.contains('hidden')) return;
+  triggerLogisticBurst();
+  el.classList.add('hidden');
 }
-// Dismiss on Enter key
+
+function triggerLogisticBurst() {
+  const burst = document.createElement('div');
+  burst.className = 'transition-burst';
+  document.body.appendChild(burst);
+
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  const colors = ['#4ee8cc','#3cd8bc','#6ef0dc','#d4a850','#e4c070','#c09038'];
+  const n = 60;
+
+  // Logistic map: x(n+1) = r * x(n) * (1 - x(n))
+  // r=3.9 produces chaos — same as dualmirakl's test dynamics
+  const r = 3.9;
+  let x = 0.1;
+  const logisticValues = [];
+  for (let i = 0; i < n; i++) {
+    x = r * x * (1 - x);
+    logisticValues.push(x);
+  }
+
+  for (let i = 0; i < n; i++) {
+    const p = document.createElement('div');
+    p.className = 'burst-particle';
+
+    // Use logistic map value to determine angle (chaotic but structured)
+    const angle = logisticValues[i] * Math.PI * 2 + (i / n) * Math.PI * 0.5;
+    // Distance scales with a second logistic iteration
+    const dist = 200 + logisticValues[(i + 7) % n] * 600;
+
+    const bx = Math.cos(angle) * dist;
+    const by = Math.sin(angle) * dist;
+    const size = 2 + logisticValues[(i + 3) % n] * 5;
+    const color = colors[i % colors.length];
+    const delay = logisticValues[(i + 11) % n] * 0.4;
+
+    p.style.cssText = `left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;background:${color};--bx:${bx}px;--by:${by}px;animation-delay:${delay}s;box-shadow:0 0 ${size*3}px ${color}`;
+    burst.appendChild(p);
+  }
+
+  // Clean up after animation
+  setTimeout(() => burst.remove(), 2500);
+}
+
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && document.getElementById('splash') && !document.getElementById('splash').classList.contains('hidden')) {
     dismissSplash();
