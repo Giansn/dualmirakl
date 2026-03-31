@@ -376,7 +376,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg img{width:120vmax;height:120vmax;object-fit:cover;opacity:.55;animation:splashBgIn 2s ease both}
 @keyframes splashBgIn{from{opacity:0;transform:scale(1.2)}to{opacity:.55;transform:scale(1)}}
-.splash-content{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;padding:48px 56px;background:rgba(23,26,30,.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(56,200,200,.08);border-radius:16px;max-width:560px;animation:splashIn 1.2s ease .3s both}
+.splash-content{position:absolute;bottom:0;left:0;right:0;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;padding:32px 40px 28px;background:linear-gradient(to top,rgba(23,26,30,.92) 0%,rgba(23,26,30,.7) 60%,transparent 100%);animation:splashIn 1.2s ease .3s both}
 @keyframes splashIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 .splash-title{font-size:38px;font-weight:300;letter-spacing:8px;text-transform:lowercase;color:var(--t0);margin-bottom:16px;text-shadow:0 0 50px rgba(56,200,200,.2)}
 .splash-sub{font-size:14px;color:var(--t1);font-weight:300;line-height:1.8;margin-bottom:6px}
