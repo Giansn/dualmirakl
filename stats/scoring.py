@@ -15,7 +15,7 @@ import numpy as np
 from scipy import stats as sp_stats
 
 
-def crps(forecasts: np.ndarray, observed: float) -> float:
+def crps(forecasts: np.ndarray, observed: float, *, fair: bool = False) -> float:
     """
     Continuous Ranked Probability Score (ensemble version).
 
@@ -26,6 +26,9 @@ def crps(forecasts: np.ndarray, observed: float) -> float:
     Args:
         forecasts: Array of ensemble forecast values (n_members,).
         observed: The observed/true value.
+        fair: If True, use the unbiased ("fair") CRPS estimator with
+            n*(n-1) denominator instead of n*n for the spread term.
+            More accurate for small ensembles.
 
     Returns:
         CRPS score (non-negative, 0 = perfect).
@@ -42,10 +45,11 @@ def crps(forecasts: np.ndarray, observed: float) -> float:
     if n == 1:
         term2 = 0.0
     else:
-        # Efficient O(n log n): for sorted X, E|X-X'| = 2/(n^2) * sum_i (2i - n + 1) * X_(i)
+        # Efficient O(n log n) via sorting trick
         sorted_f = np.sort(forecasts)
         weights = 2.0 * np.arange(n) - n + 1.0
-        term2 = float(np.sum(weights * sorted_f)) / (n * n)
+        denom = n * (n - 1) if fair else n * n
+        term2 = float(np.sum(weights * sorted_f)) / denom
 
     return term1 - 0.5 * term2
 
