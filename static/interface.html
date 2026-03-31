@@ -4026,27 +4026,36 @@ function dismissSplash() {
   const wic = document.querySelector('.wic');
   if (!bgImg || !wic) { splash.classList.add('hidden'); return; }
 
-  const fromCx = window.innerWidth / 2;
-  const fromCy = window.innerHeight / 2;
-
-  // Phase 1: fade text immediately
-  splash.classList.add('transitioning');
-
-  // Briefly make splash transparent to measure .wic position underneath
+  // Measure .wic target position underneath splash
   splash.style.pointerEvents = 'none';
   const wicRect = wic.getBoundingClientRect();
   const toCx = wicRect.left + wicRect.width / 2;
   const toCy = wicRect.top + wicRect.height / 2;
   const toSize = wicRect.width || 160;
 
-  // Phase 2: animate sigil along straight line from center to .wic
+  const fromCx = window.innerWidth / 2;
+  const fromCy = window.innerHeight / 2;
+  const fromSize = bgImg.getBoundingClientRect().width;
+
+  // Phase 1: fade text, pin sigil to fixed position at current center (no jump)
+  splash.classList.add('transitioning');
+  bgImg.style.position = 'fixed';
+  bgImg.style.left = (fromCx - fromSize / 2) + 'px';
+  bgImg.style.top = (fromCy - fromSize / 2) + 'px';
+  bgImg.style.width = fromSize + 'px';
+  bgImg.style.height = fromSize + 'px';
+  bgImg.style.transition = 'none'; // no transition on initial pin
+
+  // Phase 2: one frame later, enable transition and fly to target
   requestAnimationFrame(() => {
-    bgImg.style.width = toSize + 'px';
-    bgImg.style.height = toSize + 'px';
-    bgImg.style.position = 'fixed';
-    bgImg.style.left = (toCx - toSize / 2) + 'px';
-    bgImg.style.top = (toCy - toSize / 2) + 'px';
-    bgImg.style.opacity = '0.5';
+    requestAnimationFrame(() => {
+      bgImg.style.transition = 'all 1.2s cubic-bezier(.4,0,.2,1)';
+      bgImg.style.left = (toCx - toSize / 2) + 'px';
+      bgImg.style.top = (toCy - toSize / 2) + 'px';
+      bgImg.style.width = toSize + 'px';
+      bgImg.style.height = toSize + 'px';
+      bgImg.style.opacity = '0.5';
+    });
   });
 
   // Trail particles along straight line
@@ -4055,7 +4064,7 @@ function dismissSplash() {
   // Phase 3: fade splash after sigil lands
   setTimeout(() => {
     splash.classList.add('hidden');
-  }, 1000);
+  }, 1200);
 }
 
 function spawnTrailParticles(x1, y1, x2, y2) {
