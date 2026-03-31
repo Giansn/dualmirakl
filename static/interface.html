@@ -4198,12 +4198,14 @@ function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
     const startX = fromX + Math.cos(startAngle) * startR + jitter;
     const startY = fromY + Math.sin(startAngle) * startR + jitter * 0.7;
 
-    // Scatter: Lorenz attractor butterfly pattern
-    // dx/dt = sigma*(y-x), dy/dt = x*(rho-z)-y, dz/dt = x*y - beta*z
-    // We iterate the attractor to get (x,y) positions for each particle
+    // Scatter: Lorenz attractor from random starting points + random rotation
+    // Each particle gets a unique initial condition and rotation angle,
+    // so the butterfly pattern radiates in all directions across the screen
     const sigma = 10, rho = 28, beta = 8/3;
-    let lrx = 0.1 + chaos[i] * 0.5, lry = 0.1, lrz = 0.1;
-    const steps = 20 + Math.floor(chaos[(i+3)%n] * 40); // vary how far along the attractor
+    let lrx = -15 + chaos[i] * 30;
+    let lry = -15 + chaos[(i+7)%n] * 30;
+    let lrz = 10 + chaos[(i+13)%n] * 30;
+    const steps = 30 + Math.floor(chaos[(i+3)%n] * 60);
     const dt = 0.01;
     for (let s = 0; s < steps; s++) {
       const dx = sigma * (lry - lrx) * dt;
@@ -4211,10 +4213,14 @@ function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
       const dz = (lrx * lry - beta * lrz) * dt;
       lrx += dx; lry += dy; lrz += dz;
     }
-    // Map Lorenz (x,y) to screen coordinates — scale to burst radius
-    const lorenzScale = 12;
-    const scatterX = fromX + lrx * lorenzScale;
-    const scatterY = fromY + lry * lorenzScale;
+    // Rotate each particle's position by a unique angle for full-screen spread
+    const rotAngle = i * goldenAngle + chaos[(i+19)%n] * Math.PI;
+    const rawX = lrx, rawY = lry;
+    const rotX = rawX * Math.cos(rotAngle) - rawY * Math.sin(rotAngle);
+    const rotY = rawX * Math.sin(rotAngle) + rawY * Math.cos(rotAngle);
+    const lorenzScale = 15;
+    const scatterX = fromX + rotX * lorenzScale;
+    const scatterY = fromY + rotY * lorenzScale;
 
     // Reassemble: tight formation at target
     const endAngle = i * goldenAngle;
