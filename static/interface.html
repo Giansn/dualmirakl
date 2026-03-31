@@ -382,7 +382,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .splash.transitioning .splash-content{opacity:0;transition:opacity .3s}
 .splash.transitioning .splash-bg img{transition:all 1.2s cubic-bezier(.4,0,.2,1);border-radius:0}
 .splash.hidden{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .4s ease .8s,visibility 0s 1.2s}
-.trail-particle{position:fixed;border-radius:50%;background:#38c8c8;pointer-events:none;z-index:10000}
+.trail-particle{position:fixed;border-radius:50%;background:#38c8c8;pointer-events:none;z-index:10000;will-change:transform,opacity}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg img{width:95vmin;height:95vmin;object-fit:contain;opacity:.5;animation:splashBgIn 2.5s ease both}
@@ -4179,7 +4179,7 @@ function dismissSplash() {
 }
 
 function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
-  const n = 1600;
+  const n = 800;
   const goldenAngle = 137.508 * (Math.PI / 180);
   const halfFrom = fromSize / 2;
   const halfTo = toSize / 2;
