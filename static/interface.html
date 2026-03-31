@@ -4157,7 +4157,7 @@ function dismissSplash() {
   const inputH = 70;
   const availH = window.innerHeight - topbarH - inputH;
   const toCx = sidebarW + mainW / 2;
-  const toCy = topbarH + availH * 0.28; // sigil sits above center in welcome
+  const toCy = topbarH + availH * 0.22; // sigil sits in upper quarter of welcome
   const toSize = 160;
 
   // Phase 1: fade text
@@ -4179,30 +4179,51 @@ function dismissSplash() {
 }
 
 function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
-  const n = 120;
+  const n = 180;
   const goldenAngle = 137.508 * (Math.PI / 180);
   const halfFrom = fromSize / 2;
   const halfTo = toSize / 2;
 
+  // Logistic map for chaotic variation (r=3.95 = deep chaos)
+  const r = 3.95;
+  let lx = 0.2;
+  const chaos = [];
+  for (let i = 0; i < n; i++) { lx = r * lx * (1 - lx); chaos.push(lx); }
+
   for (let i = 0; i < n; i++) {
-    // Starting position: scattered across the sigil area (not just center)
-    const startAngle = i * goldenAngle;
-    const startR = Math.sqrt(i / n) * halfFrom * 0.8;
-    const startX = fromX + Math.cos(startAngle) * startR;
-    const startY = fromY + Math.sin(startAngle) * startR;
+    // Starting position: dense within the sigil shape, chaotic jitter
+    const startAngle = i * goldenAngle + chaos[i] * 0.5;
+    const startR = Math.sqrt(i / n) * halfFrom * 0.9;
+    const jitter = (chaos[(i+7)%n] - 0.5) * 20;
+    const startX = fromX + Math.cos(startAngle) * startR + jitter;
+    const startY = fromY + Math.sin(startAngle) * startR + jitter * 0.7;
 
-    // Scatter position: burst outward from origin
-    const scatterDist = 100 + Math.sqrt(i / n) * 200;
-    const scatterX = fromX + Math.cos(startAngle) * scatterDist;
-    const scatterY = fromY + Math.sin(startAngle) * scatterDist;
+    // Scatter: Lorenz attractor butterfly pattern
+    // dx/dt = sigma*(y-x), dy/dt = x*(rho-z)-y, dz/dt = x*y - beta*z
+    // We iterate the attractor to get (x,y) positions for each particle
+    const sigma = 10, rho = 28, beta = 8/3;
+    let lrx = 0.1 + chaos[i] * 0.5, lry = 0.1, lrz = 0.1;
+    const steps = 20 + Math.floor(chaos[(i+3)%n] * 40); // vary how far along the attractor
+    const dt = 0.01;
+    for (let s = 0; s < steps; s++) {
+      const dx = sigma * (lry - lrx) * dt;
+      const dy = (lrx * (rho - lrz) - lry) * dt;
+      const dz = (lrx * lry - beta * lrz) * dt;
+      lrx += dx; lry += dy; lrz += dz;
+    }
+    // Map Lorenz (x,y) to screen coordinates — scale to burst radius
+    const lorenzScale = 5;
+    const scatterX = fromX + lrx * lorenzScale;
+    const scatterY = fromY + lry * lorenzScale;
 
-    // Reassemble position: mirror pattern at target location
-    const endR = Math.sqrt(i / n) * halfTo * 0.8;
-    const endX = toX + Math.cos(startAngle) * endR;
-    const endY = toY + Math.sin(startAngle) * endR;
+    // Reassemble: tight formation at target
+    const endAngle = i * goldenAngle;
+    const endR = Math.sqrt(i / n) * halfTo * 0.7;
+    const endX = toX + Math.cos(endAngle) * endR;
+    const endY = toY + Math.sin(endAngle) * endR;
 
-    const size = 2 + (1 - i / n) * 2;
-    const stagger = i * 3;
+    const size = 1 + chaos[(i+5)%n] * 3.5;
+    const stagger = i * 2;
 
     setTimeout(() => {
       const p = document.createElement('div');
