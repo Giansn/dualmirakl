@@ -16,8 +16,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .sb{width:260px;min-width:260px;background:rgba(24,26,33,.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-right:1px solid var(--bd);display:flex;flex-direction:column;height:100vh}
 .sbh{padding:20px;border-bottom:1px solid var(--bd)}
 .logo{display:flex;align-items:center;gap:10px;margin-bottom:16px}
-.logo-ic{width:28px;height:28px;border-radius:4px;overflow:hidden;flex-shrink:0}
-.logo-ic img{width:100%;height:100%;object-fit:cover}
+.logo-ic{width:24px;height:24px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--t1);font-weight:600;border:1px solid var(--bd)}
 .logo-tx{font-weight:400;font-size:14px;letter-spacing:1.5px;text-transform:lowercase;color:var(--t1)}
 .logo-bx{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);padding:1px 5px;margin-left:auto;letter-spacing:.5px}
 .nc-btn{width:100%;padding:8px 12px;background:transparent;border:1px solid var(--bd);border-radius:var(--rad);color:var(--t1);font-family:'Outfit',sans-serif;font-size:12px;font-weight:400;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .2s;letter-spacing:.3px}
@@ -243,7 +242,132 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .drop-zone{margin-top:16px;padding:20px;border:1px dashed var(--bd);border-radius:var(--rad);color:var(--t2);font-size:12px;cursor:pointer;text-align:center;transition:all .2s;width:100%;max-width:480px}
 .drop-zone:hover,.drop-zone.drag-over{border-color:var(--a);color:var(--a);background:var(--ad)}
 
-@media(max-width:768px){.sb{display:none}.bgt{min-width:130px}.welcome-actions{flex-direction:column}}
+/* SUGGESTION CARDS */
+.sug-card{padding:10px 12px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);margin:6px 0;display:flex;flex-direction:column;gap:4px}
+.sug-card.high{border-left:3px solid var(--a)}
+.sug-card.medium{border-left:3px solid var(--w)}
+.sug-card.low{border-left:3px solid var(--t2)}
+.sug-header{display:flex;align-items:center;gap:8px}
+.sug-param{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--a);font-weight:500}
+.sug-change{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)}
+.sug-reason{font-size:11px;color:var(--t1);line-height:1.5}
+.sug-source{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);padding:1px 4px;border:1px solid var(--bd);border-radius:2px;display:inline-block}
+.sug-apply{padding:3px 10px;background:var(--a);border:none;border-radius:var(--rax);color:var(--bg0);font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer;align-self:flex-end}
+.sug-apply:hover{box-shadow:0 0 8px rgba(56,200,200,.3)}
+.sug-missing{padding:8px 10px;background:rgba(192,144,144,.06);border:1px solid rgba(192,144,144,.2);border-left:3px solid var(--r);border-radius:var(--rax);margin:6px 0;font-size:11px;color:var(--t1);line-height:1.5}
+.sug-warning{padding:8px 10px;background:rgba(196,174,128,.06);border:1px solid rgba(196,174,128,.2);border-left:3px solid var(--w);border-radius:var(--rax);margin:6px 0;font-size:11px;color:var(--t1);line-height:1.5}
+
+/* WORLD SNAPSHOTS */
+.snapshot-row{display:grid;grid-template-columns:36px 1fr 140px 40px 20px;gap:6px;align-items:center;padding:6px 8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);position:relative}
+.snapshot-row.loaded{border-color:rgba(56,200,200,.3);background:rgba(56,200,200,.03)}
+.snapshot-row.loaded .snapshot-fetch{border-color:var(--a);color:var(--a)}
+.snapshot-row.loaded .snap-label{color:var(--a)}
+.snapshot-row.loading{border-color:var(--w);opacity:.7}
+.snapshot-fetch{background:none;border:1px solid var(--bd);border-radius:var(--rax);color:var(--t2);width:34px;height:34px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:all .2s;font-family:'JetBrains Mono',monospace}
+.snapshot-fetch:hover{border-color:var(--a);color:var(--a);box-shadow:0 0 10px rgba(56,200,200,.15)}
+.snapshot-info{display:flex;flex-direction:column;gap:1px;min-width:0}
+.snap-label{font-size:10px;font-weight:500;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snap-desc{font-size:8px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snapshot-focus{padding:3px 6px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t0);font-family:'JetBrains Mono',monospace;font-size:9px;outline:none}
+.snapshot-focus:focus{border-color:var(--a)}
+.snapshot-focus::placeholder{color:var(--t2);opacity:.5}
+.snap-status{font-family:'JetBrains Mono',monospace;font-size:8px;text-align:right;color:var(--t2)}
+.snapshot-expand{background:none;border:none;color:var(--t2);cursor:pointer;font-size:9px;padding:0;transition:transform .2s}
+.snapshot-expand.open{transform:rotate(180deg)}
+.snap-summary{grid-column:1/-1;padding:8px;background:var(--bg1);border-top:1px solid var(--bd);border-radius:0 0 var(--rax) var(--rax);font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);line-height:1.6;max-height:150px;overflow-y:auto}
+
+/* WORLD CATEGORIES */
+.world-cat{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);font-size:11px;color:var(--t1)}
+.world-cat .dot{width:6px;height:6px;flex-shrink:0}
+.world-cat .dot.on{background:var(--a);box-shadow:0 0 6px rgba(56,200,200,.4)}
+.world-cat .dot.partial{background:var(--w)}
+
+/* INFO TOOLTIP */
+.info-tip{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;border:1px solid var(--bd);color:var(--t2);font-size:8px;font-weight:600;cursor:help;position:relative;margin-left:4px;flex-shrink:0;font-family:'JetBrains Mono',monospace;vertical-align:middle}
+.info-tip:hover{border-color:var(--a);color:var(--a)}
+.info-tip .tip-text{display:none;position:fixed;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);padding:8px 10px;font-size:10px;font-weight:300;font-family:'Outfit',sans-serif;color:var(--t1);width:240px;line-height:1.6;z-index:300;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+.info-tip:hover .tip-text{display:block}
+
+/* SIMULATION CONFIG */
+.sim-cfg{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;padding:16px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad)}
+.sim-cfg-full{grid-column:1/-1}
+.sim-cfg label{display:block;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--t2);margin-bottom:5px}
+.sim-cfg select,.sim-cfg input[type=number],.sim-cfg input[type=text]{width:100%;padding:6px 8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t0);font-family:'JetBrains Mono',monospace;font-size:11px;outline:none}
+.sim-cfg select:focus,.sim-cfg input:focus{border-color:var(--a)}
+.sim-cfg select option{background:var(--bg0);color:var(--t0)}
+#spArchetypes input,#spArchetypes select,#nsArchetypes input,#nsArchetypes select{background:var(--bg0)!important;border:1px solid var(--bd)!important;border-radius:var(--rax)!important;color:var(--t0)!important;font-family:'JetBrains Mono',monospace!important;outline:none}
+#spArchetypes input:focus,#spArchetypes select:focus,#nsArchetypes input:focus,#nsArchetypes select:focus{border-color:var(--a)!important}
+.mode-toggle{display:flex;border:1px solid var(--bd);border-radius:var(--rax);overflow:hidden}
+.mode-toggle button{flex:1;padding:6px 12px;background:transparent;border:none;color:var(--t2);font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer;transition:all .15s}
+.mode-toggle button.active{background:var(--a);color:var(--bg0)}
+
+/* STAGE TRACKER */
+.stage-tracker{display:flex;align-items:center;gap:0;margin:16px 0;padding:12px 16px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad)}
+.stage-item{display:flex;flex-direction:column;align-items:center;flex:1;position:relative}
+.stage-dot{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--bd);background:transparent;transition:all .3s}
+.stage-dot.active{border-color:var(--w);background:var(--w);box-shadow:0 0 8px rgba(196,174,128,.5);animation:pulse 2s ease infinite}
+.stage-dot.done{border-color:var(--a);background:var(--a);box-shadow:0 0 6px rgba(56,200,200,.4)}
+.stage-dot.failed{border-color:var(--r);background:var(--r)}
+.stage-dot.skipped{border-color:var(--t2);background:var(--t2);opacity:.3}
+.stage-label{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);margin-top:4px;text-align:center;letter-spacing:.3px}
+.stage-line{flex:1;height:1px;background:var(--bd);min-width:8px;margin:0 -2px;align-self:flex-start;margin-top:5px}
+.stage-line.done{background:var(--a)}
+
+/* VALIDATION BAR */
+.val-bar{margin:16px 0;padding:14px 16px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad)}
+.val-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.val-badge{font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 8px;border-radius:2px;font-weight:500;letter-spacing:.5px}
+.val-badge.pass{color:var(--a);border:1px solid rgba(56,200,200,.3);background:rgba(56,200,200,.06)}
+.val-badge.fail{color:var(--r);border:1px solid rgba(192,144,144,.3);background:rgba(192,144,144,.06)}
+.val-row{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-family:'JetBrains Mono',monospace;font-size:10px}
+.val-name{color:var(--t2);min-width:100px}
+.val-track{flex:1;height:6px;background:var(--bg0);border-radius:3px;position:relative;border:1px solid var(--bd)}
+.val-range{position:absolute;height:100%;background:rgba(56,200,200,.12);border-radius:2px}
+.val-marker{position:absolute;width:8px;height:8px;border-radius:50%;top:50%;transform:translate(-50%,-50%);border:1.5px solid var(--a);background:var(--bg0)}
+.val-marker.out{border-color:var(--r)}
+.val-check{color:var(--a);font-size:11px}.val-cross{color:var(--r);font-size:11px}
+
+/* TENDENCY CARDS */
+.tendency-card{margin:12px 0;padding:16px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);transition:border-color .2s}
+.tendency-card:hover{border-color:var(--bdl)}
+.tendency-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.tendency-prob{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:600;color:var(--a);min-width:48px}
+.tendency-label{font-size:13px;font-weight:500;letter-spacing:.5px;color:var(--t0);text-transform:uppercase}
+.tendency-prob-bar{flex:1;height:4px;background:var(--bg0);border-radius:2px;overflow:hidden}
+.tendency-prob-fill{height:100%;background:var(--a);border-radius:2px;transition:width .5s}
+.tendency-section{margin-bottom:10px}
+.tendency-section-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.tendency-section-label .ts-icon{font-size:10px}
+.tendency-text{font-size:12px;color:var(--t1);line-height:1.7;font-weight:300}
+.tendency-metrics{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.tendency-metric{font-family:'JetBrains Mono',monospace;font-size:9px;padding:2px 6px;border:1px solid var(--bd);border-radius:2px;color:var(--t2)}
+.tendency-extreme{padding:6px 10px;background:var(--bg2);border-left:2px solid var(--w);border-radius:0 var(--rax) var(--rax) 0;margin:4px 0;font-size:11px;color:var(--t2);line-height:1.6}
+.tendency-trend{display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);padding:2px 0}
+.tendency-trend .trend-icon{color:var(--a)}
+
+/* SCENARIO TREE */
+.tree-wrap{margin:16px 0;padding:14px 16px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad)}
+.tree-title{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+.tree-node{padding:4px 0 4px 20px;border-left:1px solid var(--bd);position:relative;cursor:pointer}
+.tree-node:before{content:'';position:absolute;left:0;top:12px;width:12px;height:1px;background:var(--bd)}
+.tree-node-root{padding-left:0;border-left:none}.tree-node-root:before{display:none}
+.tree-node-head{display:flex;align-items:center;gap:8px;padding:4px 0}
+.tree-node-prob{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;color:var(--a);min-width:36px}
+.tree-node-name{font-size:11px;color:var(--t1)}
+.tree-node-bar{width:60px;height:3px;background:var(--bg0);border-radius:1px;overflow:hidden}
+.tree-node-fill{height:100%;background:var(--a);border-radius:1px}
+.tree-node-metrics{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)}
+.tree-children{overflow:hidden;transition:max-height .3s ease}
+.tree-node.collapsed .tree-children{max-height:0}
+
+/* RESULTS ACTIONS */
+.results-actions{display:flex;gap:8px;margin:16px 0}
+.results-btn{padding:8px 16px;border:1px solid var(--bd);border-radius:var(--rad);background:transparent;color:var(--t1);font-family:'Outfit',sans-serif;font-size:12px;cursor:pointer;transition:all .2s;letter-spacing:.3px}
+.results-btn:hover{border-color:var(--a);color:var(--a)}
+.results-btn.primary{background:var(--a);border-color:var(--a);color:var(--bg0);box-shadow:0 0 18px rgba(56,200,200,.2)}
+.results-btn.primary:hover{box-shadow:0 0 28px rgba(56,200,200,.35)}
+
+@media(max-width:768px){.sb{display:none}.bgt{min-width:130px}.welcome-actions{flex-direction:column}.sim-cfg{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -252,7 +376,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 <aside class="sb">
   <div class="sbh">
     <div class="logo">
-      <div class="logo-ic"><img src="/static/logo.svg" alt="mirakl"></div>
+      <div class="logo-ic">&#9671;</div>
       <span class="logo-tx">dualmirakl</span>
     </div>
     <div class="health-bar">
@@ -271,7 +395,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
   <div class="cl" id="chatList"><div class="cl-lbl">Recent</div></div>
   <div class="sbf">
     <div class="st-grid">
-      <div class="st-row"><span class="st-nm" style="font-size:9px;opacity:.5">Budget <strong id="archBgt" style="color:var(--t1)">6144</strong>t &middot; Win <strong id="archWin" style="color:var(--t1)">6</strong> &middot; Burst <strong id="archBurst" style="color:var(--t1)">7168</strong>t</span></div>
+      <div class="st-row"><span class="st-nm" style="font-size:9px;opacity:.5">Budget <strong id="archBgt" style="color:var(--t1)">65536</strong>t &middot; Win <strong id="archWin" style="color:var(--t1)">6</strong> &middot; Burst <strong id="archBurst" style="color:var(--t1)">7168</strong>t</span></div>
     </div>
   </div>
 </aside>
@@ -284,7 +408,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
       <button class="mode-tab" id="tabSim" onclick="switchMode('sim')">Simulation</button>
       <button class="mode-tab" id="tabSys" onclick="switchMode('sys')">System</button>
     </div>
-    <div class="bgt" id="bgt"><span id="bgtLbl">0 / 6k</span><div class="bgt-tr"><div class="bgt-fl" id="bgtFl" style="width:0%"></div></div><span id="bgtTps">&mdash; t/s</span></div>
+    <div class="bgt" id="bgt"><span id="bgtLbl">0 / 64k</span><div class="bgt-tr"><div class="bgt-fl" id="bgtFl" style="width:0%"></div></div><span id="bgtTps">&mdash; t/s</span></div>
     <div class="tb-r">
       <button class="tb-btn act" id="ragBtn" onclick="toggleRAG()">RAG</button>
       <button class="tb-btn act-q" id="cmpBtn" onclick="toggleAutoCompress()">Compress</button>
@@ -331,57 +455,388 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
   <!-- MODE: SIMULATION -->
   <div class="mode-content" id="simContent" data-mode="sim" style="display:none;flex:1;overflow-y:auto;padding:24px 0">
     <div style="max-width:720px;margin:0 auto;padding:0 24px">
-      <div class="sim-hd" style="border:none;padding:0 0 16px">
-        <h4 style="font-size:16px;font-weight:400;color:var(--t1);letter-spacing:.5px"><span class="sd" id="simDot" style="width:6px;height:6px;border-radius:50%;background:var(--t2);display:inline-block;margin-right:8px"></span>Simulation</h4>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <span class="sd" id="simDot" style="width:6px;height:6px;border-radius:50%;background:var(--t2);display:inline-block"></span>
+        <h4 style="font-size:16px;font-weight:400;color:var(--t1);letter-spacing:.5px">Simulation</h4>
+        <span id="simStatusBadge" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-left:auto">idle</span>
       </div>
-      <!-- Config panel -->
-      <div id="simConfigPanel" style="margin-bottom:16px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-          <div>
-            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Ticks</label>
-            <input type="range" id="simTicks" min="4" max="120" value="24" style="width:100%" oninput="updSimConfig()">
-            <div style="font-size:12px;margin-top:2px"><span id="simTicksVal">24</span> ticks</div>
-          </div>
-          <div>
-            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Tick = simulated time</label>
-            <select id="simTickUnit" style="background:var(--bg2);color:var(--fg);border:1px solid var(--bd);border-radius:4px;padding:4px 8px;width:100%" onchange="updSimConfig()">
-              <option value="1h">1 hour</option>
-              <option value="4h">4 hours</option>
-              <option value="1d">1 day</option>
-              <option value="1w">1 week</option>
+
+      <!-- SIM SUB-TABS -->
+      <div style="display:flex;gap:2px;margin-bottom:12px">
+        <button class="mode-tab active" id="simSubSpecs" onclick="switchSimSub('specs')">Specs</button>
+        <button class="mode-tab" id="simSubWorld" onclick="switchSimSub('world')">World</button>
+      </div>
+
+      <!-- SPECS TAB (existing config) -->
+      <div id="simSpecsPanel">
+      <div class="sim-cfg" id="simCfgPanel">
+        <div>
+          <label>Scenario <span class="info-tip">i<span class="tip-text">The YAML file that defines the simulation domain: agent roles, archetypes, scoring parameters, and outcome criteria. Each scenario is a self-contained experiment configuration.</span></span></label>
+          <div style="display:flex;gap:4px">
+            <select id="simScenario" style="flex:1" onchange="updateTimeEstimate()">
+              <option value="scenarios/social_dynamics.yaml">social-dynamics</option>
+              <option value="scenarios/market_ecosystem.yaml">market-ecosystem</option>
+              <option value="scenarios/network_resilience.yaml">network-resilience</option>
+              <option value="scenarios/minimal.yaml">minimal (test)</option>
             </select>
-          </div>
-          <div>
-            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Participants</label>
-            <input type="range" id="simAgents" min="2" max="16" value="6" style="width:100%" oninput="updSimConfig()">
-            <div style="font-size:12px;margin-top:2px"><span id="simAgentsVal">6</span> agents</div>
-          </div>
-          <div>
-            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Observer every K ticks</label>
-            <input type="range" id="simK" min="1" max="12" value="4" style="width:100%" oninput="updSimConfig()">
-            <div style="font-size:12px;margin-top:2px">K=<span id="simKVal">4</span></div>
-          </div>
-          <div>
-            <label style="font-size:11px;opacity:.5;display:block;margin-bottom:4px">Seeds (runs for probability)</label>
-            <input type="range" id="simSeeds" min="1" max="20" value="1" style="width:100%" oninput="updSimConfig()">
-            <div style="font-size:12px;margin-top:2px"><span id="simSeedsVal">1</span> seed<span id="simSeedsSuffix"></span></div>
+            <button class="results-btn" onclick="openNewScenario()" title="Create new scenario" style="padding:4px 8px;font-size:11px;white-space:nowrap">+ New</button>
           </div>
         </div>
-        <div id="simEstimates" style="font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.06);padding-top:8px">
-          Simulated: 24 hours &middot; Est. runtime: ~3 min
+        <div>
+          <label>Run Mode <span class="info-tip">i<span class="tip-text"><b>Single Run</b> executes one simulation and shows tick-by-tick progress. <b>Pipeline</b> runs an ensemble of N simulations, then analyzes: statistics, dynamics, scenario tree, possibility branches, validation, and generates a full report.</span></span></label>
+          <div class="mode-toggle">
+            <button class="active" id="modeSingle" onclick="setSimMode('single')">Single Run</button>
+            <button id="modePipeline" onclick="setSimMode('pipeline')">Pipeline</button>
+          </div>
+        </div>
+        <div id="pipelineCfg" style="display:none">
+          <label>Ensemble Runs <span class="info-tip">i<span class="tip-text">How many independent simulation runs to execute. More runs = more statistical power. The pipeline monitors convergence (CV) and may stop early if results stabilize. Minimum 3 for scenario tree construction.</span></span></label>
+          <div class="rr"><input type="range" id="simNRuns" min="3" max="500" step="1" value="10" oninput="document.getElementById('simNRunsV').textContent=this.value;updateTimeEstimate()"><span class="rv" id="simNRunsV">10</span></div>
+        </div>
+        <div id="seedCfg" style="display:none">
+          <label>Base Seed <span class="info-tip">i<span class="tip-text">Random seed for reproducibility. Same seed = same results every time. Doesn't add runtime — just controls which random path each run takes.</span></span></label>
+          <input type="number" id="simSeed" value="42">
+        </div>
+        <div id="paramSeedCfg" style="display:none">
+          <label>Parameter Variants <span class="info-tip">i<span class="tip-text">How many different parameter configurations to explore. Each variant slightly shifts key parameters (alpha, kappa, threshold) and runs the full ensemble with those settings. This is the outer loop of a nested ensemble — it separates "we don't know the right parameters" (epistemic uncertainty) from "same parameters, different outcomes" (aleatory uncertainty). 1 = single config. 3 = three configs. Total runs = variants x ensemble runs. More variants = longer runtime but better understanding of which parameters matter.</span></span></label>
+          <div class="rr"><input type="range" id="simParamSeeds" min="1" max="10" step="1" value="1" oninput="document.getElementById('simParamSeedsV').textContent=this.value;updateTimeEstimate()"><span class="rv" id="simParamSeedsV">1</span></div>
+        </div>
+        <!-- INLINE SCENARIO PARAMS (editable) -->
+        <div class="sim-cfg-full" id="scenarioParams" style="margin-top:8px;padding-top:10px;border-top:1px solid var(--bd);overflow:visible">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+            <div>
+              <label style="font-size:8px">Ticks <span class="info-tip">i<span class="tip-text">Simulation steps. Each tick runs the full phase cycle: stimulus, responses, scoring, observers.</span></span></label>
+              <input type="number" id="spTicks" value="12" min="1" max="168" style="width:100%;font-size:10px;padding:4px 6px" onchange="updateTimeEstimate()">
+            </div>
+            <div>
+              <label style="font-size:8px">Agents <span class="info-tip">i<span class="tip-text">Number of LLM participant agents. Each gets a unique persona sampled from the archetype distribution.</span></span></label>
+              <input type="number" id="spAgents" value="4" min="1" max="50" style="width:100%;font-size:10px;padding:4px 6px" onchange="updateTimeEstimate()">
+            </div>
+            <div>
+              <label style="font-size:8px">Alpha <span class="info-tip">i<span class="tip-text">How fast agents react each tick. 0.1 = barely moves, very stable. 0.4 = swings quickly, volatile. Usually the most impactful parameter.</span></span></label>
+              <input type="number" id="spAlpha" value="0.15" step="0.05" min="0.05" max="0.5" style="width:100%;font-size:10px;padding:4px 6px">
+            </div>
+            <div>
+              <label style="font-size:8px">Kappa <span class="info-tip">i<span class="tip-text">Do agents influence each other? 0 = independent. Positive = herd behavior. Negative = contrarian/polarizing.</span></span></label>
+              <input type="number" id="spKappa" value="0.0" step="0.05" min="-0.5" max="0.5" style="width:100%;font-size:10px;padding:4px 6px">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:6px">
+            <div>
+              <label style="font-size:8px">Obs. K <span class="info-tip">i<span class="tip-text">How often the system checks in. K=1 means every tick (tight supervision). K=4 means every 4th tick (agents run freely between checks).</span></span></label>
+              <input type="number" id="spK" value="4" min="1" max="24" style="width:100%;font-size:10px;padding:4px 6px">
+            </div>
+            <div>
+              <label style="font-size:8px">Mode <span class="info-tip">i<span class="tip-text">EMA: scores drift steadily — easy to reverse. Logistic: scores near 0 or 1 become sticky — creates lock-in at extremes.</span></span></label>
+              <select id="spScoreMode" style="width:100%;font-size:10px;padding:4px 6px"><option value="ema">ema</option><option value="logistic">logistic</option></select>
+            </div>
+            <div>
+              <label style="font-size:8px">Dampen <span class="info-tip">i<span class="tip-text">How much interventions slow things down. 1.0 = interventions have no braking effect. 0.3 = interventions cut score changes by 70%. Only active when observers trigger an intervention.</span></span></label>
+              <input type="number" id="spDampen" value="1.0" step="0.1" min="0.3" max="1.0" style="width:100%;font-size:10px;padding:4px 6px">
+            </div>
+            <div>
+              <label style="font-size:8px">Threshold <span class="info-tip">i<span class="tip-text">The warning line. Agents whose score goes above this get flagged for escalation. Also triggers archetype transitions (e.g., a moderate agent becoming high-susceptibility after staying above threshold for 3 ticks).</span></span></label>
+              <input type="number" id="spThreshold" value="0.7" step="0.05" min="0.3" max="0.95" style="width:100%;font-size:10px;padding:4px 6px">
+            </div>
+            <div>
+              <label style="font-size:8px">Tick = <span class="info-tip">i<span class="tip-text">What one tick represents in real time. This changes how agents behave: an hour-tick produces quick reactions with little reflection. A month-tick produces considered responses that account for time passing, habit formation, and accumulated experience. Longer time units also give agents more context to respond to — producing richer behavioral signals but slower ticks.</span></span></label>
+              <select id="spTickUnit" style="width:100%;font-size:10px;padding:4px 6px" onchange="updateTimeEstimate()">
+                <option value="hour">hour</option>
+                <option value="week" selected>week</option>
+                <option value="month">month</option>
+                <option value="year">year</option>
+              </select>
+            </div>
+          </div>
+          <!-- INLINE ARCHETYPES -->
+          <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)">
+            <label style="font-size:8px">Archetypes <span class="info-tip">i<span class="tip-text">The personality mix of your simulated population. Each agent gets assigned one archetype at the start. Susceptibility = how easily they get pulled in. Resilience = how well they bounce back. The percentages control how many agents of each type are in the group (must add to 100%).</span></span></label>
+            <div id="spArchetypes" style="margin-top:4px">
+              <div style="display:grid;grid-template-columns:40px 1fr 42px 42px 40px 20px;gap:4px;font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);padding:0 1px;margin-bottom:2px">
+                <span>ID</span><span>Label</span><span>Susc</span><span>Res</span><span>%</span><span></span>
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:4px;align-items:center">
+              <button class="mac" onclick="addSpArchetype()">+ add</button>
+              <span id="spArchSum" style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);margin-left:auto">100%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sim-cfg-full" id="timeEstimate" style="margin-top:8px;display:flex;align-items:center;gap:10px">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);flex:1">
+            <span style="opacity:.5">est.</span> <span id="simTimeEst">~24s</span>
+            <span style="opacity:.4;margin-left:8px" id="simTimeDetail">(12 ticks x 4 agents x ~0.5s/call)</span>
+          </div>
+          <button class="results-btn" id="calibrateBtn" onclick="runCalibration()" style="padding:3px 10px;font-size:9px;font-family:'JetBrains Mono',monospace" title="Run a micro-sim to measure real vLLM latency and calibrate time estimates">calibrate</button>
         </div>
       </div>
-      <div class="sim-progress" id="simProgressWrap" style="display:none">
-        <div class="sim-pbar-bg"><div class="sim-pbar-fill" id="simPbarFill" style="width:0%"></div></div>
-        <span class="sim-pct" id="simPct">0%</span>
+      </div><!-- /simSpecsPanel -->
+
+      <!-- WORLD TAB -->
+      <div id="simWorldPanel" style="display:none">
+        <div class="sim-cfg" style="display:flex;flex-direction:column;gap:14px">
+
+          <!-- Context Categories Status -->
+          <div>
+            <label>Context Categories <span class="info-tip">i<span class="tip-text">The simulation needs domain knowledge to produce meaningful results. Upload documents to fill these categories. Without them, agents interact in a vacuum and results are generic.</span></span></label>
+            <div id="worldContextStatus" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+              <div class="world-cat" data-cat="scenario_description">
+                <span class="dot off" id="wcDotScenario"></span>
+                <span style="flex:1">What is this about <span class="info-tip">i<span class="tip-text">Describe the real-world situation you're simulating in plain language. Example: "A group of young adults is exposed to increasingly persuasive social media content over 12 weeks. We want to understand who gets drawn in, who resists, and whether the group splits or stays together." Without this, the simulated people interact in a void — their conversations are generic and meaningless.</span></span></span>
+                <span class="world-cat-status" id="wcStatusScenario" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">missing</span>
+              </div>
+              <div class="world-cat" data-cat="population_characteristics">
+                <span class="dot off" id="wcDotPopulation"></span>
+                <span style="flex:1">Who are the people <span class="info-tip">i<span class="tip-text">Describe the group being simulated. What makes them different from each other? Example: "25% are highly engaged and struggle to step back, 50% have normal usage, 25% are disciplined and set clear limits. Younger participants (16-20) tend to be more easily drawn in." Without this, the personality types are just random — not grounded in any real population.</span></span></span>
+                <span class="world-cat-status" id="wcStatusPopulation" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">missing</span>
+              </div>
+              <div class="world-cat" data-cat="outcome_criteria">
+                <span class="dot off" id="wcDotOutcome"></span>
+                <span style="flex:1">What would surprise you <span class="info-tip">i<span class="tip-text">Not "what should happen" but "what would make you doubt the simulation." Think in two layers:<br><br><b>Structural</b> (checked automatically): Does the group split into distinct behavioral patterns? Do individual outliers exist? Do interventions actually change anything? Is the system predictably unstable or just random noise?<br><br><b>Surprise bounds</b> (you define): "I'd be surprised if nobody at all crossed into problematic territory" or "I'd be surprised if the entire group ended up in the same place." These aren't targets — they're sanity checks. The sim is free to produce unexpected results, but flags anything outside what you'd consider remotely plausible.</span></span></span>
+                <span class="world-cat-status" id="wcStatusOutcome" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">missing</span>
+              </div>
+              <div class="world-cat" data-cat="intervention_rules">
+                <span class="dot off" id="wcDotIntervention"></span>
+                <span style="flex:1">What help exists <span class="info-tip">i<span class="tip-text">When things go wrong in the real world, what can be done? Example: "If someone shows signs of compulsive use for 3 weeks straight, offer a reflection prompt. If someone approaches a critical threshold, flag it. No more than 2 interventions per observation cycle — too many backfire." Without this, the simulation uses generic intervention types that may not match how your domain actually works.</span></span></span>
+                <span class="world-cat-status" id="wcStatusIntervention" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">optional</span>
+              </div>
+              <div class="world-cat" data-cat="temporal_structure">
+                <span class="dot off" id="wcDotTemporal"></span>
+                <span style="flex:1">How time passes <span class="info-tip">i<span class="tip-text">What does one step in the simulation represent in real time? Are there phases or turning points? Example: "Each step is one week. Weeks 1-4 are a baseline period. Weeks 5-8 introduce the main challenge. Weeks 9-12 measure whether people recovered or got stuck." Without this, time is just abstract steps — the simulation can't distinguish an early-phase reaction from a late-stage pattern.</span></span></span>
+                <span class="world-cat-status" id="wcStatusTemporal" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">optional</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Uploaded Documents -->
+          <div>
+            <label>World Documents <span class="info-tip">i<span class="tip-text">Documents uploaded here become the simulation's knowledge base. The environment agent uses them to generate realistic stimuli. The ontology generator can extract archetypes and population parameters from them.</span></span></label>
+            <div id="worldDocs" style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">
+              <span style="opacity:.5">No documents uploaded yet</span>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+              <button class="upload-btn" onclick="document.getElementById('worldFileIn').click()">&#9965; Upload Document</button>
+              <input type="file" id="worldFileIn" accept=".pdf,.txt,.md,.csv" style="display:none" onchange="handleWorldFile(event)">
+              <button class="results-btn" id="extractBtn" onclick="extractOntology()" style="display:none;font-size:10px;padding:4px 10px">Extract Archetypes</button>
+              <button class="mac" onclick="openWorldInsight()" id="insightBtn" style="display:none">insight</button>
+              <button class="mac" onclick="clearAllWorldData()" style="margin-left:auto;color:var(--r);border-color:var(--r)">clear all</button>
+            </div>
+
+            <!-- INSIGHT PANEL -->
+            <div id="worldInsightPanel" style="display:none;margin-top:10px;padding:12px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rax);max-height:400px;overflow-y:auto">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--a);text-transform:uppercase;letter-spacing:1px">World Knowledge Insight</span>
+                <button onclick="document.getElementById('worldInsightPanel').style.display='none'" style="background:none;border:none;color:var(--t2);cursor:pointer;font-size:14px">&times;</button>
+              </div>
+              <div id="worldInsightContent" style="font-size:11px;color:var(--t1);line-height:1.7"></div>
+            </div>
+          </div>
+
+          <!-- Extracted Ontology Preview -->
+          <div id="worldOntology" style="display:none">
+            <label>Extracted from Documents <span class="info-tip">i<span class="tip-text">The ontology generator used the authority LLM to analyze your documents and suggest archetypes, population distributions, and scenario parameters. Review and apply to your Specs config.</span></span></label>
+            <div id="ontologyPreview" style="margin-top:6px;padding:10px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t1);line-height:1.7;max-height:200px;overflow-y:auto"></div>
+            <button class="results-btn" onclick="applyOntology()" style="margin-top:6px;font-size:10px;padding:4px 10px">Apply to Specs</button>
+          </div>
+
+          <!-- World Stats / Notes -->
+          <div>
+            <label>World Context Notes <span class="info-tip">i<span class="tip-text">Write anything the simulation should know about the world: domain background, constraints, population details, expected behaviors, real-world observations. This text is injected into the environment agent's context alongside uploaded documents.</span></span></label>
+            <textarea id="worldNotes" rows="4" style="width:100%;margin-top:6px;padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t0);font-family:'Outfit',sans-serif;font-size:12px;font-weight:300;resize:vertical;outline:none;line-height:1.6" placeholder="e.g. 'This simulates a cohort of 18-25 year olds in an urban setting. Baseline engagement is moderate. The intervention window is 6 months. Expected polarization around week 8-10...'"></textarea>
+            <div style="display:flex;gap:6px;margin-top:4px;align-items:center">
+              <button class="mac" onclick="saveWorldNotes()">save</button>
+              <span id="worldNotesSaved" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--a);display:none">saved</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-left:auto" id="worldNotesLen">0 chars</span>
+            </div>
+          </div>
+
+          <!-- World Snapshot Feeds -->
+          <div>
+            <label>World Snapshots <span class="info-tip">i<span class="tip-text">Pull real-time data from free public APIs to ground your simulation in the actual world. Each topic fetches relevant news and events. Use the focus field to narrow the search to your specific domain. Click the summary after fetching to see what was found.</span></span></label>
+            <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px" id="snapshotList">
+
+              <div class="snapshot-row" data-topic="social">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('social')">S</button>
+                <div class="snapshot-info"><span class="snap-label">Social &amp; Culture</span><span class="snap-desc">Trends, public opinion, social media</span></div>
+                <input type="text" class="snapshot-focus" id="focusSocial" placeholder="focus: e.g. 'youth social media'" title="Narrow the search to a specific angle">
+                <span class="snap-status" id="snapSocial"></span>
+                <button class="snapshot-expand" id="expandSocial" onclick="toggleSnapSummary('social')" style="display:none" title="Show summary">&#9660;</button>
+                <div class="snap-summary" id="summarySocial" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="health">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('health')">H</button>
+                <div class="snapshot-info"><span class="snap-label">Health &amp; Psychology</span><span class="snap-desc">Mental health, addiction, wellbeing</span></div>
+                <input type="text" class="snapshot-focus" id="focusHealth" placeholder="focus: e.g. 'gaming disorder'" title="Narrow the search">
+                <span class="snap-status" id="snapHealth"></span>
+                <button class="snapshot-expand" id="expandHealth" onclick="toggleSnapSummary('health')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryHealth" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="tech">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('tech')">T</button>
+                <div class="snapshot-info"><span class="snap-label">Technology &amp; Digital</span><span class="snap-desc">Platforms, AI, regulation, online behavior</span></div>
+                <input type="text" class="snapshot-focus" id="focusTech" placeholder="focus: e.g. 'algorithm regulation'" title="Narrow the search">
+                <span class="snap-status" id="snapTech"></span>
+                <button class="snapshot-expand" id="expandTech" onclick="toggleSnapSummary('tech')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryTech" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="economy">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('economy')">E</button>
+                <div class="snapshot-info"><span class="snap-label">Economy &amp; Markets</span><span class="snap-desc">Finance, employment, consumer behavior</span></div>
+                <input type="text" class="snapshot-focus" id="focusEconomy" placeholder="focus: e.g. 'gig economy'" title="Narrow the search">
+                <span class="snap-status" id="snapEconomy"></span>
+                <button class="snapshot-expand" id="expandEconomy" onclick="toggleSnapSummary('economy')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryEconomy" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="politics">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('politics')">P</button>
+                <div class="snapshot-info"><span class="snap-label">Politics &amp; Governance</span><span class="snap-desc">Policy, regulation, institutional trust</span></div>
+                <input type="text" class="snapshot-focus" id="focusPolitics" placeholder="focus: e.g. 'EU digital policy'" title="Narrow the search">
+                <span class="snap-status" id="snapPolitics"></span>
+                <button class="snapshot-expand" id="expandPolitics" onclick="toggleSnapSummary('politics')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryPolitics" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="environment">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('environment')">C</button>
+                <div class="snapshot-info"><span class="snap-label">Environment &amp; Climate</span><span class="snap-desc">Climate events, sustainability, resource pressure</span></div>
+                <input type="text" class="snapshot-focus" id="focusEnvironment" placeholder="focus: e.g. 'water scarcity'" title="Narrow the search">
+                <span class="snap-status" id="snapEnvironment"></span>
+                <button class="snapshot-expand" id="expandEnvironment" onclick="toggleSnapSummary('environment')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryEnvironment" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="demographics">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('demographics')">D</button>
+                <div class="snapshot-info"><span class="snap-label">Demographics</span><span class="snap-desc">Population, age groups, migration, urbanization</span></div>
+                <input type="text" class="snapshot-focus" id="focusDemographics" placeholder="focus: e.g. 'gen-z europe'" title="Narrow the search">
+                <span class="snap-status" id="snapDemographics"></span>
+                <button class="snapshot-expand" id="expandDemographics" onclick="toggleSnapSummary('demographics')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryDemographics" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="research">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('research')">R</button>
+                <div class="snapshot-info"><span class="snap-label">Academic Research</span><span class="snap-desc">Recent papers, citations, findings</span></div>
+                <input type="text" class="snapshot-focus" id="focusResearch" placeholder="focus: e.g. 'persuasive design'" title="Narrow the search">
+                <span class="snap-status" id="snapResearch"></span>
+                <button class="snapshot-expand" id="expandResearch" onclick="toggleSnapSummary('research')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryResearch" style="display:none"></div>
+              </div>
+
+            </div>
+            <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)">
+              <div style="display:flex;gap:6px;align-items:center">
+                <button class="results-btn" onclick="runSnapshotCollector()" style="padding:6px 14px;font-size:11px">Collect World Snapshot</button>
+                <button class="mac" onclick="fetchAllSnapshots()">fetch individual</button>
+                <span id="snapProgress" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-left:auto"></span>
+              </div>
+              <div class="sn" style="margin-top:4px">Collector pulls from GDELT (events + sentiment + trends), World Bank (demographics + economics), and OpenAlex (research) in one pass. Optional: add a NewsData.io API key below for richer news coverage.</div>
+              <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+                <input type="text" id="newsDataKey" placeholder="NewsData.io API key (optional, free at newsdata.io)" style="flex:1;padding:4px 6px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t0);font-family:'JetBrains Mono',monospace;font-size:9px;outline:none">
+              </div>
+            </div>
+            <!-- Collector Digest -->
+            <div id="collectorDigest" style="display:none;margin-top:10px;padding:12px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rax)">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1px">World Snapshot Digest</span>
+                <span id="collectorTs" style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2)"></span>
+              </div>
+              <div id="collectorBullets" style="font-size:11px;color:var(--t1);line-height:1.8"></div>
+              <div id="collectorStats" style="display:flex;gap:12px;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd);font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)"></div>
+            </div>
+          </div>
+
+          <!-- World Stats Summary -->
+          <div>
+            <label>World State <span class="info-tip">i<span class="tip-text">Live summary of what the simulation knows. Documents, embedded chunks, knowledge graph entities, and past run data all contribute to richer, more grounded simulation outputs.</span></span></label>
+            <div id="worldStats" style="margin-top:6px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <div style="padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax)">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Documents</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--t1)" id="wsDocCount">0</div>
+              </div>
+              <div style="padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax)">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Chunks</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--t1)" id="wsChunkCount">0</div>
+              </div>
+              <div style="padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax)">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Graph Entities</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--t1)" id="wsEntityCount">0</div>
+              </div>
+              <div style="padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax)">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Past Runs</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--t1)" id="wsRunCount">0</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div><!-- /simWorldPanel -->
+
+      <!-- PROGRESS: SINGLE RUN -->
+      <div id="simSingleProgress" style="display:none">
+        <div class="sim-progress" id="simProgressWrap">
+          <div class="sim-pbar-bg"><div class="sim-pbar-fill" id="simPbarFill" style="width:0%"></div></div>
+          <span class="sim-pct" id="simPct">0%</span>
+        </div>
+        <div class="sim-row"><span class="sim-lbl">Tick</span><span class="sim-val" id="simTick">&mdash;</span></div>
+        <div class="sim-scores" id="simScores"></div>
+        <div class="sim-events" id="simEvents"></div>
       </div>
-      <div class="sim-row"><span class="sim-lbl">Status</span><span class="sim-val idle" id="simStatus">idle</span></div>
-      <div class="sim-row"><span class="sim-lbl">Tick</span><span class="sim-val" id="simTick">&mdash;</span></div>
-      <div class="sim-scores" id="simScores"></div>
-      <div class="sim-events" id="simEvents"></div>
-      <div class="sim-row"><span class="sim-lbl">Last run</span><span class="sim-val" id="simLastRun">&mdash;</span></div>
-      <a class="sim-link" id="simResultLink" onclick="viewSimResults()">View results &rarr;</a>
-      <button class="sim-start" id="simStartBtn" onclick="startSimulation()">Start Simulation</button>
+
+      <!-- PROGRESS: PIPELINE STAGES -->
+      <div id="simPipelineProgress" style="display:none">
+        <div class="stage-tracker" id="stageTracker">
+          <div class="stage-item" title="Run N simulations with convergence monitoring"><div class="stage-dot" id="stgEnsemble"></div><div class="stage-label">ensemble</div></div>
+          <div class="stage-line"></div>
+          <div class="stage-item" title="Polarization, stance drift, opinion clusters, bootstrap CI"><div class="stage-dot" id="stgStatistics"></div><div class="stage-label">stats</div></div>
+          <div class="stage-line"></div>
+          <div class="stage-item" title="Lyapunov exponents, attractors, transfer entropy, emergence"><div class="stage-dot" id="stgDynamics"></div><div class="stage-label">dynamics</div></div>
+          <div class="stage-line"></div>
+          <div class="stage-item" title="Ward clustering of trajectories into probability-weighted branches"><div class="stage-dot" id="stgScenario_tree"></div><div class="stage-label">tree</div></div>
+          <div class="stage-line"></div>
+          <div class="stage-item" title="Cause-effect-consequence tendency cards with extreme tracking"><div class="stage-dot" id="stgPossibility_branches"></div><div class="stage-label">branches</div></div>
+          <div class="stage-line"></div>
+          <div class="stage-item" title="Score ensemble against outcome criteria (CRPS, range checks)"><div class="stage-dot" id="stgValidation"></div><div class="stage-label">validate</div></div>
+          <div class="stage-line"></div>
+          <div class="stage-item" title="Generate HTML report with Plotly charts"><div class="stage-dot" id="stgReport"></div><div class="stage-label">report</div></div>
+        </div>
+        <div class="sim-row"><span class="sim-lbl">Status</span><span class="sim-val" id="pipeStatus">starting...</span></div>
+      </div>
+
+      <!-- RESULTS -->
+      <div id="simResults" style="display:none">
+        <!-- Validation -->
+        <div class="val-bar" id="valBar" style="display:none"></div>
+
+        <!-- Tendency Cards -->
+        <div id="tendencyCards"></div>
+
+        <!-- Scenario Tree -->
+        <div class="tree-wrap" id="treeWrap" style="display:none">
+          <div class="tree-title">Scenario Tree</div>
+          <div id="treeContainer"></div>
+        </div>
+
+        <!-- Actions -->
+        <div class="results-actions">
+          <button class="results-btn primary" onclick="viewFullReport()">View Full Report</button>
+          <button class="results-btn" onclick="viewSimResults()">View in Chat</button>
+        </div>
+      </div>
+
+      <!-- SUGGESTIONS -->
+      <div id="suggestionsPanel" style="display:none"></div>
+
+      <!-- ACTIONS -->
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="sim-start" id="simStartBtn" onclick="handleSimStart()" style="flex:1">Start Simulation</button>
+        <button class="results-btn" onclick="getSuggestions()" id="suggestBtn" style="padding:10px 16px;font-size:12px" title="Ask the authority LLM to review your config against world data">Suggest</button>
+      </div>
     </div>
   </div>
 
@@ -389,19 +844,100 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
   <div class="mode-content" id="sysContent" data-mode="sys" style="display:none;flex:1;overflow-y:auto;padding:24px 0">
     <div style="max-width:720px;margin:0 auto;padding:0 24px">
       <h4 style="font-size:16px;font-weight:400;color:var(--t1);letter-spacing:.5px;margin-bottom:24px">System</h4>
-      <div class="arch" style="max-width:100%;margin-bottom:24px">
-        <div class="arch-t">pipeline</div>
-        <div class="arch-fl">
-          <div class="arch-r"><div class="arch-n ne">e5-small-v2 :9000</div><span class="arch-ar">&rarr;</span><div class="arch-d">embed &rarr; cosine search &rarr; top-k</div></div>
-          <div class="arch-r"><div class="arch-n nq">Swarm :8001</div><span class="arch-ar">&rarr;</span><div class="arch-d">compress old turns &rarr; memory</div></div>
-          <div class="arch-r"><div class="arch-n nc">Authority :8000</div><span class="arch-ar">&rarr;</span><div class="arch-d">sys + memory + rag + window</div></div>
+
+      <!-- LIVE STATUS -->
+      <div class="arch" style="max-width:100%;margin-bottom:16px">
+        <div class="arch-t">services</div>
+        <div class="arch-fl" id="sysServices">
+          <div class="arch-r"><div class="arch-n nc"><span class="dot off" id="sysAuth" style="margin-right:4px"></span>Authority :8000</div><span class="arch-ar">&rarr;</span><div class="arch-d" id="sysAuthModel">environment + observers</div></div>
+          <div class="arch-r"><div class="arch-n nq"><span class="dot off" id="sysSwarm" style="margin-right:4px"></span>Swarm :8001</div><span class="arch-ar">&rarr;</span><div class="arch-d" id="sysSwarmModel">participants</div></div>
+          <div class="arch-r"><div class="arch-n ne"><span class="dot off" id="sysEmbed" style="margin-right:4px"></span>e5-small-v2 :9000</div><span class="arch-ar">&rarr;</span><div class="arch-d">embed + cosine search + top-k</div></div>
         </div>
       </div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);padding:12px;background:var(--bg2);border-radius:var(--rad);line-height:1.8">
-        <span style="color:var(--a)">ctx</span> = sys + memory + rag_chunks + msgs[-win:]<br>
-        <span style="color:var(--a)">flex</span> = base | query&gt;200t &rarr; scale up | cap &rarr; model_ctx - output<br>
-        <span style="color:var(--a)">burst</span> &rarr; re-embed(window) &rarr; compress next turn
+
+      <!-- GPU TELEMETRY -->
+      <div class="arch" style="max-width:100%;margin-bottom:16px">
+        <div class="arch-t">gpu telemetry</div>
+        <div id="sysGpuStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);line-height:2">
+          <span style="color:var(--t2);opacity:.5">polling...</span>
+        </div>
       </div>
+
+      <!-- PIPELINE -->
+      <div class="arch" style="max-width:100%">
+        <div class="arch-t">context pipeline</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);padding:4px 0;line-height:1.8">
+          <span style="color:var(--a)">ctx</span> = sys + memory + rag_chunks + msgs[-win:]<br>
+          <span style="color:var(--a)">flex</span> = base | query&gt;200t &rarr; scale up | cap &rarr; model_ctx - output<br>
+          <span style="color:var(--a)">burst</span> &rarr; re-embed(window) &rarr; compress next turn
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEW SCENARIO MODAL -->
+  <div id="newScenarioModal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center">
+    <div style="background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);width:520px;max-height:80vh;overflow-y:auto;padding:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+        <h4 style="font-size:14px;font-weight:400;color:var(--t1)">New Scenario</h4>
+        <button onclick="closeNewScenario()" style="background:none;border:none;color:var(--t2);font-size:18px;cursor:pointer">&times;</button>
+      </div>
+      <div class="sg"><label>Scenario Name</label><input type="text" id="nsName" placeholder="my-scenario"></div>
+      <div class="sg"><label>Description</label><textarea id="nsDesc" rows="2" placeholder="What is being simulated and why"></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="sg"><label>Participants <span class="info-tip">i<span class="tip-text">Number of LLM-driven agents in the simulation. Each gets a unique persona with sampled susceptibility and resilience. More agents = richer dynamics but slower runs.</span></span></label><input type="number" id="nsParticipants" value="4" min="1" max="50"></div>
+        <div class="sg"><label>Ticks <span class="info-tip">i<span class="tip-text">Number of simulation steps. Each tick: environment generates a stimulus, all participants respond, scores update, observers analyse (every K ticks). More ticks = longer trajectories.</span></span></label><input type="number" id="nsTicks" value="12" min="1" max="168"></div>
+        <div class="sg"><label>Score Mode <span class="info-tip">i<span class="tip-text"><b>EMA</b>: Scores change steadily toward the signal. A score of 0.3 receiving a high signal moves smoothly upward. Easy to predict, easy to reverse. Good default. <b>Logistic</b>: Same as EMA but scores near 0 or 1 become "sticky" — hard to push away from extremes. An agent at 0.85 resists dropping, an agent at 0.15 resists rising. Creates lock-in effects and makes polarization harder to undo.</span></span></label><select id="nsScoreMode"><option value="ema">EMA</option><option value="logistic">Logistic</option></select></div>
+        <div class="sg"><label>Observer K <span class="info-tip">i<span class="tip-text">Observer frequency: observers analyse the simulation every K ticks. K=1 means every tick (high intervention pressure). K=4 means every 4th tick (more autonomy for agents between checks).</span></span></label><input type="number" id="nsK" value="4" min="1" max="24"></div>
+        <div class="sg"><label>Alpha <span class="info-tip">i<span class="tip-text">How fast agents react. Low (0.1) = agents barely budge each tick, stable and slow-moving. High (0.4) = agents swing quickly in response to each stimulus, volatile and reactive. This is usually the single most important parameter.</span></span></label><input type="number" id="nsAlpha" value="0.15" step="0.05" min="0.05" max="0.5"></div>
+        <div class="sg"><label>Coupling <span class="info-tip">i<span class="tip-text">Do agents influence each other? 0 = everyone acts independently. Positive = herd behavior (agents drift toward the group average). Negative = contrarian dynamics (agents push away from the group average, creating polarization).</span></span></label><input type="number" id="nsKappa" value="0.0" step="0.05" min="-0.5" max="0.5"></div>
+      </div>
+      <div class="sg" style="margin-top:12px">
+        <label>Archetypes <span class="info-tip">i<span class="tip-text">Agent personality templates. Each archetype defines susceptibility (how easily agents are influenced) and resilience (how well they resist change). Distribution = what fraction of agents get each type.</span></span></label>
+        <div id="nsArchetypes" style="display:flex;flex-direction:column;gap:6px">
+          <div class="arch-row" style="display:grid;grid-template-columns:60px 1fr 50px 50px 50px;gap:6px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);padding:0 2px">
+            <span>ID</span><span>Label</span><span>Susc.</span><span>Resil.</span><span>Dist %</span>
+          </div>
+          <div class="arch-row" style="display:grid;grid-template-columns:60px 1fr 50px 50px 50px;gap:6px">
+            <input type="text" class="ns-arch-id" value="K1" style="font-size:9px;padding:3px 4px">
+            <input type="text" class="ns-arch-label" value="High-susceptibility" style="font-size:9px;padding:3px 4px">
+            <select class="ns-arch-susc" style="font-size:9px;padding:3px 2px"><option value="high" selected>high</option><option value="medium">med</option><option value="low">low</option></select>
+            <select class="ns-arch-res" style="font-size:9px;padding:3px 2px"><option value="low" selected>low</option><option value="medium">med</option><option value="high">high</option></select>
+            <input type="number" class="ns-arch-pct" value="25" min="0" max="100" step="5" style="font-size:9px;padding:3px 4px">
+          </div>
+          <div class="arch-row" style="display:grid;grid-template-columns:60px 1fr 50px 50px 50px;gap:6px">
+            <input type="text" class="ns-arch-id" value="K2" style="font-size:9px;padding:3px 4px">
+            <input type="text" class="ns-arch-label" value="Moderate" style="font-size:9px;padding:3px 4px">
+            <select class="ns-arch-susc" style="font-size:9px;padding:3px 2px"><option value="high">high</option><option value="medium" selected>med</option><option value="low">low</option></select>
+            <select class="ns-arch-res" style="font-size:9px;padding:3px 2px"><option value="low">low</option><option value="medium" selected>med</option><option value="high">high</option></select>
+            <input type="number" class="ns-arch-pct" value="50" min="0" max="100" step="5" style="font-size:9px;padding:3px 4px">
+          </div>
+          <div class="arch-row" style="display:grid;grid-template-columns:60px 1fr 50px 50px 50px;gap:6px">
+            <input type="text" class="ns-arch-id" value="K3" style="font-size:9px;padding:3px 4px">
+            <input type="text" class="ns-arch-label" value="Resilient" style="font-size:9px;padding:3px 4px">
+            <select class="ns-arch-susc" style="font-size:9px;padding:3px 2px"><option value="high">high</option><option value="medium">med</option><option value="low" selected>low</option></select>
+            <select class="ns-arch-res" style="font-size:9px;padding:3px 2px"><option value="low">low</option><option value="medium">med</option><option value="high" selected>high</option></select>
+            <input type="number" class="ns-arch-pct" value="25" min="0" max="100" step="5" style="font-size:9px;padding:3px 4px">
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button class="mac" onclick="addArchetypeRow()">+ add archetype</button>
+          <span id="nsArchSum" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-left:auto">sum: 100%</span>
+        </div>
+      </div>
+      <div class="sg" style="margin-top:12px">
+        <label>Outcome Criteria <span class="info-tip">i<span class="tip-text">Optional validation targets. After the pipeline runs, it checks whether the ensemble median falls within the plausible range you define here. Used for CRPS scoring and pass/fail validation.</span></span></label>
+        <div style="display:grid;grid-template-columns:1fr auto auto;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10px">
+          <input type="text" id="nsOcMetric" placeholder="mean_score" style="font-size:10px;padding:4px 6px">
+          <input type="number" id="nsOcLow" placeholder="low" style="width:60px;font-size:10px;padding:4px 6px" step="0.05">
+          <input type="number" id="nsOcHigh" placeholder="high" style="width:60px;font-size:10px;padding:4px 6px" step="0.05">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:18px">
+        <button class="results-btn primary" onclick="createScenario()" style="flex:1">Create Scenario</button>
+        <button class="results-btn" onclick="closeNewScenario()">Cancel</button>
+      </div>
+      <div id="nsResult" style="display:none;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:10px"></div>
     </div>
   </div>
 
@@ -418,7 +954,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
         <div class="ib">
           <span class="chip act" id="streamChip" onclick="toggleStream(this)">stream</span>
           <span class="chip act" id="tempChip">t:0.7</span>
-          <span class="chip" id="ctxChip">ctx:6k</span>
+          <span class="chip" id="ctxChip">ctx:64k</span>
           <span class="upload-btn" id="uploadChip" onclick="document.getElementById('fileIn').click()" title="Upload PDF/TXT/MD">&#9965; Upload</span>
           <input type="file" id="fileIn" accept=".pdf,.txt,.md" style="display:none" onchange="handleFile(event)">
           <span class="ih">Enter send &middot; Shift+Enter newline</span>
@@ -470,8 +1006,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
       <div class="ss-t"><span class="sd sd-a"></span> Context Engine</div>
       <div class="sg">
         <label>Context Budget</label>
-        <div class="rr"><input type="range" id="sCtx" min="1024" max="8192" step="512" value="6144" oninput="updCtx()"><span class="rv" id="sCtxV">6144</span></div>
-        <div class="sn">Default 6k &middot; flex up to model_ctx - output for long inputs</div>
+        <div class="rr"><input type="range" id="sCtx" min="4096" max="65536" step="4096" value="65536" oninput="updCtx()"><span class="rv" id="sCtxV">65536</span></div>
+        <div class="sn">Default 64k &middot; flex up to model_ctx - output for long inputs</div>
       </div>
       <div class="sg">
         <label>Sliding Window</label>
@@ -485,7 +1021,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
       <div class="sg"><label>Max Output Tokens</label><input type="number" id="sMaxTok" value="1024"></div>
       <div class="sg">
         <label>Model Context Length</label>
-        <input type="number" id="sModelCtx" value="8192">
+        <input type="number" id="sModelCtx" value="65536">
         <div class="sn">MAX_MODEL_LEN of your vLLM backend. Burst will never exceed this.</div>
       </div>
       <div class="sg"><label>System Prompt</label><textarea id="sSys">You are DualMirakl, a multi-agent simulation assistant running on dual Blackwell GPUs. You power a SimPy-based stratified tick loop (phases A-F) with observer agents (authority GPU) and participant agents (swarm GPU). You can discuss simulation design, agent dynamics, scoring models (EMA/logistic), scenario configuration, and help interpret results. Be concise and direct.</textarea></div>
@@ -573,7 +1109,7 @@ function cfg() {
     ragThr: parseFloat(v('sRagThr')),
     ragCh: parseInt(v('sRagCh')),
     chunk: parseInt(v('sChunk')),
-    modelCtx: parseInt(v('sModelCtx') || '8192'),
+    modelCtx: parseInt(v('sModelCtx') || '65536'),
   };
 }
 function v(id) { return document.getElementById(id)?.value; }
@@ -600,8 +1136,7 @@ function scrollBot() { const el=document.getElementById('mc'); requestAnimationF
 function autoResize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,140)+'px'; document.getElementById('sendBtn').disabled=!el.value.trim(); }
 function handleKey(e) { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); if(!S.generating&&document.getElementById('msgIn').value.trim()) sendMessage();} }
 
-const _cbarTxMap={cbarFile:'fileStatusTx',cbarRag:'ragTx',cbarCmp:'cmpTx'};
-function showCbar(id,txt) { const el=document.getElementById(id); if(!el) return; el.classList.add('vis'); if(txt){const tx=document.getElementById(_cbarTxMap[id]||id+'Tx'); if(tx) tx.textContent=txt;} }
+function showCbar(id,txt) { const el=document.getElementById(id); el.classList.add('vis'); if(txt) document.getElementById(id.replace('cbar','')+'Tx').textContent=txt; }
 function hideCbar(id) { document.getElementById(id).classList.remove('vis'); }
 
 // ── CHATS ──
@@ -627,11 +1162,13 @@ async function handleFile(event) {
   bar.classList.add('vis'); tx.textContent=`Reading ${file.name}\u2026`;
   try {
     let text = file.type==='application/pdf' ? await extractPdf(file) : await file.text();
-    const trunc = text.length>120000;
-    text = text.slice(0,120000);
+    const trunc = text.length>150000;
+    text = text.slice(0,150000);
     S.attachedFile = {name:file.name, text};
-    tx.textContent=`Embedding ${file.name}\u2026`;
-    await embedStore(text, S.cid||'global', 'document');
+    tx.textContent=`Embedding ${file.name} (${(text.length/1000).toFixed(0)}k chars)\u2026`;
+    await embedStore(text, S.cid||'global', 'document', (done,total) => {
+      tx.textContent=`Embedding ${file.name} (${done}/${total} chunks)\u2026`;
+    });
     // Also push to server-side document store for simulation world context
     tx.textContent=`Storing for simulation\u2026`;
     try {
@@ -709,12 +1246,9 @@ function clearAttachment() {
 // ── EMBEDDINGS ──
 async function embed(text) {
   try {
-    const batch = Array.isArray(text);
     const r=await fetch(`${url.emb()}/v1/embeddings`,{method:'POST',headers:url.hdrs(),body:JSON.stringify({input:text,model:'e5-small-v2'})});
-    const d=await r.json();
-    if(batch) return d.data?.map(it=>it.embedding)||[];
-    return d.data?.[0]?.embedding||null;
-  } catch { return Array.isArray(text)?[]:null; }
+    const d=await r.json(); return d.data?.[0]?.embedding||null;
+  } catch { return null; }
 }
 function cosine(a,b) {
   if(!a||!b||a.length!==b.length) return 0;
@@ -727,21 +1261,19 @@ function chunkText(t,sz) {
   for(const s of sents){if((cur+s).length>sz&&cur){chunks.push(cur.trim());cur=s;}else cur+=s;}
   if(cur.trim()) chunks.push(cur.trim()); return chunks;
 }
-async function embedStore(text,chatId,role) {
+async function embedStore(text,chatId,role,onProgress) {
   const chunks=chunkText(text,cfg().chunk);
-  if(!chunks.length) return;
-  const vecs=await embed(chunks);
-  const ts=Date.now();
-  for(let i=0;i<chunks.length;i++){if(vecs[i]) S.embeds.push({text:chunks[i],embedding:vecs[i],chatId,role,ts});}
-  if(S.embeds.length>500) S.embeds=S.embeds.slice(-500);
+  for(let i=0;i<chunks.length;i++){
+    const v=await embed(chunks[i]);
+    if(v) S.embeds.push({text:chunks[i],embedding:v,chatId,role,ts:Date.now()});
+    if(onProgress && i%5===0) onProgress(i+1, chunks.length);
+  }
+  if(S.embeds.length>2000) S.embeds=S.embeds.slice(-2000);
   updEmbedCnt();
 }
 async function ragRetrieve(query) {
   if(!S.rag||!S.embeds.length) return [];
-  const c=cfg();
-  // Timeout embed call to prevent UI freeze
-  const qv = await Promise.race([embed(query), new Promise(r=>setTimeout(()=>r(null),5000))]);
-  if(!qv) return [];
+  const c=cfg(), qv=await embed(query); if(!qv) return [];
   const chatId = S.cid;
   return S.embeds
     .filter(it => it.chatId === chatId || it.role === 'document')
@@ -784,7 +1316,7 @@ async function maybeCompress(chat) {
 async function buildCtx(chat,query) {
   const c=cfg(), qt=tok(query);
   const base=c.ctx;
-  const modelMax=c.modelCtx||8192;
+  const modelMax=c.modelCtx||65536;
   const maxInput=modelMax-c.maxTok; // reserve space for output
   const flex=qt>200?Math.min(maxInput,base+Math.ceil((qt-200)/100)*512):base;
   const burst=flex>base;
@@ -822,16 +1354,10 @@ async function buildCtx(chat,query) {
   }
 
   const apiMsgs=[{role:'system',content:sys}];
-  for(const m of winM) {
-    if(m.isHtml) {
-      apiMsgs.push({role:m.role,content:'[Simulation results were displayed to the user. Answer questions about the simulation based on your knowledge of the run.]'});
-    } else {
-      apiMsgs.push({role:m.role,content:m.content});
-    }
-  }
+  for(const m of winM) apiMsgs.push({role:m.role,content:m.content});
 
   const inp=toks-c.maxTok; updBudget(inp,flex,burst);
-  if(burst) Promise.all(winM.map(m=>embedStore(m.content,chat.id,m.role))).catch(()=>{});
+  if(burst) for(const m of winM) embedStore(m.content,chat.id,m.role);
   return {apiMsgs,inp,ragChunks,burst};
 }
 
@@ -841,9 +1367,20 @@ async function sendMessage() {
   if(!text||S.generating) return;
   if(!S.cid) newChat();
   const chat=getChat();
+
+  // ── COMMAND PARSER: intercept before LLM call ──
+  const cmd = parseChatCommand(text);
+  if (cmd) {
+    chat.messages.push({role:'user', content:text, ts:new Date().toISOString()});
+    inp.value=''; autoResize(inp);
+    const result = await executeChatCommand(cmd, text);
+    chat.messages.push({role:'assistant', content:result, ts:new Date().toISOString(), badges:[{t:'bdg-c',l:'cmd'}]});
+    renderMessages(); scrollBot();
+    return;
+  }
   chat.messages.push({role:'user',content:text,ts:new Date().toISOString()});
   inp.value=''; autoResize(inp); document.getElementById('sendBtn').disabled=true;
-  renderMessages(); embedStore(text,chat.id,'user').catch(()=>{});
+  renderMessages(); embedStore(text,chat.id,'user');
   S.generating=true; await maybeCompress(chat);
   const {apiMsgs,inp:inputToks,ragChunks,burst}=await buildCtx(chat,text);
   const ty=document.getElementById('ty'); ty.classList.add('vis'); scrollBot();
@@ -886,7 +1423,7 @@ async function sendMessage() {
     }
     const total=(performance.now()-t0)/1000; if(total>0) S.lastTps=(outToks/total).toFixed(1);
     amsg.badges.push({t:'bdg-t',l:`${inputToks}\u2192${outToks}t`});
-    embedStore(amsg.content,chat.id,'assistant').catch(()=>{});
+    embedStore(amsg.content,chat.id,'assistant');
     if(chat.messages.length<=2&&chat.title==='New Chat') genTitle(chat.messages).then(t=>{chat.title=t;renderChatList();});
     renderMessages();
   } catch(e) {
@@ -940,7 +1477,7 @@ function renderMessages() {
       <div class="msg-av">${isU?'Y':'\u2B21'}</div>
       <div class="msg-ct">
         <div class="msg-hd"><span class="msg-sn">${isU?'You':'Authority'}</span><span class="msg-tm">${fmtT(m.ts)}</span>${cmpBdg}${bdgs}</div>
-        <div class="msg-bd">${m.isHtml?m.content:fmt(m.content)}</div>
+        <div class="msg-bd">${fmt(m.content)}</div>
         ${!isU&&inW?`<div class="msg-ac"><button class="mac" onclick="copyMsg(${i})">Copy</button><button class="mac" onclick="regen()">Regen</button></div>`:''}
       </div></div>`;
   }
@@ -973,7 +1510,7 @@ function toggleSettings(){document.getElementById('sp').classList.toggle('open')
 function updTemp(){const val=document.getElementById('sTemp').value;document.getElementById('sTempV').textContent=val;document.getElementById('tempChip').textContent=`t:${val}`;}
 function v2(id){return document.getElementById(id).value;}
 function updCtx(){const v=v2('sCtx');document.getElementById('sCtxV').textContent=v;document.getElementById('archBgt').textContent=v;document.getElementById('ctxChip').textContent=`ctx:${(v/1024).toFixed(0)}k`;updBurst();}
-function updBurst(){const m=parseInt(v2('sModelCtx')||'8192'),o=parseInt(v2('sMaxTok')||'1024');const b=m-o;const el=document.getElementById('archBurst');if(el) el.textContent=b;}
+function updBurst(){const m=parseInt(v2('sModelCtx')||'65536'),o=parseInt(v2('sMaxTok')||'1024');const b=m-o;const el=document.getElementById('archBurst');if(el) el.textContent=b;}
 function updWin(){const v=v2('sWin');document.getElementById('sWinV').textContent=v;document.getElementById('archWin').textContent=v;}
 function updEmbedCnt(){const el=document.getElementById('embedCnt');if(el) el.textContent=S.embeds.length+' chunks';}
 function clearEmbeds(){S.embeds=[];updEmbedCnt();}
@@ -1035,49 +1572,98 @@ if (_dz) {
   _dz.addEventListener('dragleave', () => _dz.classList.remove('drag-over'));
 }
 
+// ── HEALTH POLLING ──
+
+async function pollHealth() {
+  try {
+    const gwUrl = url.gw();
+    const r = await fetch(`${gwUrl}/health`);
+    const d = await r.json();
+    // Sidebar dots
+    const map = {'e5-small-v2':'Embed','authority':'Auth','swarm':'Swarm'};
+    for (const [svc, status] of Object.entries(d)) {
+      const name = map[svc];
+      if (!name) continue;
+      const dot = document.getElementById('st'+name);
+      if (dot) dot.className = 'dot '+(status==='up'?'on':'off');
+      // System tab dots
+      const sysDot = document.getElementById('sys'+name);
+      if (sysDot) sysDot.className = 'dot '+(status==='up'?'on':'off');
+    }
+  } catch { /* gateway offline */ }
+}
+
+async function pollGpuTelemetry() {
+  const el = document.getElementById('sysGpuStats');
+  if (!el) return;
+  try {
+    const gwUrl = url.gw();
+    const r = await fetch(`${gwUrl}/gpu/telemetry`);
+    if (!r.ok) throw new Error('unavailable');
+    const d = await r.json();
+    if (d.gpus && d.gpus.length) {
+      el.innerHTML = d.gpus.map((g,i) => {
+        const memPct = g.memory_total ? Math.round(g.memory_used/g.memory_total*100) : 0;
+        const pwrBar = Math.round((g.power_draw||0)/300*100);
+        return `<div style="margin-bottom:6px">
+          <span style="color:var(--a)">GPU ${i}</span> ${g.name||''}
+          <span style="margin-left:8px">${g.power_draw||0}W</span>
+          <span style="margin-left:8px">${g.memory_used||0}/${g.memory_total||0} MB (${memPct}%)</span>
+          <span style="margin-left:8px">util ${g.utilization||0}%</span>
+        </div>`;
+      }).join('');
+    } else {
+      el.innerHTML = '<span style="opacity:.5">no GPUs detected (local mode)</span>';
+    }
+  } catch {
+    el.innerHTML = '<span style="opacity:.5">no GPUs detected (local mode)</span>';
+  }
+}
+
+setInterval(pollHealth, 5000);
+setInterval(pollGpuTelemetry, 10000);
+setTimeout(pollHealth, 500);
+setTimeout(pollGpuTelemetry, 1500);
+
+
 // ── SIMULATION ──
 
-const _tickUnits = {'1h':{label:'hour',mult:1},'4h':{label:'hours',mult:4},'1d':{label:'day',mult:1},'1w':{label:'week',mult:1}};
-function updSimConfig() {
-  const ticks = +document.getElementById('simTicks').value;
-  const agents = +document.getElementById('simAgents').value;
-  const k = +document.getElementById('simK').value;
-  const seeds = +document.getElementById('simSeeds').value;
-  const unit = document.getElementById('simTickUnit').value;
-  document.getElementById('simTicksVal').textContent = ticks;
-  document.getElementById('simAgentsVal').textContent = agents;
-  document.getElementById('simKVal').textContent = k;
-  document.getElementById('simSeedsVal').textContent = seeds;
-  document.getElementById('simSeedsSuffix').textContent = seeds > 1 ? 's' : '';
-  const u = _tickUnits[unit] || _tickUnits['1h'];
-  const simTime = ticks * u.mult;
-  const simLabel = unit === '1h' ? `${simTime} hours` : unit === '4h' ? `${simTime} hours (${(simTime/24).toFixed(1)} days)` : unit === '1d' ? `${simTime} days` : `${simTime} weeks`;
-  const estSec = (ticks * agents * 5 + Math.ceil(ticks / k) * 15) * seeds;
-  const estLabel = estSec < 120 ? `~${Math.ceil(estSec/10)*10}s` : `~${Math.ceil(estSec/60)} min`;
-  document.getElementById('simEstimates').textContent = `Simulated: ${simLabel} · ${seeds} seed${seeds>1?'s':''} · Est. runtime: ${estLabel}`;
+S.simMode = 'single'; // 'single' or 'pipeline'
+
+function setSimMode(mode) {
+  S.simMode = mode;
+  document.getElementById('modeSingle').className = mode==='single' ? 'active' : '';
+  document.getElementById('modePipeline').className = mode==='pipeline' ? 'active' : '';
+  document.getElementById('pipelineCfg').style.display = mode==='pipeline' ? '' : 'none';
+  document.getElementById('seedCfg').style.display = mode==='pipeline' ? '' : 'none';
+  document.getElementById('paramSeedCfg').style.display = mode==='pipeline' ? '' : 'none';
+  document.getElementById('simStartBtn').textContent = mode==='pipeline' ? 'Run Pipeline' : 'Start Simulation';
+  updateTimeEstimate();
+}
+
+function handleSimStart() {
+  if (S.simMode === 'pipeline') startPipeline();
+  else startSimulation();
 }
 
 function renderSimScores(scores) {
   const el = document.getElementById('simScores');
-  if (!scores || !scores.length) { el.innerHTML = ''; return; }
-  const labels = ['healthy','moderate','elevated','concerning'];
+  if (!el || !scores || !scores.length) { if(el) el.innerHTML = ''; return; }
   el.innerHTML = scores.map((s, i) => {
     const cls = s >= 0.7 ? 'high' : s >= 0.5 ? 'mid' : '';
-    const lbl = s >= 0.7 ? labels[3] : s >= 0.5 ? labels[2] : s >= 0.3 ? labels[1] : labels[0];
-    return `<span class="sim-score-chip ${cls}">P${i} ${s.toFixed(2)} <span style="opacity:.5;font-size:10px">${lbl}</span></span>`;
+    return `<span class="sim-score-chip ${cls}">p${i} ${s.toFixed(2)}</span>`;
   }).join('');
 }
 
 function renderSimEvents(events) {
   const el = document.getElementById('simEvents');
-  if (!events || !events.length) { el.innerHTML = ''; return; }
-  // Show last 8 events
+  if (!el || !events || !events.length) { if(el) el.innerHTML = ''; return; }
   const recent = events.slice(-8);
   el.innerHTML = recent.map(ev => {
     const dotCls = ev.type || 'observer';
     const icon = ev.type === 'intervention' ? '\u25c8' : ev.type === 'persona' ? '\u27f3' : ev.type === 'compliance' ? '!' : '\u25cb';
     return `<div class="sim-ev">
-      <span class="sim-ev-pct">${ev.pct}%</span>
+      <span class="sim-ev-pct">${ev.pct||''}%</span>
       <span class="sim-ev-dot ${dotCls}"></span>
       <span class="sim-ev-txt">${icon} ${ev.detail || ev.type}</span>
     </div>`;
@@ -1085,53 +1671,37 @@ function renderSimEvents(events) {
   el.scrollTop = el.scrollHeight;
 }
 
+// ── SINGLE RUN ──
+
 async function startSimulation() {
   if (S.simRunning) return;
   const btn = document.getElementById('simStartBtn');
-  const statusEl = document.getElementById('simStatus');
-  const progWrap = document.getElementById('simProgressWrap');
-  const pbarFill = document.getElementById('simPbarFill');
-  const pctEl = document.getElementById('simPct');
   const dot = document.getElementById('simDot');
+  const badge = document.getElementById('simStatusBadge');
 
   btn.disabled = true;
   S.simRunning = true;
-  S.simTick = 0;
-  statusEl.textContent = 'starting\u2026';
-  statusEl.className = 'sim-val running';
-  progWrap.style.display = '';
-  pbarFill.style.width = '0%';
-  pbarFill.className = 'sim-pbar-fill';
-  pctEl.textContent = '0%';
+  badge.textContent = 'starting...';
   dot.style.background = 'var(--w)';
+  document.getElementById('simSingleProgress').style.display = '';
+  document.getElementById('simPipelineProgress').style.display = 'none';
+  document.getElementById('simResults').style.display = 'none';
+  document.getElementById('simPbarFill').style.width = '0%';
+  document.getElementById('simPct').textContent = '0%';
   document.getElementById('simEvents').innerHTML = '';
   document.getElementById('simScores').innerHTML = '';
 
   try {
     const gwUrl = url.gw();
     const r = await fetch(`${gwUrl}/simulation/start`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        n_ticks: +document.getElementById('simTicks').value,
-        n_participants: +document.getElementById('simAgents').value,
-        k: +document.getElementById('simK').value,
-        n_seeds: +document.getElementById('simSeeds').value,
-      })
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({scenario: document.getElementById('simScenario').value})
     });
-
-    if (!r.ok) {
-      const errText = await r.text().catch(() => '');
-      throw new Error(`HTTP ${r.status}${errText ? ': ' + errText : ''}`);
-    }
-
-    statusEl.textContent = 'running';
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    badge.textContent = 'running';
     S.simPollId = setInterval(pollSimStatus, 1500);
-
   } catch (e) {
-    statusEl.textContent = 'error: ' + e.message;
-    statusEl.className = 'sim-val idle';
-    progWrap.style.display = 'none';
+    badge.textContent = 'error: ' + e.message;
     dot.style.background = 'var(--r)';
     S.simRunning = false;
     btn.disabled = false;
@@ -1142,63 +1712,400 @@ async function pollSimStatus() {
   try {
     const gwUrl = url.gw();
     const r = await fetch(`${gwUrl}/simulation/status`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) return;
     const d = await r.json();
 
-    const statusEl = document.getElementById('simStatus');
-    const tickEl = document.getElementById('simTick');
-    const lastRunEl = document.getElementById('simLastRun');
-    const linkEl = document.getElementById('simResultLink');
-    const btn = document.getElementById('simStartBtn');
+    const badge = document.getElementById('simStatusBadge');
     const pbarFill = document.getElementById('simPbarFill');
     const pctEl = document.getElementById('simPct');
-    const progWrap = document.getElementById('simProgressWrap');
+    const tickEl = document.getElementById('simTick');
     const dot = document.getElementById('simDot');
+    const btn = document.getElementById('simStartBtn');
 
     const pct = d.pct || 0;
     const tick = d.tick || 0;
     const nTicks = d.n_ticks || 12;
 
-    pbarFill.style.width = pct + '%';
-    pctEl.textContent = pct + '%';
-    tickEl.textContent = `${tick} / ${nTicks}`;
+    if (pbarFill) pbarFill.style.width = pct + '%';
+    if (pctEl) pctEl.textContent = pct + '%';
+    if (tickEl) tickEl.textContent = `${tick} / ${nTicks}`;
     renderSimScores(d.scores);
     renderSimEvents(d.events);
 
     if (d.status === 'running') {
-      const nSeeds = d.n_seeds || 1;
-      const curSeed = d.current_seed || 1;
-      const seedTxt = nSeeds > 1 ? ` (seed ${curSeed}/${nSeeds})` : '';
-      statusEl.textContent = `tick ${tick}/${nTicks}${seedTxt}`;
-      statusEl.className = 'sim-val running';
+      badge.textContent = `tick ${tick}/${nTicks}`;
     } else if (d.status === 'completed') {
       if (S.simRunning) {
-        statusEl.textContent = 'completed';
-        statusEl.className = 'sim-val idle';
-        pbarFill.style.width = '100%';
-        pbarFill.className = 'sim-pbar-fill done';
-        pctEl.textContent = '100%';
+        badge.textContent = 'completed';
         dot.style.background = 'var(--a)';
+        if (pbarFill) { pbarFill.style.width = '100%'; pbarFill.className = 'sim-pbar-fill done'; }
+        if (pctEl) pctEl.textContent = '100%';
         S.simRunning = false;
-        S.simLastRun = new Date().toISOString();
-        lastRunEl.textContent = fmtT(S.simLastRun);
-        linkEl.classList.add('vis');
         btn.disabled = false;
-        clearInterval(S.simPollId);
-        S.simPollId = null;
+        clearInterval(S.simPollId); S.simPollId = null;
+        document.getElementById('simResults').style.display = '';
       }
     } else if (d.status && d.status.startsWith('error')) {
-      statusEl.textContent = d.status;
-      statusEl.className = 'sim-val idle';
+      badge.textContent = d.status;
       dot.style.background = 'var(--r)';
       S.simRunning = false;
       btn.disabled = false;
-      clearInterval(S.simPollId);
-      S.simPollId = null;
+      clearInterval(S.simPollId); S.simPollId = null;
     }
-  } catch {
-    // Silently ignore poll errors
+  } catch { /* poll error */ }
+}
+
+// ── PIPELINE ──
+
+async function startPipeline() {
+  if (S.simRunning) return;
+  const btn = document.getElementById('simStartBtn');
+  const dot = document.getElementById('simDot');
+  const badge = document.getElementById('simStatusBadge');
+
+  btn.disabled = true;
+  S.simRunning = true;
+  S.simMode = 'pipeline';
+  badge.textContent = 'starting pipeline...';
+  dot.style.background = 'var(--w)';
+  document.getElementById('simSingleProgress').style.display = 'none';
+  document.getElementById('simPipelineProgress').style.display = '';
+  document.getElementById('simResults').style.display = 'none';
+  resetStageTracker();
+
+  try {
+    const gwUrl = url.gw();
+    const r = await fetch(`${gwUrl}/simulation/pipeline`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        scenario: document.getElementById('simScenario').value,
+        n_runs: parseInt(document.getElementById('simNRuns').value) || 10,
+        base_seed: parseInt(document.getElementById('simSeed').value) || 42,
+      })
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    badge.textContent = 'pipeline running';
+    S.simPollId = setInterval(pollPipelineStatus, 2000);
+  } catch (e) {
+    badge.textContent = 'error: ' + e.message;
+    dot.style.background = 'var(--r)';
+    S.simRunning = false;
+    btn.disabled = false;
   }
+}
+
+function resetStageTracker() {
+  const stages = ['ensemble','statistics','dynamics','scenario_tree','possibility_branches','validation','report'];
+  stages.forEach(s => {
+    const dot = document.getElementById('stg'+s.charAt(0).toUpperCase()+s.slice(1));
+    if (dot) dot.className = 'stage-dot';
+  });
+  document.querySelectorAll('.stage-line').forEach(l => l.className = 'stage-line');
+  document.getElementById('pipeStatus').textContent = 'starting...';
+}
+
+async function pollPipelineStatus() {
+  try {
+    const gwUrl = url.gw();
+    const r = await fetch(`${gwUrl}/simulation/status`);
+    if (!r.ok) return;
+    const d = await r.json();
+
+    const badge = document.getElementById('simStatusBadge');
+    const pipeStatus = document.getElementById('pipeStatus');
+    const dot = document.getElementById('simDot');
+    const btn = document.getElementById('simStartBtn');
+
+    // Update stage dots from events
+    if (d.events) {
+      const stageStates = {};
+      d.events.filter(e => e.type === 'pipeline_stage').forEach(e => {
+        stageStates[e.stage] = e.status;
+      });
+      renderPipelineStages(stageStates);
+      const lastStage = d.events.filter(e => e.type === 'pipeline_stage').pop();
+      if (lastStage) pipeStatus.textContent = `${lastStage.stage}: ${lastStage.status}`;
+    }
+
+    if (d.status === 'completed') {
+      if (S.simRunning) {
+        badge.textContent = 'pipeline completed';
+        dot.style.background = 'var(--a)';
+        S.simRunning = false;
+        btn.disabled = false;
+        clearInterval(S.simPollId); S.simPollId = null;
+        pipeStatus.textContent = 'done';
+        // Fetch and render results
+        fetchPipelineResults();
+      }
+    } else if (d.status === 'running') {
+      badge.textContent = 'pipeline running';
+    } else if (d.status && d.status.startsWith('error')) {
+      badge.textContent = d.status;
+      dot.style.background = 'var(--r)';
+      S.simRunning = false;
+      btn.disabled = false;
+      clearInterval(S.simPollId); S.simPollId = null;
+    }
+  } catch { /* poll error */ }
+}
+
+function renderPipelineStages(stageStates) {
+  const stages = ['ensemble','statistics','dynamics','scenario_tree','possibility_branches','validation','report'];
+  const lines = document.querySelectorAll('.stage-line');
+  let lastDoneIdx = -1;
+  stages.forEach((s, i) => {
+    const dotId = 'stg' + s.charAt(0).toUpperCase() + s.slice(1);
+    const dotEl = document.getElementById(dotId);
+    if (!dotEl) return;
+    const status = stageStates[s];
+    if (!status) return;
+    if (status.includes('starting')) dotEl.className = 'stage-dot active';
+    else if (status === 'completed' || status.includes('completed')) { dotEl.className = 'stage-dot done'; lastDoneIdx = i; }
+    else if (status === 'failed' || status.includes('failed')) dotEl.className = 'stage-dot failed';
+    else if (status === 'skipped' || status.includes('skipped')) dotEl.className = 'stage-dot skipped';
+  });
+  // Color connecting lines
+  lines.forEach((l, i) => { l.className = i <= lastDoneIdx ? 'stage-line done' : 'stage-line'; });
+}
+
+async function fetchPipelineResults() {
+  try {
+    const gwUrl = url.gw();
+    const r = await fetch(`${gwUrl}/simulation/pipeline/result`);
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('simResults').style.display = '';
+
+    // Render validation
+    if (d.validation) renderValidation(d.validation);
+
+    // Render tendency cards from possibility_report
+    if (d.possibility_report) renderTendencyCards(d.possibility_report, d.dynamics, d.statistics);
+
+    // Render scenario tree
+    if (d.scenario_tree) renderScenarioTree(d.scenario_tree);
+  } catch { /* results fetch error */ }
+}
+
+// ── VALIDATION RENDERING ──
+
+function renderValidation(v) {
+  const el = document.getElementById('valBar');
+  if (!v || !v.range_checks) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  let html = `<div class="val-header">
+    <span class="val-badge ${v.passed?'pass':'fail'}">${v.passed?'PASSED':'FAILED'}</span>
+    ${v.convergence_achieved ? '<span style="font-size:9px;color:var(--t2)">convergence achieved</span>' : ''}
+  </div>`;
+
+  for (const [name, rc] of Object.entries(v.range_checks)) {
+    const lo = rc.plausible_range[0], hi = rc.plausible_range[1];
+    const med = rc.median_forecast;
+    // Position marker as % of 0-1 range (or actual range)
+    const rangeStart = Math.max(0, lo - 0.1);
+    const rangeEnd = Math.min(1, hi + 0.1);
+    const span = rangeEnd - rangeStart || 1;
+    const markerPct = Math.max(0, Math.min(100, ((med - rangeStart) / span) * 100));
+    const rangeLoPct = ((lo - rangeStart) / span) * 100;
+    const rangeHiPct = ((hi - rangeStart) / span) * 100;
+    const check = rc.in_range ? '<span class="val-check">\u2713</span>' : '<span class="val-cross">\u2717</span>';
+
+    html += `<div class="val-row">
+      <span class="val-name">${name}</span>
+      <div class="val-track">
+        <div class="val-range" style="left:${rangeLoPct}%;width:${rangeHiPct-rangeLoPct}%"></div>
+        <div class="val-marker ${rc.in_range?'':'out'}" style="left:${markerPct}%"></div>
+      </div>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);min-width:40px">${med.toFixed(3)}</span>
+      ${check}
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+// ── TENDENCY CARD RENDERING ──
+
+function renderTendencyCards(possReport, dynamics, statistics) {
+  const el = document.getElementById('tendencyCards');
+  if (!possReport || !possReport.branches) { el.innerHTML = ''; return; }
+
+  const branches = possReport.branches;
+  const lyap = dynamics?.lyapunov || {};
+  const sobol = dynamics?.sobol || {};
+  const te = dynamics?.transfer_entropy || {};
+  const pol = statistics?.polarization || {};
+
+  el.innerHTML = branches.map((b, idx) => {
+    const pct = Math.round((b.probability||0) * 100);
+    const m = b.metrics || {};
+    const regime = lyap.regime || 'unknown';
+    const maxLyap = lyap.max_lyapunov != null ? lyap.max_lyapunov.toFixed(3) : '?';
+
+    // Determine coupling effect from attractor count
+    const nAttractors = (b.attractor_center != null && Array.isArray(possReport.branches)) ?
+      new Set(branches.map(x => Math.round((x.attractor_center||0)*10))).size : 1;
+    const couplingEffect = nAttractors > 1 ? 'amplifying (multi-basin)' : 'dampening (single-basin)';
+
+    // Build causal narrative
+    const cause = buildCause(b, sobol, m);
+    const effect = buildEffect(b, m, maxLyap, regime);
+    const consequence = buildConsequence(b, m);
+    const extremes = buildExtremes(b, m);
+    const developing = buildDeveloping(b, m, te, pol);
+
+    // Dominant driver from Sobol
+    const topDriver = sobol.S1 ? Object.entries(sobol.S1).sort((a,b)=>b[1]-a[1])[0] : null;
+    const driverStr = topDriver ? `${topDriver[0]} (S1=${topDriver[1].toFixed(3)})` : 'undetermined';
+
+    return `<div class="tendency-card">
+      <div class="tendency-header">
+        <span class="tendency-prob">${pct}%</span>
+        <div style="flex:1">
+          <div class="tendency-label">${b.label || 'Regime '+(idx+1)}</div>
+          <div class="tendency-prob-bar"><div class="tendency-prob-fill" style="width:${pct}%"></div></div>
+        </div>
+      </div>
+
+      <div class="tendency-metrics">
+        <span class="tendency-metric">typical level: ${(b.attractor_center||0).toFixed(2)}</span>
+        <span class="tendency-metric">range: ${b.basin_range ? b.basin_range.map(v=>v.toFixed(2)).join(' - ') : '?'}</span>
+        <span class="tendency-metric">${regime==='stable'?'predictable':regime==='marginal'?'on the edge':regime==='chaotic'?'unpredictable':'unknown'}</span>
+        <span class="tendency-metric">${nAttractors>1?'group splits into camps':'group stays together'}</span>
+      </div>
+
+      <div class="tendency-section">
+        <div class="tendency-section-label"><span class="ts-icon">\u2192</span> WHY THIS HAPPENS</div>
+        <div class="tendency-text">${cause}</div>
+      </div>
+
+      <div class="tendency-section">
+        <div class="tendency-section-label"><span class="ts-icon">\u25ce</span> WHAT IT LOOKS LIKE</div>
+        <div class="tendency-text">${effect}</div>
+      </div>
+
+      <div class="tendency-section">
+        <div class="tendency-section-label"><span class="ts-icon">\u21d2</span> WHAT IT MEANS</div>
+        <div class="tendency-text">${consequence}</div>
+      </div>
+
+      ${extremes ? `<div class="tendency-section">
+        <div class="tendency-section-label"><span class="ts-icon">\u26a0</span> WHO TO WATCH</div>
+        ${extremes}
+      </div>` : ''}
+
+      ${developing ? `<div class="tendency-section">
+        <div class="tendency-section-label"><span class="ts-icon">\u2197</span> WHERE THIS IS HEADING</div>
+        ${developing}
+      </div>` : ''}
+
+      <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
+        Main factor: ${driverStr}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function buildCause(b, sobol, m) {
+  const parts = [];
+  if (m.mean_final_score != null) {
+    if (m.mean_final_score > 0.6) parts.push('The content or stimuli are strong enough to pull most people into high engagement.');
+    else if (m.mean_final_score < 0.4) parts.push('The stimuli are not compelling enough to move most people beyond baseline engagement.');
+    else parts.push('The stimuli are moderately engaging — enough to create differentiation between personality types.');
+  }
+  if (m.polarization != null && m.polarization > 0.2)
+    parts.push('People with different personality profiles react very differently to the same situation, causing the group to split.');
+  if (sobol?.S1) {
+    const top2 = Object.entries(sobol.S1).sort((a,b)=>b[1]-a[1]).slice(0,2);
+    const nameMap = {alpha:'how fast people react', kappa:'peer influence', threshold:'the warning threshold', susceptibility:'individual vulnerability', resilience:'individual resistance', dampening:'intervention strength'};
+    if (top2.length) parts.push(`The most influential factors are ${top2.map(x=>nameMap[x[0]]||x[0]).join(' and ')}.`);
+  }
+  return parts.join(' ') || 'This pattern emerges from the mix of personality types and how they respond to what happens around them.';
+}
+
+function buildEffect(b, m, maxLyap, regime) {
+  const parts = [];
+  const level = (b.attractor_center||0);
+  const levelWord = level > 0.7 ? 'high' : level > 0.4 ? 'moderate' : 'low';
+  parts.push(`Most people settle around a ${levelWord} engagement level (${level.toFixed(2)}).`);
+  const regimeWord = regime === 'stable' ? 'predictable and consistent' : regime === 'marginal' ? 'on the edge — small changes could tip it either way' : regime === 'chaotic' ? 'unpredictable — outcomes vary wildly between runs' : 'unclear';
+  parts.push(`The overall pattern is ${regimeWord}.`);
+  if (m.convergence) parts.push('Over time, individual differences shrink — people end up in similar places.');
+  else parts.push('Individual differences persist — some people stay in very different places from others throughout.');
+  return parts.join(' ');
+}
+
+function buildConsequence(b, m) {
+  const parts = [];
+  if (m.convergence) parts.push('The group self-regulates. External intervention is unlikely to be needed.');
+  else if (m.polarization > 0.25) parts.push('The group is splitting apart. Without intervention, the gap between high and low engagement will keep growing.');
+  else parts.push('The group is drifting. Some monitoring is needed to catch people heading toward extremes.');
+  if (m.mean_final_score > 0.75) parts.push('Risk: many people are stuck at very high engagement. This may need active boundary-setting.');
+  else if (m.mean_final_score < 0.25) parts.push('Risk: most people have disengaged. The situation may need re-energizing to prevent total dropout.');
+  return parts.join(' ') || 'What happens next depends on whether interventions are applied and when.';
+}
+
+function buildExtremes(b, m) {
+  if (!b.confidence_interval) return '';
+  const ci = b.confidence_interval;
+  const spread = (ci[1]||0) - (ci[0]||0);
+  if (spread < 0.1) return '';
+  return `<div class="tendency-extreme">
+    In some runs, individual outcomes ranged from ${ci[0]?.toFixed(2)} to ${ci[1]?.toFixed(2)} — a wide spread.
+    People near the ${b.basin_range ? b.basin_range[1]?.toFixed(2) : 'upper'} boundary could tip into a different behavioral pattern at any point.
+  </div>`;
+}
+
+function buildDeveloping(b, m, te, pol) {
+  const trends = [];
+  if (pol?.trend_slope != null) {
+    if (pol.trend_slope > 0.001) trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2197</span> The group is becoming more divided over time</div>`);
+    else if (pol.trend_slope < -0.001) trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2198</span> The group is becoming more aligned over time</div>`);
+  }
+  if (te?.asymmetry != null && Math.abs(te.asymmetry) > 0.01) {
+    trends.push(`<div class="tendency-trend"><span class="trend-icon">\u21c4</span> Some individuals are disproportionately influencing others (not evenly distributed)</div>`);
+  }
+  if (m.mean_final_score != null) {
+    if (m.mean_final_score > 0.6) trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2022</span> The group as a whole is trending toward higher engagement</div>`);
+    else if (m.mean_final_score < 0.4) trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2022</span> The group as a whole is trending toward disengagement</div>`);
+    else trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2022</span> The group is hovering around a moderate level without strong direction</div>`);
+  }
+  return trends.join('') || '';
+}
+
+// ── SCENARIO TREE RENDERING ──
+
+function renderScenarioTree(tree) {
+  const wrap = document.getElementById('treeWrap');
+  const container = document.getElementById('treeContainer');
+  if (!tree) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  container.innerHTML = renderTreeNode(tree, true);
+}
+
+function renderTreeNode(node, isRoot) {
+  if (!node) return '';
+  const pct = Math.round((node.probability||0)*100);
+  const metrics = node.metrics || {};
+  const meanStr = metrics.mean != null ? metrics.mean.toFixed(3) : '';
+  const childrenHtml = (node.children||[]).map(c => renderTreeNode(c, false)).join('');
+
+  return `<div class="tree-node ${isRoot?'tree-node-root':''}" onclick="event.stopPropagation();this.classList.toggle('collapsed')">
+    <div class="tree-node-head">
+      <span class="tree-node-prob">${pct}%</span>
+      <div class="tree-node-bar"><div class="tree-node-fill" style="width:${pct}%"></div></div>
+      <span class="tree-node-name">${node.id||'root'}</span>
+      <span class="tree-node-metrics">${meanStr ? '\u03bc='+meanStr : ''} ${node.n_supporting_runs ? '(n='+node.n_supporting_runs+')' : ''}</span>
+    </div>
+    ${childrenHtml ? `<div class="tree-children">${childrenHtml}</div>` : ''}
+  </div>`;
+}
+
+// ── VIEW RESULTS ──
+
+function viewFullReport() {
+  const gwUrl = url.gw();
+  window.open(`${gwUrl}/simulation/pipeline/report`, '_blank');
 }
 
 async function viewSimResults() {
@@ -1211,165 +2118,1852 @@ async function viewSimResults() {
     const chat = getChat();
     chat.title = 'Simulation Results';
 
-    const pb = d.possibility_branches || {};
-    const risk = pb.risk_assessment || {};
-
-    let html = '<div style="font-family:var(--ff);color:var(--fg);max-width:680px">';
-
-    // ── Config header ──
+    let summary = '**Simulation Results**\n\n';
     if (d.config?.config) {
       const c = d.config.config;
-      const nSeeds = c.n_seeds || 1;
-      const seedTxt = nSeeds > 1 ? ` \u00b7 ${nSeeds} seeds` : '';
-      html += `<div style="opacity:.5;font-size:11px;margin-bottom:16px">${c.n_ticks} ticks \u00b7 ${c.n_participants} agents \u00b7 K=${c.k} \u00b7 \u03b1=${c.alpha} \u00b7 ${c.score_mode}${seedTxt} \u00b7 ${d.config.duration_s}s</div>`;
+      summary += `**Config:** ${c.n_ticks} ticks, ${c.n_participants} agents, K=${c.k}, \u03b1=${c.alpha}, ${c.score_mode}\n`;
+      summary += `**Duration:** ${d.config.duration_s}s\n\n`;
     }
-
-    // ── Risk level badge ──
-    const riskLevel = risk.risk_level || 'unknown';
-    const riskColors = {low:'#00d4aa',moderate:'#ffa502',elevated:'#ff8c42',critical:'#ff6b6b'};
-    const riskColor = riskColors[riskLevel] || '#888';
-    html += `<div style="display:inline-block;padding:4px 12px;border-radius:4px;font-size:12px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;background:${riskColor}22;color:${riskColor};border:1px solid ${riskColor}44;margin-bottom:16px">${riskLevel} risk</div>`;
-
-    // ── Executive summary ──
-    if (pb.summary) {
-      html += `<div style="font-size:14px;line-height:1.7;margin-bottom:20px;padding:12px 16px;background:rgba(255,255,255,.03);border-radius:8px;border-left:3px solid var(--ac)">${pb.summary}</div>`;
-    }
-
-    // ── Key findings ──
-    if (pb.key_findings?.length) {
-      html += '<div style="margin-bottom:20px">';
-      html += '<div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--ac)">Key Findings</div>';
-      const sevColors = {info:'#00d4aa',warning:'#ffa502',critical:'#ff6b6b'};
-      for (const f of pb.key_findings) {
-        const fc = sevColors[f.severity] || '#888';
-        const borderStyle = f.severity === 'critical' ? `border-left:3px solid ${fc}` : `border-left:3px solid ${fc}44`;
-        html += `<div style="font-size:12px;line-height:1.6;margin-bottom:6px;padding:8px 12px;background:${fc}08;border-radius:4px;${borderStyle}">`;
-        html += `<span style="margin-right:6px">${f.icon}</span>`;
-        html += `<span style="color:${fc};font-weight:500">${f.text}</span>`;
-        html += `</div>`;
-      }
-      html += '</div>';
-    }
-
-    // ── Agent trajectories (sparklines) ──
     if (d.trajectories) {
-      html += '<div style="margin-bottom:20px">';
-      html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--ac)">Agent Trajectories</div>';
-      const colors = ['#00d4aa','#ffa502','#ff6b6b','#a29bfe','#fd79a8','#6c5ce7','#00cec9','#fdcb6e'];
-      const scoreLabel = (s) => s >= 0.7 ? 'compulsive' : s >= 0.5 ? 'elevated' : s >= 0.3 ? 'moderate' : 'healthy';
-      const scoreCls = (s) => s >= 0.7 ? '#ff6b6b' : s >= 0.5 ? '#ffa502' : '#00d4aa';
-      let i = 0;
+      summary += '**Final Scores:**\n';
       for (const [id, t] of Object.entries(d.trajectories)) {
-        const log = t.score_log || [];
-        const col = colors[i % colors.length];
-        const W = 220, H = 32;
-        const threshY = H - 0.7 * H;
-        const pts = log.map((v, j) => `${(j/(log.length-1))*W},${H - v*H}`).join(' ');
-        // Fill area under curve for visual weight
-        const fillPts = pts + ` ${W},${H} 0,${H}`;
-        const svg = `<svg width="${W}" height="${H}" style="vertical-align:middle">
-          <line x1="0" y1="${threshY}" x2="${W}" y2="${threshY}" stroke="#ff6b6b33" stroke-width="1" stroke-dasharray="3,3"/>
-          <polygon points="${fillPts}" fill="${col}11"/>
-          <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5"/>
-        </svg>`;
-        const finalScore = t.final_score?.toFixed(3) || '?';
-        const delta = log.length > 1 ? (log[log.length-1] - log[0]) : 0;
-        const arrow = delta > 0.02 ? '\u2197' : delta < -0.02 ? '\u2198' : '\u2192';
-        const sLabel = scoreLabel(t.final_score);
-        const sColor = scoreCls(t.final_score);
-        const susLbl = t.susceptibility > 0.5 ? 'high-sus' : t.susceptibility > 0.25 ? 'mod-sus' : 'low-sus';
-        // Check if this agent has a projection
-        const proj = risk.projections?.[`P${i}`];
-        const projTxt = proj ? ` \u00b7 \u23f1${proj}t to 0.7` : '';
-        html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px">`;
-        html += `<span style="width:30px;opacity:.7;font-weight:600">P${i}</span>`;
-        html += svg;
-        html += `<span style="font-weight:600;width:42px">${finalScore}</span>`;
-        html += `<span style="color:${sColor};font-size:11px;width:70px">${arrow} ${sLabel}</span>`;
-        html += `<span style="opacity:.4;font-size:10px">${susLbl}${projTxt}</span>`;
-        html += `</div>`;
-        i++;
+        const bar = '\u2588'.repeat(Math.round(t.final_score * 20)) + '\u2591'.repeat(20 - Math.round(t.final_score * 20));
+        summary += `  ${id}: ${bar} ${t.final_score.toFixed(3)} (sus=${t.susceptibility?.toFixed(2)||'?'} res=${t.resilience?.toFixed(2)||'?'})\n`;
       }
-      html += '</div>';
+      summary += '\n';
     }
-
-    // ── Intervention timeline ──
-    if (d.interventions?.length) {
-      html += '<div style="margin-bottom:20px">';
-      html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--ac)">Interventions</div>';
-      for (const iv of d.interventions) {
-        html += `<div style="font-size:12px;margin-bottom:4px;padding:6px 8px;background:rgba(255,165,2,.08);border-radius:4px;border-left:3px solid #ffa502">`;
-        html += `<span style="opacity:.5">T${iv.activated_at||'?'}</span> `;
-        html += `<span style="font-weight:600">${iv.type||'?'}</span> `;
-        html += `<span style="opacity:.7">${iv.description||''}</span>`;
-        html += `</div>`;
-      }
-      html += '</div>';
-    } else {
-      html += '<div style="font-size:12px;opacity:.4;margin-bottom:20px">No interventions triggered</div>';
+    if (d.dynamics_analysis) {
+      const da = d.dynamics_analysis;
+      if (da.lyapunov) summary += `**Regime:** ${da.lyapunov.regime} (\u03bb=${da.lyapunov.max_lyapunov})\n`;
+      if (da.emergence) summary += `**Emergence:** MI=${da.emergence.mutual_information} bimodality=${da.emergence.bimodality} ${da.emergence.is_emergent ? '\u2713 emergent' : ''}\n`;
+      if (da.transfer_entropy) summary += `**Info flow:** total TE=${da.transfer_entropy.total_te} asymmetry=${da.transfer_entropy.asymmetry}\n`;
     }
-
-    // ── Outcome branches (collapsed details) ──
-    if (pb.branches?.length) {
-      html += '<details style="margin-bottom:20px">';
-      html += '<summary style="font-size:13px;font-weight:600;color:var(--ac);cursor:pointer;margin-bottom:8px">Outcome Branches (' + pb.branches.length + ')</summary>';
-      for (const b of pb.branches) {
-        const pct = (b.probability * 100).toFixed(1);
-        const barW = Math.max(2, b.probability * 100);
-        const regime = b.metrics?.lyapunov_regime || '?';
-        const conv = b.metrics?.convergence ? 'converged' : 'drifting';
-        html += `<div style="background:rgba(255,255,255,.04);border-radius:6px;padding:10px 12px;margin-bottom:6px">`;
-        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">`;
-        html += `<span style="font-weight:600;font-size:13px">${b.label}</span>`;
-        html += `<span style="font-size:18px;font-weight:700;color:var(--ac)">${pct}%</span>`;
-        html += `</div>`;
-        html += `<div style="background:rgba(255,255,255,.08);border-radius:3px;height:5px;margin-bottom:8px"><div style="width:${barW}%;height:100%;background:var(--ac);border-radius:3px"></div></div>`;
-        html += `<div style="font-size:12px;opacity:.7">${b.narrative}</div>`;
-        html += `<div style="font-size:10px;opacity:.4;margin-top:4px">attractor: ${b.attractor_center?.toFixed(3)||'?'} \u00b7 regime: ${regime} \u00b7 ${conv} \u00b7 basin: [${b.basin_range?.[0]?.toFixed(2)||'?'}, ${b.basin_range?.[1]?.toFixed(2)||'?'}]</div>`;
-        html += `</div>`;
-      }
-      html += '</details>';
-    }
-
-    // ── Risk metrics summary ──
-    if (risk.group_mean !== undefined) {
-      html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">';
-      const metric = (label, val, color) => `<div style="font-size:11px;padding:6px 10px;background:rgba(255,255,255,.03);border-radius:4px;border:1px solid rgba(255,255,255,.06)"><span style="opacity:.5">${label}</span> <span style="color:${color||'var(--fg)'};font-weight:600">${val}</span></div>`;
-      html += metric('Group mean', risk.group_mean?.toFixed(3), riskColor);
-      html += metric('Trend', risk.group_trend + ' (' + (risk.group_delta > 0 ? '+' : '') + risk.group_delta?.toFixed(3) + ')', risk.group_trend === 'rising' ? '#ffa502' : risk.group_trend === 'falling' ? '#00d4aa' : '#888');
-      html += metric('Spread', '\u03c3=' + risk.score_spread?.toFixed(3));
-      html += metric('At risk', risk.n_at_risk + ' agents', risk.n_at_risk > 0 ? '#ff6b6b' : '#00d4aa');
-      html += metric('Interventions', risk.intervention_count);
-      html += '</div>';
-    }
-
-    // ── Warnings ──
-    if (pb.warnings?.length) {
-      html += '<div style="font-size:11px;opacity:.4;border-top:1px solid rgba(255,255,255,.08);padding-top:8px">';
-      for (const w of pb.warnings) {
-        html += `<div>\u26a0 ${w}</div>`;
-      }
-      html += '</div>';
-    }
-
-    html += '</div>';
 
     chat.messages.push({
-      role: 'assistant',
-      content: html,
-      ts: new Date().toISOString(),
-      badges: [{t: 'bdg-t', l: 'sim'}],
-      isHtml: true
+      role: 'assistant', content: summary,
+      ts: new Date().toISOString(), badges: [{t: 'bdg-t', l: 'sim'}]
     });
-    renderChatList();
-    renderMessages();
+    renderChatList(); renderMessages();
+    switchMode('chat');
   } catch (e) {
-    alert('Could not fetch simulation results: ' + e.message);
+    alert('Could not fetch results: ' + e.message);
   }
 }
 
+// ── SCENARIO PRESETS ──
+
+const SCENARIO_PRESETS = {
+  'scenarios/social_dynamics.yaml': {ticks:12, agents:4, alpha:0.15, kappa:0.0, k:4, mode:'ema', dampen:1.0, threshold:0.7, tickUnit:'week'},
+  'scenarios/market_ecosystem.yaml': {ticks:24, agents:6, alpha:0.20, kappa:0.1, k:3, mode:'logistic', dampen:0.8, threshold:0.65, tickUnit:'hour'},
+  'scenarios/network_resilience.yaml': {ticks:20, agents:8, alpha:0.10, kappa:0.05, k:4, mode:'ema', dampen:1.0, threshold:0.7, tickUnit:'month'},
+  'scenarios/minimal.yaml': {ticks:3, agents:2, alpha:0.15, kappa:0.0, k:2, mode:'ema', dampen:1.0, threshold:0.7, tickUnit:'hour'},
+};
+
+function loadScenarioPreset() {
+  const scenario = document.getElementById('simScenario').value;
+  const p = SCENARIO_PRESETS[scenario] || SCENARIO_PRESETS['scenarios/social_dynamics.yaml'];
+  document.getElementById('spTicks').value = p.ticks;
+  document.getElementById('spAgents').value = p.agents;
+  document.getElementById('spAlpha').value = p.alpha;
+  document.getElementById('spKappa').value = p.kappa;
+  document.getElementById('spK').value = p.k;
+  document.getElementById('spScoreMode').value = p.mode;
+  document.getElementById('spDampen').value = p.dampen;
+  document.getElementById('spThreshold').value = p.threshold;
+  document.getElementById('spTickUnit').value = p.tickUnit || 'week';
+  // Load archetypes
+  const archs = SCENARIO_ARCHETYPES[scenario] || SCENARIO_ARCHETYPES['scenarios/social_dynamics.yaml'];
+  renderSpArchetypes(archs);
+  updateTimeEstimate();
+}
+
+function getScenarioParams() {
+  return {
+    ticks: parseInt(document.getElementById('spTicks').value) || 12,
+    agents: parseInt(document.getElementById('spAgents').value) || 4,
+    alpha: parseFloat(document.getElementById('spAlpha').value) || 0.15,
+    kappa: parseFloat(document.getElementById('spKappa').value) || 0.0,
+    k: parseInt(document.getElementById('spK').value) || 4,
+    mode: document.getElementById('spScoreMode').value || 'ema',
+    dampen: parseFloat(document.getElementById('spDampen').value) || 1.0,
+    threshold: parseFloat(document.getElementById('spThreshold').value) || 0.7,
+    tickUnit: document.getElementById('spTickUnit').value || 'week',
+    maxTokens: ({hour:64, week:192, month:384, year:512})[document.getElementById('spTickUnit').value] || 192,
+  };
+}
+
+// Wire dropdown to load presets
+document.getElementById('simScenario')?.addEventListener('change', loadScenarioPreset);
+
+// ── TIME ESTIMATE ──
+
+function updateTimeEstimate() {
+  const p = getScenarioParams();
+  const nRuns = S.simMode === 'pipeline' ? (parseInt(document.getElementById('simNRuns')?.value) || 10) : 1;
+  const paramSeeds = S.simMode === 'pipeline' ? (parseInt(document.getElementById('simParamSeeds')?.value) || 1) : 1;
+
+  // Tick depth multiplier: more tokens = longer generation time
+  const depthMultiplier = (p.maxTokens || 192) / 192;
+  const secPerCall = (S.calibratedLatency || 0.5) * depthMultiplier;
+  const calibrated = S.calibratedLatency != null;
+  const callsPerTick = p.agents + 1 + 0.25; // participants + env + observer amortized
+  const singleRunSec = Math.round(p.ticks * callsPerTick * secPerCall);
+  const totalRuns = nRuns * paramSeeds;
+  const totalSec = singleRunSec * totalRuns;
+  const analysisSec = totalRuns > 1 ? 5 * paramSeeds : 0;
+
+  let estStr;
+  const total = totalSec + analysisSec;
+  if (total < 60) estStr = `~${total}s`;
+  else if (total < 3600) estStr = `~${Math.round(total/60)}m ${total%60}s`;
+  else estStr = `~${Math.round(total/3600)}h ${Math.round((total%3600)/60)}m`;
+
+  document.getElementById('simTimeEst').textContent = estStr;
+  const unit = p.tickUnit || 'week';
+  const simSpan = p.ticks + ' ' + unit + (p.ticks > 1 ? 's' : '');
+  const label = `${p.ticks} ticks x ${p.agents} agents`;
+  const srcTag = calibrated ? `${secPerCall.toFixed(2)}s/call` : `~${secPerCall.toFixed(2)}s/call`;
+  const variantTag = paramSeeds > 1 ? `${paramSeeds} variants x ` : '';
+  const detail = totalRuns > 1
+    ? `(${variantTag}${nRuns} runs x ${label} x ${srcTag}) simulating ${simSpan}`
+    : `(${label} x ${srcTag}) simulating ${simSpan}`;
+  document.getElementById('simTimeDetail').textContent = detail;
+}
+
+document.getElementById('simNRuns')?.addEventListener('input', updateTimeEstimate);
+
+// ── CALIBRATION SIM ──
+
+S.calibratedLatency = null; // null = use default 0.5s
+
+async function runCalibration() {
+  const btn = document.getElementById('calibrateBtn');
+  const estEl = document.getElementById('simTimeEst');
+  const detailEl = document.getElementById('simTimeDetail');
+  btn.disabled = true;
+  btn.textContent = 'calibrating...';
+  estEl.textContent = 'measuring...';
+  detailEl.textContent = '';
+
+  const gwUrl = url.gw();
+
+  try {
+    // Step 1: Check backends are up
+    const healthR = await fetch(`${gwUrl}/health`);
+    const health = await healthR.json();
+    const authUp = health.authority === 'up';
+    const swarmUp = health.swarm === 'up';
+
+    if (!authUp && !swarmUp) {
+      throw new Error('No LLM backends online. Start authority or swarm first.');
+    }
+
+    // Step 2: Run N quick LLM calls and measure latency
+    const nCalls = 4;
+    const latencies = [];
+    const testEndpoint = authUp ? `${gwUrl}/v1/chat/completions` : `${gwUrl}/v1/chat/completions`;
+    const testModel = authUp ? 'authority' : 'swarm';
+
+    for (let i = 0; i < nCalls; i++) {
+      btn.textContent = `call ${i+1}/${nCalls}...`;
+      const t0 = performance.now();
+      try {
+        const r = await fetch(testEndpoint, {
+          method: 'POST',
+          headers: url.hdrs(),
+          body: JSON.stringify({
+            model: testModel,
+            messages: [{role:'user', content:'Reply with exactly one word: hello'}],
+            max_tokens: 8,
+            temperature: 0,
+          })
+        });
+        if (r.ok) {
+          await r.json();
+          latencies.push((performance.now() - t0) / 1000);
+        }
+      } catch { /* skip failed call */ }
+    }
+
+    if (latencies.length === 0) {
+      throw new Error('All calibration calls failed. Check vLLM logs.');
+    }
+
+    // Step 3: Compute calibrated latency (use median to filter outliers)
+    latencies.sort((a,b) => a-b);
+    const median = latencies[Math.floor(latencies.length / 2)];
+    S.calibratedLatency = Math.round(median * 100) / 100;
+
+    btn.textContent = `${S.calibratedLatency}s/call`;
+    btn.style.borderColor = 'var(--a)';
+    btn.style.color = 'var(--a)';
+
+    // Step 4: Recalculate estimate with real latency
+    updateTimeEstimate();
+
+  } catch (e) {
+    btn.textContent = 'failed';
+    btn.style.borderColor = 'var(--r)';
+    btn.style.color = 'var(--r)';
+    detailEl.textContent = e.message;
+    S.calibratedLatency = null;
+    setTimeout(() => {
+      btn.textContent = 'calibrate';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+      btn.disabled = false;
+      updateTimeEstimate();
+    }, 4000);
+    return;
+  }
+
+  setTimeout(() => { btn.disabled = false; }, 1000);
+}
+
+// ── NEW SCENARIO ──
+
+function openNewScenario() {
+  const modal = document.getElementById('newScenarioModal');
+  modal.style.display = 'flex';
+  document.getElementById('nsResult').style.display = 'none';
+}
+
+function closeNewScenario() {
+  document.getElementById('newScenarioModal').style.display = 'none';
+}
+
+async function createScenario() {
+  const name = document.getElementById('nsName').value.trim();
+  if (!name) { alert('Scenario name is required'); return; }
+
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  const desc = document.getElementById('nsDesc').value.trim() || `${name} simulation scenario`;
+  const participants = parseInt(document.getElementById('nsParticipants').value) || 4;
+  const ticks = parseInt(document.getElementById('nsTicks').value) || 12;
+  const scoreMode = document.getElementById('nsScoreMode').value;
+  const k = parseInt(document.getElementById('nsK').value) || 4;
+  const alpha = parseFloat(document.getElementById('nsAlpha').value) || 0.15;
+  const kappa = parseFloat(document.getElementById('nsKappa').value) || 0.0;
+
+  // Build YAML
+  let yaml = `# ${name} — auto-generated scenario
+meta:
+  name: "${slug}"
+  version: "1.0"
+  description: "${desc}"
+
+agents:
+  roles:
+    - id: "observer_a"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        You are a behavioural analyst observing a multi-participant scenario.
+        Your only task is to describe what is happening — not to recommend actions.
+        Look at each participant's trajectory individually.
+        Flag participants whose behaviour keeps escalating across multiple steps.
+        Rules: ground claims in data, be specific, do NOT recommend interventions.
+        Keep analysis under 200 words.
+      max_tokens: 512
+
+    - id: "observer_b"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        You are an intervention specialist. You receive an analyst's report.
+        Decide whether intervention is needed. Types: PAUSE PROMPT, BOUNDARY WARNING,
+        DYNAMICS DAMPENING, PACING ADJUSTMENT. Max one per cycle.
+      max_tokens: 256
+
+    - id: "environment"
+      slot: "authority"
+      type: "environment"
+      system_prompt: |
+        You are the scenario engine. Generate the next situation for a participant.
+        Follow pacing instructions: HIGH = stabilise, MODERATE = mild variation, LOW = standard.
+        Be specific and concrete. Each situation must differ from the previous.
+      max_tokens: 256
+
+    - id: "participant_template"
+      slot: "swarm"
+      type: "participant"
+      count: ${participants}
+      system_prompt: |
+        You are a participant in a realistic scenario. Stay in character.
+        Your engagement varies naturally. You may push back, disengage, or escalate.
+        Never break character or mention being an AI.
+      max_tokens: 192
+
+archetypes:
+  profiles:
+    - id: "K1"
+      label: "High-susceptibility"
+      description: "Easily drawn in, finds it hard to disengage"
+      properties:
+        susceptibility: "high"
+        resilience: "low"
+    - id: "K2"
+      label: "Moderate"
+      description: "Typical patterns, some variability"
+      properties:
+        susceptibility: "medium"
+        resilience: "medium"
+    - id: "K3"
+      label: "Resilient"
+      description: "Measured and deliberate, good at boundaries"
+      properties:
+        susceptibility: "low"
+        resilience: "high"
+  distribution:
+    K1: 0.25
+    K2: 0.50
+    K3: 0.25
+
+actions:
+  schemas: ["disengage", "withdraw", "respond", "engage", "escalate"]
+  instances:
+    - {id: "disengage_from_scenario", schema: "disengage", prompt_fragment: "Do you step away entirely?"}
+    - {id: "withdraw_emotionally", schema: "withdraw", prompt_fragment: "Do you pull back emotionally?"}
+    - {id: "respond_to_stimulus", schema: "respond", prompt_fragment: "How do you respond?"}
+    - {id: "engage_more_deeply", schema: "engage", prompt_fragment: "Do you lean in more?"}
+    - {id: "escalate_engagement", schema: "escalate", prompt_fragment: "Do you push further?"}
+
+scoring:
+  mode: "${scoreMode}"
+  distributions:
+    susceptibility: {type: "beta", params: [2, 3]}
+    resilience: {type: "beta", params: [2, 5]}
+  parameters:
+    alpha: ${alpha}
+    K: ${k}
+    threshold: 0.7
+    dampening: 1.0
+    coupling_kappa: ${kappa}
+    logistic_k: 6.0
+
+memory:
+  enabled: true
+  max_entries_per_agent: 20
+  dedup_threshold: 0.9
+  summary_interval: 10
+
+safety:
+  enabled: true
+  action_allowlist: []
+  max_retries_on_invalid: 2
+  fallback_action: "respond_to_stimulus"
+
+flame:
+  enabled: false
+
+environment:
+  tick_count: ${ticks}
+  tick_unit: "step"
+  initial_state:
+    observer_frequency: ${k}
+    history_window: 4
+`;
+
+  // Add outcome criteria if provided
+  const ocMetric = document.getElementById('nsOcMetric').value.trim();
+  const ocLow = parseFloat(document.getElementById('nsOcLow').value);
+  const ocHigh = parseFloat(document.getElementById('nsOcHigh').value);
+  if (ocMetric && !isNaN(ocLow) && !isNaN(ocHigh)) {
+    yaml += `
+outcome_criteria:
+  targets:
+    - name: "${ocMetric}"
+      low: ${ocLow}
+      high: ${ocHigh}
+  validation_metrics: ["crps", "wasserstein"]
+  convergence_required: true
+`;
+  }
+
+  // Save via gateway
+  const filename = `scenarios/${slug}.yaml`;
+  const resultEl = document.getElementById('nsResult');
+  try {
+    const gwUrl = url.gw();
+    const r = await fetch(`${gwUrl}/v1/documents`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text: yaml, name: filename, role: 'scenario'})
+    });
+
+    // Also try to write directly if gateway supports it
+    // For now, show the YAML and let the user save it
+    resultEl.style.display = '';
+    resultEl.innerHTML = `<div style="color:var(--a);margin-bottom:6px">Scenario generated: ${filename}</div>
+      <div style="color:var(--t2);margin-bottom:6px">Save this to <code>${filename}</code> in your project:</div>
+      <pre style="background:var(--bg0);border:1px solid var(--bd);padding:8px;border-radius:var(--rax);max-height:200px;overflow:auto;font-size:9px;line-height:1.5">${yaml.replace(/</g,'&lt;')}</pre>
+      <button class="results-btn" onclick="navigator.clipboard.writeText(document.getElementById('nsYamlContent').value);this.textContent='Copied!'" style="margin-top:6px;font-size:10px">Copy YAML</button>
+      <textarea id="nsYamlContent" style="display:none">${yaml}</textarea>`;
+
+    // Add to dropdown
+    const select = document.getElementById('simScenario');
+    if (!Array.from(select.options).some(o => o.value === filename)) {
+      const opt = document.createElement('option');
+      opt.value = filename;
+      opt.textContent = slug;
+      select.appendChild(opt);
+      select.value = filename;
+      updateTimeEstimate();
+    }
+  } catch (e) {
+    resultEl.style.display = '';
+    resultEl.innerHTML = `<span style="color:var(--r)">Error: ${e.message}</span>`;
+  }
+}
+
+// ── SIM SUB-TABS ──
+
+function switchSimSub(tab) {
+  document.getElementById('simSpecsPanel').style.display = tab === 'specs' ? '' : 'none';
+  document.getElementById('simWorldPanel').style.display = tab === 'world' ? '' : 'none';
+  document.getElementById('simSubSpecs').className = 'mode-tab' + (tab === 'specs' ? ' active' : '');
+  document.getElementById('simSubWorld').className = 'mode-tab' + (tab === 'world' ? ' active' : '');
+  if (tab === 'world') refreshWorldStats();
+}
+
+// ── WORLD TAB ──
+
+S.worldDocs = [];
+
+async function handleWorldFile(event) {
+  const file = event.target.files[0]; if (!file) return;
+  event.target.value = '';
+  const docsEl = document.getElementById('worldDocs');
+  docsEl.innerHTML = '<span style="color:var(--w)">Processing ' + file.name + '...</span>';
+
+  try {
+    let text = file.type === 'application/pdf' ? await extractPdf(file) : await file.text();
+    text = text.slice(0, 150000);
+
+    // Store locally
+    S.worldDocs.push({name: file.name, text, ts: Date.now(), chars: text.length});
+
+    // Push to server doc store
+    const gwUrl = url.gw();
+    try {
+      await fetch(`${gwUrl}/v1/documents`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text, name: file.name, role: 'world_context', append: true})
+      });
+    } catch { /* server offline */ }
+
+    // Embed for RAG
+    await embedStore(text, 'world', 'document', (done,total) => {
+      docsEl.innerHTML = `<span style="color:var(--w)">Embedding ${file.name} (${done}/${total} chunks)\u2026</span>`;
+    });
+
+    // Detect context categories
+    detectContextCategories(text);
+
+    renderWorldDocs();
+    refreshWorldStats();
+
+    // Show extract button if we have docs
+    document.getElementById('extractBtn').style.display = '';
+
+  } catch (e) {
+    docsEl.innerHTML = '<span style="color:var(--r)">Error: ' + e.message + '</span>';
+  }
+}
+
+function renderWorldDocs() {
+  const el = document.getElementById('worldDocs');
+  if (!S.worldDocs.length) {
+    el.innerHTML = '<span style="opacity:.5">No documents uploaded yet</span>';
+    return;
+  }
+  el.innerHTML = S.worldDocs.map((d, i) => `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--bd)">
+    <span style="color:var(--a)">&#9965;</span>
+    <span style="flex:1">${d.name}</span>
+    <span style="opacity:.5">${(d.chars/1000).toFixed(1)}k</span>
+    <button onclick="S.worldDocs.splice(${i},1);renderWorldDocs();refreshWorldStats()" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:10px">&times;</button>
+  </div>`).join('');
+  updateInsightBtn();
+}
+
+function detectContextCategories(text) {
+  const lower = text.toLowerCase();
+  const checks = [
+    {cat: 'Scenario', dot: 'wcDotScenario', status: 'wcStatusScenario',
+     keywords: ['simulation', 'scenario', 'study', 'experiment', 'research', 'investigation', 'purpose', 'objective']},
+    {cat: 'Population', dot: 'wcDotPopulation', status: 'wcStatusPopulation',
+     keywords: ['population', 'participant', 'user', 'demographic', 'age group', 'sample', 'cohort', 'subject']},
+    {cat: 'Outcome', dot: 'wcDotOutcome', status: 'wcStatusOutcome',
+     keywords: ['outcome', 'result', 'measure', 'metric', 'criterion', 'success', 'indicator', 'score']},
+    {cat: 'Intervention', dot: 'wcDotIntervention', status: 'wcStatusIntervention',
+     keywords: ['intervention', 'treatment', 'strategy', 'prevention', 'program', 'therapy', 'support']},
+    {cat: 'Temporal', dot: 'wcDotTemporal', status: 'wcStatusTemporal',
+     keywords: ['timeline', 'duration', 'week', 'month', 'longitudinal', 'follow-up', 'phase', 'period']},
+  ];
+  checks.forEach(c => {
+    const hits = c.keywords.filter(k => lower.includes(k)).length;
+    const dot = document.getElementById(c.dot);
+    const status = document.getElementById(c.status);
+    if (hits >= 3) { dot.className = 'dot on'; status.textContent = 'detected'; status.style.color = 'var(--a)'; }
+    else if (hits >= 1) { dot.className = 'dot partial'; status.textContent = 'partial'; status.style.color = 'var(--w)'; }
+  });
+}
+
+async function refreshWorldStats() {
+  document.getElementById('wsDocCount').textContent = S.worldDocs.length;
+  document.getElementById('wsChunkCount').textContent = S.embeds.filter(e => e.role === 'document').length;
+
+  // Try to get graph + run counts from server
+  const gwUrl = url.gw();
+  try {
+    const r = await fetch(`${gwUrl}/v1/graph`);
+    if (r.ok) {
+      const d = await r.json();
+      document.getElementById('wsEntityCount').textContent = d.entities?.length || d.n_entities || 0;
+    }
+  } catch { /* offline */ }
+  try {
+    const r = await fetch(`${gwUrl}/v1/documents`);
+    if (r.ok) {
+      const d = await r.json();
+      const serverDocs = d.documents?.length || d.count || 0;
+      if (serverDocs > S.worldDocs.length) {
+        document.getElementById('wsDocCount').textContent = serverDocs;
+      }
+    }
+  } catch { /* offline */ }
+}
+
+async function extractOntology() {
+  const btn = document.getElementById('extractBtn');
+  btn.disabled = true;
+  btn.textContent = 'Extracting...';
+  const gwUrl = url.gw();
+
+  try {
+    // Concatenate all world docs
+    const allText = S.worldDocs.map(d => d.text).join('\n\n---\n\n');
+    if (!allText.trim()) throw new Error('No documents to extract from');
+
+    // Call authority to extract archetypes
+    const r = await fetch(`${gwUrl}/v1/chat/completions`, {
+      method: 'POST', headers: url.hdrs(),
+      body: JSON.stringify({
+        model: 'authority',
+        messages: [{role: 'system', content: 'You are an ontology extractor. Given domain documents, extract agent archetypes suitable for a multi-agent simulation. Return JSON only.'}, {
+          role: 'user', content: `Extract from this document:
+1. 3-5 agent archetypes with: id, label, description, susceptibility (high/medium/low), resilience (high/medium/low), suggested_distribution_pct
+2. Key population characteristics
+3. Suggested outcome criteria (metric name, plausible low, plausible high)
+4. Temporal structure (what timeframe, what a tick represents)
+
+Return as JSON: {archetypes: [...], population: "...", outcomes: [...], temporal: "..."}
+
+DOCUMENT:
+${allText.slice(0, 6000)}`
+        }],
+        max_tokens: 1024, temperature: 0.3,
+      })
+    });
+
+    if (!r.ok) throw new Error('Authority not available');
+    const d = await r.json();
+    const content = d.choices?.[0]?.message?.content || '';
+
+    document.getElementById('worldOntology').style.display = '';
+    document.getElementById('ontologyPreview').textContent = content;
+    S._extractedOntology = content;
+
+    btn.textContent = 'Extract Archetypes';
+    btn.disabled = false;
+  } catch (e) {
+    btn.textContent = 'Failed: ' + e.message;
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = 'Extract Archetypes'; }, 3000);
+  }
+}
+
+function applyOntology() {
+  // Try to parse the extracted JSON and apply to specs
+  if (!S._extractedOntology) return;
+  try {
+    const raw = S._extractedOntology;
+    // Extract JSON from response (may be wrapped in markdown)
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON found');
+    const data = JSON.parse(jsonMatch[0]);
+
+    if (data.archetypes && data.archetypes.length) {
+      const archs = data.archetypes.map((a, i) => ({
+        id: a.id || 'K' + (i+1),
+        label: a.label || 'Type ' + (i+1),
+        susc: a.susceptibility || 'medium',
+        res: a.resilience || 'medium',
+        pct: a.suggested_distribution_pct || Math.round(100 / data.archetypes.length),
+      }));
+      renderSpArchetypes(archs);
+    }
+
+    if (data.temporal) {
+      const t = data.temporal.toLowerCase();
+      if (t.includes('hour')) document.getElementById('spTickUnit').value = 'hour';
+      else if (t.includes('week')) document.getElementById('spTickUnit').value = 'week';
+      else if (t.includes('month')) document.getElementById('spTickUnit').value = 'month';
+      else if (t.includes('year')) document.getElementById('spTickUnit').value = 'year';
+    }
+
+    updateTimeEstimate();
+    switchSimSub('specs');
+    alert('Archetypes applied to Specs tab. Review and adjust.');
+  } catch (e) {
+    alert('Could not parse extraction: ' + e.message);
+  }
+}
+
+// ── WORLD SNAPSHOTS ──
+
+const SNAPSHOT_QUERIES = {
+  social: ['social media trends','public opinion','cultural shift','community behavior','youth engagement'],
+  health: ['mental health','addiction research','wellbeing study','public health policy','behavioral psychology'],
+  tech: ['artificial intelligence regulation','digital platform','online behavior','technology adoption','cybersecurity'],
+  economy: ['economic indicators','market trends','employment','consumer behavior','financial regulation'],
+  politics: ['policy change','government regulation','election','institutional trust','political polarization'],
+  environment: ['climate change impact','sustainability','environmental policy','natural disaster','resource scarcity'],
+  demographics: ['population growth','age distribution','migration patterns','urbanization trends','generational differences'],
+  research: ['behavioral science study','randomized controlled trial','longitudinal study','meta-analysis','intervention effectiveness'],
+};
+
+S.snapSummaries = {}; // topic -> {articles, text, ts}
+
+async function fetchSnapshot(topic) {
+  const row = document.querySelector(`.snapshot-row[data-topic="${topic}"]`);
+  const capTopic = topic.charAt(0).toUpperCase() + topic.slice(1);
+  const statusEl = document.getElementById('snap' + capTopic);
+  const expandBtn = document.getElementById('expand' + capTopic);
+  const summaryEl = document.getElementById('summary' + capTopic);
+  const focusEl = document.getElementById('focus' + capTopic);
+  const progressEl = document.getElementById('snapProgress');
+
+  row.classList.add('loading');
+  row.classList.remove('loaded');
+  if (statusEl) statusEl.textContent = 'fetching...';
+  if (progressEl) progressEl.textContent = topic + '...';
+
+  // Build queries with country detection + English filter
+  const focus = focusEl?.value?.trim() || '';
+  let queries = SNAPSHOT_QUERIES[topic] || [topic];
+
+  // Detect country from focus text
+  const COUNTRY_MAP = {
+    'switzerland':'Switzerland','swiss':'Switzerland','schweiz':'Switzerland',
+    'germany':'Germany','deutschland':'Germany',
+    'austria':'Austria','france':'France',
+    'uk':'United Kingdom','england':'United Kingdom','britain':'United Kingdom',
+    'usa':'United States','us ':'United States','america':'United States',
+    'japan':'Japan','china':'China','india':'India','brazil':'Brazil',
+    'canada':'Canada','australia':'Australia','spain':'Spain','italy':'Italy',
+    'netherlands':'Netherlands','sweden':'Sweden','norway':'Norway',
+    'korea':'South Korea','mexico':'Mexico','russia':'Russia','turkey':'Turkey',
+    'israel':'Israel','nigeria':'Nigeria','south africa':'South Africa',
+  };
+  let countryFilter = '';
+  if (focus) {
+    const fl = focus.toLowerCase();
+    for (const [key, val] of Object.entries(COUNTRY_MAP)) {
+      if (fl.includes(key)) { countryFilter = ` sourcecountry:"${val}"`; break; }
+    }
+    // Focus as standalone first (broadest), then combined with top 2 base queries
+    queries = [focus, ...queries.slice(0, 2).map(q => focus + ' ' + q), ...queries];
+  }
+
+  let allArticles = [];
+
+  try {
+    // ── GDELT DOC API (free, no key, rate limit: 1 req per 5s) ──
+    const langFilter = ' sourcelang:english';
+    const gdeltDelay = ms => new Promise(r => setTimeout(r, ms));
+    for (let qi = 0; qi < Math.min(queries.length, 3); qi++) {
+      const q = queries[qi];
+      if (qi > 0) await gdeltDelay(5500); // GDELT rate limit: 5s between requests
+      try {
+        const fullQuery = q + langFilter + countryFilter;
+        if (statusEl) statusEl.textContent = `${qi+1}/3`;
+        const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(fullQuery)}&mode=artlist&maxrecords=15&format=json&timespan=30d`;
+        const r = await fetch(gdeltUrl);
+        if (r.ok) {
+          const d = await r.json();
+          if (d.articles) {
+            allArticles.push(...d.articles.map(a => ({
+              title: a.title || '',
+              source: a.domain || a.source || '',
+              date: a.seendate || '',
+              country: a.sourcecountry || '',
+              lang: a.language || '',
+              url: a.url || '',
+              provider: 'GDELT',
+            })));
+          }
+        }
+      } catch { /* single query fail */ }
+    }
+
+    // ── GDELT Tone Digest (compressed sentiment snapshot) ──
+    await gdeltDelay(5500);
+    try {
+      const toneQuery = (focus || queries[0]) + langFilter + countryFilter;
+      const toneUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(toneQuery)}&mode=tonechart&format=json&timespan=30d`;
+      const tr = await fetch(toneUrl);
+      if (tr.ok) {
+        const td = await tr.json();
+        if (td.tonechart) {
+          // Compress into sentiment summary
+          let negCount = 0, neuCount = 0, posCount = 0;
+          let negSample = '', posSample = '';
+          for (const bin of td.tonechart) {
+            const b = parseFloat(bin.bin);
+            const c = bin.count || 0;
+            if (b < -3) { negCount += c; if (!negSample && bin.toparts?.[0]) negSample = bin.toparts[0].title || ''; }
+            else if (b > 3) { posCount += c; if (!posSample && bin.toparts?.[0]) posSample = bin.toparts[0].title || ''; }
+            else neuCount += c;
+          }
+          const total = negCount + neuCount + posCount || 1;
+          const digest = `[Sentiment Digest] Coverage: ${total} articles over 30 days. ` +
+            `Negative: ${Math.round(negCount/total*100)}% | Neutral: ${Math.round(neuCount/total*100)}% | Positive: ${Math.round(posCount/total*100)}%. ` +
+            (negSample ? `Negative example: "${negSample}". ` : '') +
+            (posSample ? `Positive example: "${posSample}".` : '');
+          allArticles.push({
+            title: digest, source: 'GDELT Tone', date: new Date().toISOString().split('T')[0],
+            country: countryFilter ? countryFilter.replace(/ sourcecountry:"|"/g,'') : 'global',
+            lang: 'English', url: '', provider: 'Digest',
+          });
+        }
+      }
+    } catch { /* tone fail */ }
+
+    // ── GDELT Trend (30-day sentiment trajectory) ──
+    await gdeltDelay(5500);
+    try {
+      const trendQuery = (focus || queries[0]) + langFilter + countryFilter;
+      const trendUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(trendQuery)}&mode=timelinetone&format=json&timespan=30d`;
+      const ttr = await fetch(trendUrl);
+      if (ttr.ok) {
+        const ttd = await ttr.json();
+        if (ttd.timeline?.[0]?.data) {
+          const points = ttd.timeline[0].data;
+          const vals = points.map(p => p.value);
+          const avg = vals.reduce((a,b)=>a+b,0) / vals.length;
+          const recent = vals.slice(-7);
+          const recentAvg = recent.reduce((a,b)=>a+b,0) / recent.length;
+          const trend = recentAvg > avg + 0.3 ? 'improving' : recentAvg < avg - 0.3 ? 'deteriorating' : 'stable';
+          const trendLine = `[30-Day Trend] Average tone: ${avg.toFixed(2)}. Last 7 days: ${recentAvg.toFixed(2)} (${trend}). ` +
+            `Range: ${Math.min(...vals).toFixed(2)} to ${Math.max(...vals).toFixed(2)}.`;
+          allArticles.push({
+            title: trendLine, source: 'GDELT Trend', date: new Date().toISOString().split('T')[0],
+            country: '', lang: 'English', url: '', provider: 'Trend',
+          });
+        }
+      }
+    } catch { /* trend fail */ }
+
+    // For research topic, also try OpenAlex
+    if (topic === 'research') {
+      try {
+        const searchTerm = focus || 'behavioral simulation';
+        const oaUrl = `https://api.openalex.org/works?search=${encodeURIComponent(searchTerm)}&per_page=10&sort=publication_date:desc&filter=is_oa:true`;
+        const r = await fetch(oaUrl);
+        if (r.ok) {
+          const d = await r.json();
+          if (d.results) {
+            allArticles.push(...d.results.map(w => ({
+              title: w.display_name || w.title || '',
+              source: w.primary_location?.source?.display_name || 'OpenAlex',
+              date: w.publication_date || '',
+              country: '',
+              url: w.doi ? `https://doi.org/${w.doi.replace('https://doi.org/','')}` : '',
+              cited: w.cited_by_count || 0,
+            })));
+          }
+        }
+      } catch { /* OpenAlex fail */ }
+    }
+
+    if (allArticles.length === 0) {
+      allArticles = [{title: `No English-language results found. Try broader focus terms or remove the focus filter.`, source: '', date: '', provider: 'none'}];
+    }
+
+    // Deduplicate by title
+    const seen = new Set();
+    allArticles = allArticles.filter(a => {
+      const key = a.title.toLowerCase().slice(0, 50);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 15);
+
+    // Format as world context text
+    const focusNote = focus ? ` (focus: "${focus}")` : '';
+    const contextText = `[World Snapshot: ${topic.toUpperCase()}${focusNote} — ${new Date().toISOString().split('T')[0]}]\n\n` +
+      allArticles.map((a, i) => {
+        let line = `${i+1}. ${a.title}`;
+        if (a.source) line += ` (${a.source})`;
+        if (a.date) line += ` [${a.date.slice(0,10)}]`;
+        if (a.cited) line += ` — cited ${a.cited}x`;
+        return line;
+      }).join('\n');
+
+    // Store summary for preview
+    S.snapSummaries[topic] = {articles: allArticles, text: contextText, ts: Date.now(), focus};
+
+    // Store as world doc
+    S.worldDocs.push({name: `snapshot_${topic}${focus ? '_' + focus.replace(/\s+/g,'_').slice(0,20) : ''}.txt`, text: contextText, ts: Date.now(), chars: contextText.length});
+
+    // Push to server
+    const gwUrl = url.gw();
+    try {
+      await fetch(`${gwUrl}/v1/documents`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: contextText, name: `snapshot_${topic}`, role: 'world_context', append: true})
+      });
+    } catch { /* offline */ }
+
+    // Embed for RAG
+    await embedStore(contextText, 'world', 'document', (done, total) => {
+      if (statusEl) statusEl.textContent = `${done}/${total}`;
+    });
+
+    detectContextCategories(contextText);
+
+    row.classList.remove('loading');
+    row.classList.add('loaded');
+    if (statusEl) { statusEl.textContent = allArticles.length + ''; statusEl.style.color = 'var(--a)'; }
+    if (expandBtn) expandBtn.style.display = '';
+    if (summaryEl) {
+      summaryEl.innerHTML = allArticles.map((a, i) =>
+        `<div style="padding:3px 0;${i<allArticles.length-1?'border-bottom:1px solid var(--bd)':''}">` +
+        `<span style="color:var(--t1)">${a.title}</span>` +
+        (a.source ? ` <span style="opacity:.4">${a.source}</span>` : '') +
+        (a.country ? ` <span style="opacity:.3">${a.country}</span>` : '') +
+        (a.date ? ` <span style="opacity:.3">${a.date.slice(0,10)}</span>` : '') +
+        (a.cited ? ` <span style="color:var(--a)">cited ${a.cited}x</span>` : '') +
+        (a.provider ? ` <span style="padding:0 3px;border:1px solid var(--bd);border-radius:2px;font-size:7px;opacity:.4">${a.provider}</span>` : '') +
+        `</div>`
+      ).join('');
+    }
+    if (progressEl) progressEl.textContent = '';
+    renderWorldDocs();
+    refreshWorldStats();
+
+  } catch (e) {
+    row.classList.remove('loading');
+    if (statusEl) { statusEl.textContent = 'err'; statusEl.style.color = 'var(--r)'; }
+    if (progressEl) progressEl.textContent = e.message;
+  }
+}
+
+function toggleSnapSummary(topic) {
+  const capTopic = topic.charAt(0).toUpperCase() + topic.slice(1);
+  const summaryEl = document.getElementById('summary' + capTopic);
+  const expandBtn = document.getElementById('expand' + capTopic);
+  if (!summaryEl) return;
+  const open = summaryEl.style.display !== 'none';
+  summaryEl.style.display = open ? 'none' : '';
+  if (expandBtn) expandBtn.classList.toggle('open', !open);
+}
+
+// ── WORLD SNAPSHOT COLLECTOR (multi-provider, single pass) ──
+
+async function runSnapshotCollector() {
+  const progressEl = document.getElementById('snapProgress');
+  const digestEl = document.getElementById('collectorDigest');
+  const bulletsEl = document.getElementById('collectorBullets');
+  const statsEl = document.getElementById('collectorStats');
+  const tsEl = document.getElementById('collectorTs');
+  const newsKey = document.getElementById('newsDataKey')?.value?.trim();
+
+  progressEl.textContent = 'collecting...';
+  digestEl.style.display = 'none';
+
+  // Get focus from all individual snapshot fields
+  const globalFocus = Array.from(document.querySelectorAll('.snapshot-focus'))
+    .map(f => f.value.trim()).filter(Boolean).join(', ') || '';
+
+  const sections = [];
+  const stats = {providers: 0, articles: 0, indicators: 0, papers: 0};
+  const today = new Date().toISOString().split('T')[0];
+
+  // Detect country from any focus field
+  let country = '';
+  let countryCode = '';
+  const focusFields = Array.from(document.querySelectorAll('.snapshot-focus')).map(f=>f.value.trim().toLowerCase());
+  const CC_MAP = {
+    'switzerland':['CHE','Switzerland'],'schweiz':['CHE','Switzerland'],'germany':['DEU','Germany'],
+    'austria':['AUT','Austria'],'france':['FRA','France'],'uk':['GBR','United Kingdom'],
+    'usa':['USA','United States'],'japan':['JPN','Japan'],'china':['CHN','China'],
+    'india':['IND','India'],'brazil':['BRA','Brazil'],'canada':['CAN','Canada'],
+    'australia':['AUS','Australia'],'italy':['ITA','Italy'],'spain':['ESP','Spain'],
+    'netherlands':['NLD','Netherlands'],'sweden':['SWE','Sweden'],'korea':['KOR','South Korea'],
+    'mexico':['MEX','Mexico'],'nigeria':['NGA','Nigeria'],'south africa':['ZAF','South Africa'],
+  };
+  for (const f of focusFields) {
+    for (const [key, [code, name]] of Object.entries(CC_MAP)) {
+      if (f.includes(key)) { countryCode = code; country = name; break; }
+    }
+    if (country) break;
+  }
+
+  try {
+    // ── 1. GDELT: top headlines per topic (parallel) ──
+    progressEl.textContent = '1/5 GDELT headlines...';
+    const gdeltTopics = ['social trends','health policy','technology regulation','economic outlook','political developments','climate environment'];
+    const gdeltDelay = ms => new Promise(r => setTimeout(r, ms));
+    const gdeltArticles = [];
+    for (let gi = 0; gi < gdeltTopics.length; gi++) {
+      if (gi > 0) await gdeltDelay(5500);
+      progressEl.textContent = `1/5 GDELT ${gi+1}/${gdeltTopics.length}...`;
+      const query = (globalFocus ? globalFocus + ' ' : '') + gdeltTopics[gi] + ' sourcelang:english' + (country ? ` sourcecountry:"${country}"` : '');
+      try {
+        const r = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&maxrecords=5&format=json&timespan=30d`);
+        if (r.ok) { const d = await r.json(); if (d.articles) gdeltArticles.push(...d.articles); }
+      } catch {}
+    }
+    // Deduplicate
+    const seen = new Set();
+    const uniqueArticles = gdeltArticles.filter(a => {
+      const k = (a.title||'').toLowerCase().slice(0,40);
+      if (seen.has(k)) return false; seen.add(k); return true;
+    }).slice(0, 20);
+
+    if (uniqueArticles.length) {
+      stats.articles += uniqueArticles.length;
+      stats.providers++;
+      sections.push({
+        label: 'Current Events',
+        provider: 'GDELT',
+        bullets: uniqueArticles.map(a => a.title + (a.sourcecountry ? ` (${a.sourcecountry})` : '')),
+      });
+    }
+
+    // ── 2. GDELT: sentiment digest ──
+    await gdeltDelay(5500);
+    progressEl.textContent = '2/5 GDELT sentiment...';
+    try {
+      const sentQuery = (globalFocus || 'world news') + ' sourcelang:english' + (country ? ` sourcecountry:"${country}"` : '');
+      const sr = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(sentQuery)}&mode=tonechart&format=json&timespan=30d`);
+      if (sr.ok) {
+        const sd = await sr.json();
+        if (sd.tonechart) {
+          let neg=0,neu=0,pos=0;
+          for (const bin of sd.tonechart) {
+            const b=parseFloat(bin.bin), c=bin.count||0;
+            if(b<-3) neg+=c; else if(b>3) pos+=c; else neu+=c;
+          }
+          const total=neg+neu+pos||1;
+          sections.push({
+            label: 'Media Sentiment (30 days)',
+            provider: 'GDELT',
+            bullets: [
+              `Coverage: ${total.toLocaleString()} articles analyzed`,
+              `Negative: ${Math.round(neg/total*100)}% | Neutral: ${Math.round(neu/total*100)}% | Positive: ${Math.round(pos/total*100)}%`,
+              neg/total > 0.4 ? 'Predominantly negative coverage — tension or crisis framing' :
+              pos/total > 0.4 ? 'Predominantly positive coverage — optimistic or constructive framing' :
+              'Balanced coverage — mixed signals, no dominant narrative',
+            ],
+          });
+        }
+      }
+    } catch {}
+
+    // ── 3. GDELT: 30-day trend ──
+    try {
+      const trendQuery = (globalFocus || 'world') + ' sourcelang:english' + (country ? ` sourcecountry:"${country}"` : '');
+      const tr = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(trendQuery)}&mode=timelinetone&format=json&timespan=30d`);
+      if (tr.ok) {
+        const td = await tr.json();
+        if (td.timeline?.[0]?.data) {
+          const vals = td.timeline[0].data.map(p=>p.value);
+          const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+          const recent = vals.slice(-7);
+          const recentAvg = recent.reduce((a,b)=>a+b,0)/recent.length;
+          const dir = recentAvg > avg+0.3 ? 'improving' : recentAvg < avg-0.3 ? 'worsening' : 'stable';
+          sections.push({
+            label: 'Sentiment Trend',
+            provider: 'GDELT',
+            bullets: [
+              `30-day average tone: ${avg.toFixed(2)} (${avg>0?'slightly positive':'slightly negative'})`,
+              `Last 7 days: ${recentAvg.toFixed(2)} — ${dir}`,
+              `Volatility range: ${Math.min(...vals).toFixed(2)} to ${Math.max(...vals).toFixed(2)}`,
+            ],
+          });
+        }
+      }
+    } catch {}
+
+    // ── 4. World Bank: demographics + economics ──
+    progressEl.textContent = '3/5 World Bank...';
+    if (countryCode) {
+      const indicators = [
+        ['SP.POP.TOTL', 'Population'],
+        ['SP.POP.GROW', 'Population growth %'],
+        ['NY.GDP.PCAP.CD', 'GDP per capita (USD)'],
+        ['SL.UEM.TOTL.ZS', 'Unemployment %'],
+        ['SH.XPD.CHEX.PC.CD', 'Health expenditure per capita'],
+        ['IT.NET.USER.ZS', 'Internet users %'],
+        ['SE.ADT.LITR.ZS', 'Literacy rate %'],
+      ];
+      const wbBullets = [];
+      const wbPromises = indicators.map(async ([id, label]) => {
+        try {
+          const r = await fetch(`https://api.worldbank.org/v2/country/${countryCode}/indicator/${id}?format=json&per_page=1&date=2020:2025&mrv=1`);
+          if (r.ok) {
+            const d = await r.json();
+            const val = d[1]?.[0]?.value;
+            const year = d[1]?.[0]?.date;
+            if (val != null) {
+              stats.indicators++;
+              const formatted = val > 1000000 ? (val/1000000).toFixed(1)+'M' : val > 1000 ? (val/1000).toFixed(1)+'K' : typeof val === 'number' ? val.toFixed(1) : val;
+              return `${label}: ${formatted} (${year})`;
+            }
+          }
+        } catch {}
+        return null;
+      });
+      const wbResults = await Promise.all(wbPromises);
+      wbResults.filter(Boolean).forEach(b => wbBullets.push(b));
+      if (wbBullets.length) {
+        stats.providers++;
+        sections.push({
+          label: `${country} — Key Indicators`,
+          provider: 'World Bank',
+          bullets: wbBullets,
+        });
+      }
+    }
+
+    // ── 5. OpenAlex: recent research ──
+    progressEl.textContent = '4/5 OpenAlex research...';
+    try {
+      const searchTerm = globalFocus || 'behavioral simulation';
+      const oaUrl = `https://api.openalex.org/works?search=${encodeURIComponent(searchTerm)}&per_page=8&sort=publication_date:desc&filter=is_oa:true`;
+      const oar = await fetch(oaUrl);
+      if (oar.ok) {
+        const oad = await oar.json();
+        if (oad.results?.length) {
+          stats.papers += oad.results.length;
+          stats.providers++;
+          sections.push({
+            label: 'Recent Research',
+            provider: 'OpenAlex',
+            bullets: oad.results.map(w => {
+              const cite = w.cited_by_count ? ` (cited ${w.cited_by_count}x)` : '';
+              const year = w.publication_date ? ` [${w.publication_date.slice(0,4)}]` : '';
+              return (w.display_name || w.title) + year + cite;
+            }),
+          });
+        }
+      }
+    } catch {}
+
+    // ── 6. NewsData.io (if key provided) ──
+    if (newsKey) {
+      progressEl.textContent = '5/5 NewsData.io...';
+      try {
+        const ndQuery = globalFocus || 'world';
+        const ndUrl = `https://newsdata.io/api/1/latest?apikey=${newsKey}&q=${encodeURIComponent(ndQuery)}&language=en&size=10${country ? '&country=' + countryCode.slice(0,2).toLowerCase() : ''}`;
+        const ndr = await fetch(ndUrl);
+        if (ndr.ok) {
+          const ndd = await ndr.json();
+          if (ndd.results?.length) {
+            stats.articles += ndd.results.length;
+            stats.providers++;
+            sections.push({
+              label: 'News Headlines',
+              provider: 'NewsData.io',
+              bullets: ndd.results.map(a => a.title + (a.source_name ? ` (${a.source_name})` : '')),
+            });
+          }
+        }
+      } catch {}
+    }
+
+    // ── 7. Reddit (public subreddits, no auth needed) ──
+    progressEl.textContent = '6/8 Reddit...';
+    const TOPIC_SUBREDDITS = {
+      social: 'sociology', health: 'psychology', tech: 'technology',
+      economy: 'economics', politics: 'geopolitics', environment: 'climate',
+      demographics: 'dataisbeautiful', research: 'science',
+    };
+    try {
+      // Pick subreddit from the first individual focus topic, or fallback
+      const focusTopics = Array.from(document.querySelectorAll('.snapshot-row'))
+        .filter(r => r.classList.contains('loaded') || document.getElementById('focus' + r.dataset.topic.charAt(0).toUpperCase() + r.dataset.topic.slice(1))?.value)
+        .map(r => r.dataset.topic);
+      const subreddit = TOPIC_SUBREDDITS[focusTopics[0]] || (globalFocus ? globalFocus.split(' ')[0] : 'worldnews');
+      const redditUrl = `https://www.reddit.com/r/${subreddit}/hot.json?limit=10&raw_json=1`;
+      const rr = await fetch(redditUrl, {headers: {'User-Agent': 'dualmirakl/1.0'}});
+      if (rr.ok) {
+        const rd = await rr.json();
+        if (rd.data?.children?.length) {
+          const posts = rd.data.children
+            .filter(c => !c.data.stickied)
+            .slice(0, 8)
+            .map(c => ({
+              title: c.data.title,
+              score: c.data.score,
+              comments: c.data.num_comments,
+            }));
+          if (posts.length) {
+            stats.articles += posts.length;
+            stats.providers++;
+            sections.push({
+              label: `Public Discussion (r/${subreddit})`,
+              provider: 'Reddit',
+              bullets: posts.map(p => `[${p.score} pts, ${p.comments} comments] ${p.title}`),
+            });
+          }
+        }
+      }
+    } catch { /* reddit fail */ }
+
+    // ── 8. Hacker News (tech community pulse) ──
+    progressEl.textContent = '7/8 Hacker News...';
+    try {
+      const hnr = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
+      if (hnr.ok) {
+        const hnIds = await hnr.json();
+        const hnItems = await Promise.all(
+          hnIds.slice(0, 8).map(id =>
+            fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r => r.ok ? r.json() : null)
+          )
+        );
+        const hnPosts = hnItems.filter(Boolean).map(i => ({
+          title: i.title || '',
+          score: i.score || 0,
+          comments: i.descendants || 0,
+        }));
+        if (hnPosts.length) {
+          stats.articles += hnPosts.length;
+          stats.providers++;
+          sections.push({
+            label: 'Tech Community Pulse',
+            provider: 'Hacker News',
+            bullets: hnPosts.map(p => `[${p.score} pts] ${p.title}`),
+          });
+        }
+      }
+    } catch { /* hn fail */ }
+
+    // ── 9. arXiv (cutting-edge preprints) ──
+    progressEl.textContent = '8/8 arXiv...';
+    try {
+      const arxivQuery = globalFocus || 'multi-agent simulation';
+      const axr = await fetch(`https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(arxivQuery)}&start=0&max_results=6&sortBy=submittedDate&sortOrder=descending`);
+      if (axr.ok) {
+        const axText = await axr.text();
+        const parser = new DOMParser();
+        const axDoc = parser.parseFromString(axText, 'text/xml');
+        const entries = axDoc.querySelectorAll('entry');
+        if (entries.length) {
+          const papers = Array.from(entries).map(e => {
+            const title = e.querySelector('title')?.textContent?.replace(/\s+/g,' ').trim() || '';
+            const published = e.querySelector('published')?.textContent?.slice(0,10) || '';
+            const summary = e.querySelector('summary')?.textContent?.replace(/\s+/g,' ').trim().slice(0, 120) || '';
+            return {title, published, summary};
+          });
+          stats.papers += papers.length;
+          stats.providers++;
+          sections.push({
+            label: 'Latest Preprints',
+            provider: 'arXiv',
+            bullets: papers.map(p => `${p.title} [${p.published}] — ${p.summary}...`),
+          });
+        }
+      }
+    } catch { /* arxiv fail */ }
+
+    // ── Build unified digest ──
+    const fullText = sections.map(s =>
+      `[${s.label}] (${s.provider})\n` + s.bullets.map((b,i) => `  ${i+1}. ${b}`).join('\n')
+    ).join('\n\n');
+
+    const contextText = `[World Snapshot Digest — ${today}${country ? ' — ' + country : ''}${globalFocus ? ' — focus: ' + globalFocus : ''}]\n\n${fullText}`;
+
+    // Store + embed in one pass
+    S.worldDocs.push({name: `collector_${today}.txt`, text: contextText, ts: Date.now(), chars: contextText.length});
+
+    const gwUrl = url.gw();
+    try {
+      await fetch(`${gwUrl}/v1/documents`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: contextText, name: `collector_${today}`, role: 'world_context', append: true})
+      });
+    } catch {}
+
+    progressEl.textContent = 'embedding...';
+    await embedStore(contextText, 'world', 'document', (done, total) => {
+      progressEl.textContent = `embedding ${done}/${total}`;
+    });
+
+    detectContextCategories(contextText);
+    renderWorldDocs();
+    refreshWorldStats();
+
+    // Render digest
+    digestEl.style.display = '';
+    tsEl.textContent = today + (country ? ' · ' + country : '');
+    bulletsEl.innerHTML = sections.map(s =>
+      `<div style="margin-bottom:10px">` +
+      `<div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--a);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">${s.label} <span style="color:var(--t2);font-size:7px;border:1px solid var(--bd);padding:0 3px;border-radius:2px;margin-left:4px">${s.provider}</span></div>` +
+      s.bullets.map(b => `<div style="padding:1px 0;padding-left:10px;position:relative"><span style="position:absolute;left:0;color:var(--t2)">·</span>${b}</div>`).join('') +
+      `</div>`
+    ).join('');
+
+    statsEl.innerHTML = `<span>${stats.providers} providers</span><span>${stats.articles} articles</span><span>${stats.indicators} indicators</span><span>${stats.papers} papers</span><span>${Math.round(contextText.length/1000)}k chars</span>`;
+
+    progressEl.textContent = 'done';
+    setTimeout(() => { progressEl.textContent = ''; }, 3000);
+
+    // Mark individual snapshot rows as loaded
+    document.querySelectorAll('.snapshot-row').forEach(r => r.classList.add('loaded'));
+
+  } catch (e) {
+    progressEl.textContent = 'error: ' + e.message;
+    setTimeout(() => { progressEl.textContent = ''; }, 5000);
+  }
+}
+
+async function fetchAllSnapshots() {
+  const rows = document.querySelectorAll('.snapshot-row');
+  const topics = Array.from(rows).map(r => r.dataset.topic);
+  const progressEl = document.getElementById('snapProgress');
+  for (let i = 0; i < topics.length; i++) {
+    if (progressEl) progressEl.textContent = `${i+1}/${topics.length}: ${topics[i]}`;
+    await fetchSnapshot(topics[i]);
+  }
+  if (progressEl) progressEl.textContent = 'all done';
+  setTimeout(() => { if (progressEl) progressEl.textContent = ''; }, 3000);
+}
+
+// ── CLEAR ALL + INSIGHT ──
+
+async function clearAllWorldData() {
+  if (!confirm('Clear all world documents, snapshots, embeddings, and notes?')) return;
+  S.worldDocs = [];
+  S.snapSummaries = {};
+  S.embeds = S.embeds.filter(e => e.role !== 'document');
+  document.getElementById('worldNotes').value = '';
+  document.getElementById('collectorDigest').style.display = 'none';
+  document.getElementById('worldInsightPanel').style.display = 'none';
+  document.getElementById('worldOntology').style.display = 'none';
+  document.getElementById('insightBtn').style.display = 'none';
+  document.getElementById('extractBtn').style.display = 'none';
+  // Reset snapshot rows
+  document.querySelectorAll('.snapshot-row').forEach(r => {
+    r.classList.remove('loaded','loading');
+    const cap = r.dataset.topic.charAt(0).toUpperCase() + r.dataset.topic.slice(1);
+    const st = document.getElementById('snap' + cap);
+    if (st) { st.textContent = ''; st.style.color = ''; }
+    const sum = document.getElementById('summary' + cap);
+    if (sum) sum.style.display = 'none';
+    const exp = document.getElementById('expand' + cap);
+    if (exp) exp.style.display = 'none';
+  });
+  // Reset context category dots
+  ['Scenario','Population','Outcome','Intervention','Temporal'].forEach(c => {
+    const dot = document.getElementById('wcDot' + c);
+    const st = document.getElementById('wcStatus' + c);
+    if (dot) dot.className = 'dot off';
+    if (st) { st.textContent = c === 'Intervention' || c === 'Temporal' ? 'optional' : 'missing'; st.style.color = 'var(--t2)'; }
+  });
+  renderWorldDocs();
+  refreshWorldStats();
+  updEmbedCnt();
+  // Try to clear server-side too
+  try { await fetch(`${url.gw()}/v1/documents`, {method: 'DELETE'}); } catch {}
+}
+
+function openWorldInsight() {
+  const panel = document.getElementById('worldInsightPanel');
+  const content = document.getElementById('worldInsightContent');
+  panel.style.display = '';
+
+  // Build insight from all sources
+  let html = '';
+
+  // Documents
+  if (S.worldDocs.length) {
+    html += `<div style="margin-bottom:12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Documents (${S.worldDocs.length})</div>`;
+    S.worldDocs.forEach(d => {
+      html += `<div style="padding:3px 0;border-bottom:1px solid var(--bd);display:flex;gap:8px;align-items:baseline">
+        <span style="color:var(--a);font-size:10px">${d.name}</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">${(d.chars/1000).toFixed(1)}k chars</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);opacity:.5">${new Date(d.ts).toLocaleString()}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // Snapshot summaries by provider
+  const providers = {};
+  Object.entries(S.snapSummaries).forEach(([topic, data]) => {
+    if (!data.articles) return;
+    data.articles.forEach(a => {
+      const prov = a.provider || 'GDELT';
+      if (!providers[prov]) providers[prov] = [];
+      providers[prov].push({...a, topic});
+    });
+  });
+
+  // Also gather from collector digest
+  const digestEl = document.getElementById('collectorBullets');
+  if (digestEl && digestEl.innerHTML) {
+    html += `<div style="margin-bottom:12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Collector Digest</div>
+      <div style="font-size:10px;color:var(--t2);line-height:1.6">${digestEl.innerHTML}</div>
+    </div>`;
+  }
+
+  if (Object.keys(providers).length) {
+    html += `<div style="margin-bottom:12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Snapshot Sources</div>`;
+    for (const [prov, items] of Object.entries(providers)) {
+      html += `<div style="margin-bottom:8px">
+        <span style="display:inline-block;padding:1px 5px;border:1px solid var(--bd);border-radius:2px;font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--a);margin-bottom:3px">${prov} (${items.length})</span>`;
+      items.slice(0, 5).forEach(a => {
+        html += `<div style="padding:1px 0;font-size:10px;color:var(--t2);padding-left:8px">· ${a.title?.slice(0,80)}${a.title?.length > 80 ? '...' : ''}</div>`;
+      });
+      if (items.length > 5) html += `<div style="padding-left:8px;font-size:9px;color:var(--t2);opacity:.5">...and ${items.length - 5} more</div>`;
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  // RAG stats
+  const docChunks = S.embeds.filter(e => e.role === 'document').length;
+  html += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd);font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">
+    Total: ${S.worldDocs.length} docs · ${docChunks} embedded chunks · ${Object.keys(S.snapSummaries).length} snapshot topics
+  </div>`;
+
+  if (!html) html = '<span style="opacity:.5">No world data collected yet. Upload documents or run the snapshot collector.</span>';
+  content.innerHTML = html;
+}
+
+// Show insight button when we have data
+function updateInsightBtn() {
+  const btn = document.getElementById('insightBtn');
+  if (btn) btn.style.display = (S.worldDocs.length || Object.keys(S.snapSummaries).length) ? '' : 'none';
+}
+
+// ── WORLD NOTES ──
+
+// Update char counter live
+document.getElementById('worldNotes')?.addEventListener('input', function() {
+  document.getElementById('worldNotesLen').textContent = this.value.length + ' chars';
+  document.getElementById('worldNotesSaved').style.display = 'none';
+});
+
+async function saveWorldNotes() {
+  const text = document.getElementById('worldNotes').value.trim();
+  if (!text) return;
+  const gwUrl = url.gw();
+  try {
+    await fetch(`${gwUrl}/v1/documents`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text, name: 'world_notes', role: 'world_context', append: true})
+    });
+  } catch { /* offline */ }
+  // Also embed for RAG
+  await embedStore(text, 'world', 'document');
+  // Detect categories from notes too
+  detectContextCategories(text);
+  refreshWorldStats();
+  const saved = document.getElementById('worldNotesSaved');
+  saved.style.display = '';
+  setTimeout(() => { saved.style.display = 'none'; }, 2000);
+}
+
+// ── ARCHETYPE EDITORS ──
+
+// Inline sim config archetypes
+function renderSpArchetypes(archs) {
+  const container = document.getElementById('spArchetypes');
+  // Keep header row
+  const header = container.children[0];
+  container.innerHTML = '';
+  container.appendChild(header);
+  archs.forEach((a, i) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:40px 1fr 42px 42px 40px 20px;gap:4px;margin-bottom:2px';
+    row.innerHTML = `
+      <input type="text" class="sp-arch-id" value="${a.id}" style="font-size:9px;padding:2px 3px;font-family:'JetBrains Mono',monospace">
+      <input type="text" class="sp-arch-label" value="${a.label}" style="font-size:9px;padding:2px 3px">
+      <select class="sp-arch-susc" style="font-size:8px;padding:2px 1px"><option value="high" ${a.susc==='high'?'selected':''}>hi</option><option value="medium" ${a.susc==='medium'?'selected':''}>md</option><option value="low" ${a.susc==='low'?'selected':''}>lo</option></select>
+      <select class="sp-arch-res" style="font-size:8px;padding:2px 1px"><option value="low" ${a.res==='low'?'selected':''}>lo</option><option value="medium" ${a.res==='medium'?'selected':''}>md</option><option value="high" ${a.res==='high'?'selected':''}>hi</option></select>
+      <input type="number" class="sp-arch-pct" value="${a.pct}" min="0" max="100" step="5" style="font-size:9px;padding:2px 3px" oninput="updateSpArchSum()">
+      <button onclick="this.parentElement.remove();updateSpArchSum()" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:10px;padding:0">&times;</button>
+    `;
+    container.appendChild(row);
+  });
+  updateSpArchSum();
+}
+
+function addSpArchetype() {
+  const container = document.getElementById('spArchetypes');
+  const n = container.querySelectorAll('.sp-arch-id').length;
+  const row = document.createElement('div');
+  row.style.cssText = 'display:grid;grid-template-columns:40px 1fr 42px 42px 40px 20px;gap:4px;margin-bottom:2px';
+  row.innerHTML = `
+    <input type="text" class="sp-arch-id" value="K${n+1}" style="font-size:9px;padding:2px 3px;font-family:'JetBrains Mono',monospace">
+    <input type="text" class="sp-arch-label" value="Custom" style="font-size:9px;padding:2px 3px">
+    <select class="sp-arch-susc" style="font-size:8px;padding:2px 1px"><option value="high">hi</option><option value="medium" selected>md</option><option value="low">lo</option></select>
+    <select class="sp-arch-res" style="font-size:8px;padding:2px 1px"><option value="low">lo</option><option value="medium" selected>md</option><option value="high">hi</option></select>
+    <input type="number" class="sp-arch-pct" value="0" min="0" max="100" step="5" style="font-size:9px;padding:2px 3px" oninput="updateSpArchSum()">
+    <button onclick="this.parentElement.remove();updateSpArchSum()" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:10px;padding:0">&times;</button>
+  `;
+  container.appendChild(row);
+  updateSpArchSum();
+}
+
+function updateSpArchSum() {
+  const pcts = Array.from(document.querySelectorAll('.sp-arch-pct')).map(el => parseInt(el.value)||0);
+  const sum = pcts.reduce((a,b)=>a+b, 0);
+  const el = document.getElementById('spArchSum');
+  if (el) {
+    el.textContent = sum + '%';
+    el.style.color = sum === 100 ? 'var(--a)' : 'var(--r)';
+  }
+}
+
+function getSpArchetypes() {
+  const ids = document.querySelectorAll('.sp-arch-id');
+  const labels = document.querySelectorAll('.sp-arch-label');
+  const suscs = document.querySelectorAll('.sp-arch-susc');
+  const ress = document.querySelectorAll('.sp-arch-res');
+  const pcts = document.querySelectorAll('.sp-arch-pct');
+  const archs = [];
+  for (let i = 0; i < ids.length; i++) {
+    archs.push({
+      id: ids[i].value, label: labels[i].value,
+      susc: suscs[i].value, res: ress[i].value,
+      pct: parseInt(pcts[i].value)||0,
+    });
+  }
+  return archs;
+}
+
+// New Scenario modal archetypes
+function addArchetypeRow() {
+  const container = document.getElementById('nsArchetypes');
+  const n = container.querySelectorAll('.ns-arch-id').length;
+  const row = document.createElement('div');
+  row.className = 'arch-row';
+  row.style.cssText = 'display:grid;grid-template-columns:60px 1fr 50px 50px 50px;gap:6px';
+  row.innerHTML = `
+    <input type="text" class="ns-arch-id" value="K${n+1}" style="font-size:9px;padding:3px 4px">
+    <input type="text" class="ns-arch-label" value="Custom" style="font-size:9px;padding:3px 4px">
+    <select class="ns-arch-susc" style="font-size:9px;padding:3px 2px"><option value="high">high</option><option value="medium" selected>med</option><option value="low">low</option></select>
+    <select class="ns-arch-res" style="font-size:9px;padding:3px 2px"><option value="low">low</option><option value="medium" selected>med</option><option value="high">high</option></select>
+    <input type="number" class="ns-arch-pct" value="0" min="0" max="100" step="5" style="font-size:9px;padding:3px 4px" oninput="updateNsArchSum()">
+  `;
+  container.appendChild(row);
+  updateNsArchSum();
+}
+
+function updateNsArchSum() {
+  const pcts = Array.from(document.querySelectorAll('.ns-arch-pct')).map(el => parseInt(el.value)||0);
+  const sum = pcts.reduce((a,b)=>a+b, 0);
+  const el = document.getElementById('nsArchSum');
+  if (el) {
+    el.textContent = 'sum: ' + sum + '%';
+    el.style.color = sum === 100 ? 'var(--a)' : 'var(--r)';
+  }
+}
+
+// Wire archetype data into scenario presets
+const SCENARIO_ARCHETYPES = {
+  'scenarios/social_dynamics.yaml': [
+    {id:'K1', label:'High-susceptibility', susc:'high', res:'low', pct:25},
+    {id:'K2', label:'Moderate', susc:'medium', res:'medium', pct:50},
+    {id:'K3', label:'Resilient', susc:'low', res:'high', pct:25},
+  ],
+  'scenarios/market_ecosystem.yaml': [
+    {id:'K1', label:'Panic-prone', susc:'high', res:'low', pct:20},
+    {id:'K2', label:'Herd-follower', susc:'medium', res:'low', pct:40},
+    {id:'K3', label:'Contrarian', susc:'low', res:'high', pct:20},
+    {id:'K4', label:'Market-maker', susc:'low', res:'medium', pct:20},
+  ],
+  'scenarios/network_resilience.yaml': [
+    {id:'K1', label:'Fragile node', susc:'high', res:'low', pct:20},
+    {id:'K2', label:'Standard node', susc:'medium', res:'medium', pct:50},
+    {id:'K3', label:'Hardened node', susc:'low', res:'high', pct:30},
+  ],
+  'scenarios/minimal.yaml': [
+    {id:'K1', label:'Agent A', susc:'medium', res:'medium', pct:50},
+    {id:'K2', label:'Agent B', susc:'medium', res:'medium', pct:50},
+  ],
+};
+
+// ── CHAT COMMAND PARSER ──
+
+function parseChatCommand(text) {
+  const t = text.toLowerCase().trim();
+
+  // Direct parameter setters
+  const paramPatterns = [
+    {re: /set\s+alpha\s+(?:to\s+)?(\d*\.?\d+)/i, param: 'spAlpha'},
+    {re: /set\s+(?:kappa|coupling)\s+(?:to\s+)?(-?\d*\.?\d+)/i, param: 'spKappa'},
+    {re: /set\s+ticks?\s+(?:to\s+)?(\d+)/i, param: 'spTicks'},
+    {re: /set\s+(?:agents?|participants?)\s+(?:to\s+)?(\d+)/i, param: 'spAgents'},
+    {re: /set\s+threshold\s+(?:to\s+)?(\d*\.?\d+)/i, param: 'spThreshold'},
+    {re: /set\s+dampen(?:ing)?\s+(?:to\s+)?(\d*\.?\d+)/i, param: 'spDampen'},
+    {re: /set\s+(?:observer\s+)?k\s+(?:to\s+)?(\d+)/i, param: 'spK'},
+    {re: /set\s+mode\s+(?:to\s+)?(ema|logistic)/i, param: 'spScoreMode'},
+    {re: /set\s+tick\s*(?:unit)?\s+(?:to\s+)?(hour|week|month|year)/i, param: 'spTickUnit'},
+  ];
+  for (const pp of paramPatterns) {
+    const m = text.match(pp.re);
+    if (m) return {type: 'set_param', param: pp.param, value: m[1]};
+  }
+
+  // Scenario switching
+  const scenarioMatch = t.match(/(?:use|switch|load)\s+(?:scenario\s+)?(\S+)/);
+  if (scenarioMatch) {
+    const name = scenarioMatch[1].replace(/\.yaml$/, '');
+    return {type: 'switch_scenario', name};
+  }
+
+  // Run commands
+  if (/^run\s+pipeline\s*(?:with\s+)?(\d+)?\s*(?:runs?)?$/i.test(t)) {
+    const m = t.match(/(\d+)/);
+    return {type: 'run_pipeline', n_runs: m ? parseInt(m[1]) : null};
+  }
+  if (/^run\s+(?:sim(?:ulation)?|single)/i.test(t)) return {type: 'run_sim'};
+
+  // Fetch commands
+  if (/^(?:fetch|collect)\s+(?:world|snapshot|all)/i.test(t)) return {type: 'collect_world'};
+  const fetchMatch = t.match(/^fetch\s+(?:snapshot\s+)?(\w+)/i);
+  if (fetchMatch) return {type: 'fetch_topic', topic: fetchMatch[1]};
+
+  // Context/world notes
+  if (/^(?:this\s+is\s+about|context:|topic:|the\s+simulation\s+is\s+about)\s+(.+)/i.test(text)) {
+    const m = text.match(/^(?:this\s+is\s+about|context:|topic:|the\s+simulation\s+is\s+about)\s+(.+)/i);
+    return {type: 'set_context', text: m[1]};
+  }
+
+  // Suggestions
+  if (/^(?:suggest|suggestions?|what\s+should\s+I\s+(?:adjust|change|set)|review\s+(?:my\s+)?(?:config|setup|specs))/i.test(t)) {
+    return {type: 'suggest'};
+  }
+
+  // Not a command — return null, proceed to normal LLM chat
+  return null;
+}
+
+async function executeChatCommand(cmd, originalText) {
+  switch (cmd.type) {
+    case 'set_param': {
+      const el = document.getElementById(cmd.param);
+      if (!el) return `Parameter ${cmd.param} not found.`;
+      const old = el.value;
+      el.value = cmd.value;
+      updateTimeEstimate();
+      updateSpArchSum();
+      switchMode('sim'); switchSimSub('specs');
+      return `**Updated ${cmd.param.replace('sp','').toLowerCase()}:** ${old} → ${cmd.value}`;
+    }
+    case 'switch_scenario': {
+      const sel = document.getElementById('simScenario');
+      const opt = Array.from(sel.options).find(o => o.value.includes(cmd.name) || o.textContent.includes(cmd.name));
+      if (opt) {
+        sel.value = opt.value;
+        loadScenarioPreset();
+        switchMode('sim'); switchSimSub('specs');
+        return `**Switched scenario to:** ${opt.textContent}`;
+      }
+      return `Scenario "${cmd.name}" not found. Available: ${Array.from(sel.options).map(o => o.textContent).join(', ')}`;
+    }
+    case 'run_sim':
+      switchMode('sim');
+      setSimMode('single');
+      setTimeout(() => startSimulation(), 300);
+      return '**Starting single simulation run...**';
+    case 'run_pipeline': {
+      switchMode('sim');
+      setSimMode('pipeline');
+      if (cmd.n_runs) document.getElementById('simNRuns').value = cmd.n_runs;
+      setTimeout(() => startPipeline(), 300);
+      return `**Starting pipeline** with ${cmd.n_runs || document.getElementById('simNRuns').value} ensemble runs...`;
+    }
+    case 'collect_world':
+      switchMode('sim'); switchSimSub('world');
+      setTimeout(() => runSnapshotCollector(), 300);
+      return '**Collecting world snapshot** from all providers...';
+    case 'fetch_topic':
+      switchMode('sim'); switchSimSub('world');
+      setTimeout(() => fetchSnapshot(cmd.topic), 300);
+      return `**Fetching "${cmd.topic}" snapshot...**`;
+    case 'set_context': {
+      const notes = document.getElementById('worldNotes');
+      const existing = notes.value.trim();
+      notes.value = existing ? existing + '\n\n' + cmd.text : cmd.text;
+      await saveWorldNotes();
+      switchMode('sim'); switchSimSub('world');
+      return `**Added to world context:** "${cmd.text}"\n\nContext categories updated.`;
+    }
+    case 'suggest':
+      switchMode('sim'); switchSimSub('specs');
+      setTimeout(() => getSuggestions(), 300);
+      return '**Requesting data-grounded suggestions** from authority...';
+    default:
+      return `Unknown command type: ${cmd.type}`;
+  }
+}
+
+// ── DATA-GROUNDED SUGGESTIONS ──
+
+async function getSuggestions() {
+  const panel = document.getElementById('suggestionsPanel');
+  const btn = document.getElementById('suggestBtn');
+  panel.style.display = '';
+  panel.innerHTML = '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:var(--w);padding:12px">Analyzing config against world data...</div>';
+  btn.disabled = true;
+
+  // Gather all context
+  const params = getScenarioParams();
+  const archetypes = getSpArchetypes();
+  const worldNotes = document.getElementById('worldNotes')?.value || '';
+  const docs = S.worldDocs.map(d => d.name + ' (' + (d.chars/1000).toFixed(1) + 'k chars)');
+
+  // Context category status
+  const catStatus = {};
+  ['Scenario','Population','Outcome','Intervention','Temporal'].forEach(c => {
+    const st = document.getElementById('wcStatus' + c);
+    catStatus[c.toLowerCase()] = st ? st.textContent : 'unknown';
+  });
+
+  // Collector digest text
+  const digestEl = document.getElementById('collectorBullets');
+  const digestText = digestEl?.innerText || '';
+
+  // Snapshot summaries
+  const snapTexts = Object.entries(S.snapSummaries).map(([topic, data]) =>
+    `[${topic}] ${data.articles?.length || 0} items: ${data.articles?.slice(0,3).map(a=>a.title).join('; ') || 'none'}`
+  ).join('\n');
+
+  const prompt = `You are a simulation design advisor. Review this simulation configuration against the real-world data collected.
+
+CURRENT SPECS:
+- Ticks: ${params.ticks} (tick unit: ${params.tickUnit})
+- Agents: ${params.agents}
+- Alpha (learning rate): ${params.alpha}
+- Kappa (peer coupling): ${params.kappa}
+- Observer K: ${params.k}
+- Score mode: ${params.mode}
+- Dampening: ${params.dampen}
+- Threshold: ${params.threshold}
+
+ARCHETYPES:
+${archetypes.map(a => `${a.id}: ${a.label} (susceptibility: ${a.susc}, resilience: ${a.res}, ${a.pct}%)`).join('\n')}
+
+CONTEXT CATEGORY STATUS:
+${Object.entries(catStatus).map(([k,v]) => `${k}: ${v}`).join('\n')}
+
+WORLD NOTES:
+${worldNotes || '(empty)'}
+
+UPLOADED DOCUMENTS:
+${docs.length ? docs.join('\n') : '(none)'}
+
+COLLECTOR DIGEST:
+${digestText || '(not run yet)'}
+
+SNAPSHOT DATA:
+${snapTexts || '(none fetched)'}
+
+Respond with JSON ONLY. No markdown. No explanation outside JSON:
+{
+  "suggestions": [
+    {"param": "...", "current": "...", "suggested": "...", "reason": "specific reason citing actual data", "source": "data source name", "priority": "high|medium|low"}
+  ],
+  "missing": [
+    {"category": "...", "impact": "what goes wrong without it", "suggestion": "exactly what to provide"}
+  ],
+  "validation": [
+    {"check": "what was checked", "status": "ok|warning|error", "detail": "specific finding"}
+  ]
+}`;
+
+  try {
+    const gwUrl = url.gw();
+    const chatUrl = url.chat() || gwUrl;
+    const r = await fetch(`${chatUrl}/v1/chat/completions`, {
+      method: 'POST', headers: url.hdrs(),
+      body: JSON.stringify({
+        model: 'authority',
+        messages: [{role: 'user', content: prompt}],
+        max_tokens: 1500, temperature: 0.2,
+      })
+    });
+
+    if (!r.ok) throw new Error(`Authority unavailable (HTTP ${r.status}). Start vLLM or connect to RunPod.`);
+
+    const d = await r.json();
+    let content = d.choices?.[0]?.message?.content || '';
+    // Strip think tags
+    content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+    // Parse JSON
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Authority did not return valid JSON. Raw: ' + content.slice(0, 200));
+    const result = JSON.parse(jsonMatch[0]);
+
+    renderSuggestions(result);
+
+  } catch (e) {
+    // Fallback: generate local suggestions without LLM
+    const localResult = generateLocalSuggestions(params, archetypes, catStatus, worldNotes, digestText);
+    renderSuggestions(localResult);
+    panel.querySelector('div')?.insertAdjacentHTML?.('beforebegin',
+      `<div style="font-size:9px;color:var(--w);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Local analysis (authority offline: ${e.message})</div>`
+    );
+  }
+  btn.disabled = false;
+}
+
+function generateLocalSuggestions(params, archetypes, catStatus, worldNotes, digestText) {
+  const suggestions = [];
+  const missing = [];
+  const validation = [];
+
+  // Check context categories
+  if (catStatus.scenario === 'missing') {
+    missing.push({category: 'scenario_description', impact: 'Agents interact in a vacuum. Stimuli are generic and have no domain grounding.', suggestion: 'Describe what you\'re simulating in World Notes or upload a document.'});
+  }
+  if (catStatus.population === 'missing') {
+    missing.push({category: 'population_characteristics', impact: `Archetype distributions (${archetypes.map(a=>a.id+':'+a.pct+'%').join(', ')}) are not grounded in any population data.`, suggestion: 'Upload demographic research or run the World Bank snapshot with a country focus.'});
+  }
+  if (catStatus.outcome === 'missing') {
+    missing.push({category: 'outcome_criteria', impact: 'Pipeline validation has no targets. Everything passes. Impossible to detect if results are plausible.', suggestion: 'Define what would surprise you in the outcome criteria section.'});
+  }
+
+  // Check alpha vs tick unit
+  const tickScale = {hour: 0.3, week: 0.15, month: 0.08, year: 0.04};
+  const expectedAlpha = tickScale[params.tickUnit] || 0.15;
+  if (Math.abs(params.alpha - expectedAlpha) > 0.05) {
+    suggestions.push({param: 'alpha', current: params.alpha, suggested: expectedAlpha, reason: `For ${params.tickUnit}-scale ticks, alpha ~${expectedAlpha} produces realistic pace. Current ${params.alpha} is ${params.alpha > expectedAlpha ? 'too fast' : 'too slow'} for this time scale.`, source: 'time scale heuristic', priority: 'high'});
+  }
+
+  // Check kappa = 0
+  if (params.kappa === 0) {
+    validation.push({check: 'peer coupling', status: 'warning', detail: 'Kappa is 0 — agents are fully independent. In most real populations, people influence each other. Consider kappa 0.05-0.15 for mild conformity.'});
+  }
+
+  // Check archetype sum
+  const archSum = archetypes.reduce((s, a) => s + a.pct, 0);
+  if (archSum !== 100) {
+    validation.push({check: 'archetype distribution', status: 'error', detail: `Archetype percentages sum to ${archSum}%, not 100%. Results will be miscalibrated.`});
+  }
+
+  // Check if digest data exists but archetypes haven't been adjusted
+  if (digestText && !worldNotes) {
+    suggestions.push({param: 'world_notes', current: '(empty)', suggested: 'Write a description based on collected data', reason: 'You have snapshot data but no world notes. The simulation needs a human-written description to connect the data to the scenario.', source: 'collector data', priority: 'medium'});
+  }
+
+  // Check agents vs ticks ratio
+  if (params.agents > params.ticks * 2) {
+    validation.push({check: 'agents vs ticks', status: 'warning', detail: `${params.agents} agents but only ${params.ticks} ticks. Most agents won't have enough time to develop distinct trajectories. Consider more ticks or fewer agents.`});
+  }
+
+  return {suggestions, missing, validation};
+}
+
+function renderSuggestions(result) {
+  const panel = document.getElementById('suggestionsPanel');
+  let html = '';
+
+  // Missing data (most critical — show first)
+  if (result.missing?.length) {
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:8px;color:var(--r);text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">Missing Data</div>';
+    result.missing.forEach(m => {
+      html += `<div class="sug-missing"><strong>${m.category}</strong><br>${m.impact}<br><span style="color:var(--a)">${m.suggestion}</span></div>`;
+    });
+  }
+
+  // Validation warnings
+  if (result.validation?.length) {
+    const issues = result.validation.filter(v => v.status !== 'ok');
+    if (issues.length) {
+      html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:8px;color:var(--w);text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">Consistency Checks</div>';
+      issues.forEach(v => {
+        const cls = v.status === 'error' ? 'sug-missing' : 'sug-warning';
+        html += `<div class="${cls}"><strong>${v.check}</strong> — ${v.detail}</div>`;
+      });
+    }
+  }
+
+  // Parameter suggestions
+  if (result.suggestions?.length) {
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:8px;color:var(--a);text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">Suggestions</div>';
+    result.suggestions.forEach((s, i) => {
+      const prio = s.priority || 'medium';
+      html += `<div class="sug-card ${prio}">
+        <div class="sug-header">
+          <span class="sug-param">${s.param}</span>
+          <span class="sug-change">${s.current} → ${s.suggested}</span>
+          ${s.source ? `<span class="sug-source">${s.source}</span>` : ''}
+        </div>
+        <div class="sug-reason">${s.reason}</div>
+        <button class="sug-apply" onclick="applySuggestion('${s.param}','${s.suggested}',this)">Apply</button>
+      </div>`;
+    });
+  }
+
+  if (!html) html = '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:var(--a);padding:12px">Configuration looks good. No issues found.</div>';
+
+  panel.innerHTML = html;
+  panel.style.display = '';
+}
+
+function applySuggestion(param, value, btn) {
+  // Map suggestion param names to DOM element IDs
+  const paramMap = {
+    'alpha': 'spAlpha', 'kappa': 'spKappa', 'coupling': 'spKappa',
+    'ticks': 'spTicks', 'agents': 'spAgents', 'threshold': 'spThreshold',
+    'dampening': 'spDampen', 'dampen': 'spDampen', 'k': 'spK',
+    'observer_k': 'spK', 'score_mode': 'spScoreMode', 'mode': 'spScoreMode',
+    'tick_unit': 'spTickUnit',
+  };
+  const elId = paramMap[param.toLowerCase()] || ('sp' + param.charAt(0).toUpperCase() + param.slice(1));
+  const el = document.getElementById(elId);
+  if (el) {
+    el.value = value;
+    updateTimeEstimate();
+    updateSpArchSum();
+    btn.textContent = 'Applied';
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+  } else {
+    btn.textContent = 'Not found';
+  }
+}
+
+// ── TOOLTIP POSITIONING ──
+document.addEventListener('mouseover', function(e) {
+  const tip = e.target.closest('.info-tip');
+  if (!tip) return;
+  const tt = tip.querySelector('.tip-text');
+  if (!tt) return;
+  const rect = tip.getBoundingClientRect();
+  tt.style.left = Math.max(8, Math.min(rect.left - 100, window.innerWidth - 256)) + 'px';
+  tt.style.top = Math.max(8, rect.top - tt.offsetHeight - 8) + 'px';
+  // If tooltip would go above viewport, show below instead
+  if (rect.top - 120 < 0) {
+    tt.style.top = (rect.bottom + 8) + 'px';
+  }
+});
+
 // ── INIT ──
-renderChatList(); renderMessages(); updEmbedCnt(); updBurst();
+renderChatList(); renderMessages(); updEmbedCnt(); updBurst(); loadScenarioPreset();
 </script>
 </body>
 </html>
