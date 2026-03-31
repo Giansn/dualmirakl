@@ -15,7 +15,7 @@ import numpy as np
 from scipy import stats as sp_stats
 
 
-def crps(forecasts: np.ndarray, observed: float) -> float:
+def crps(forecasts: np.ndarray, observed: float, fair: bool = False) -> float:
     """
     Continuous Ranked Probability Score (ensemble version).
 
@@ -23,9 +23,13 @@ def crps(forecasts: np.ndarray, observed: float) -> float:
     CRPS = E|X - y| - 0.5 * E|X - X'|
     where X, X' are independent draws from the forecast distribution.
 
+    When ``fair=True`` and n > 1, the spread term uses denominator
+    ``n * (n - 1)`` instead of ``n * n`` to debias finite-ensemble effects.
+
     Args:
         forecasts: Array of ensemble forecast values (n_members,).
         observed: The observed/true value.
+        fair: If True, apply finite-ensemble debiasing to spread term.
 
     Returns:
         CRPS score (non-negative, 0 = perfect).
@@ -38,16 +42,19 @@ def crps(forecasts: np.ndarray, observed: float) -> float:
     # E|X - y|
     term1 = float(np.mean(np.abs(forecasts - observed)))
 
-    # E|X - X'| via pairwise absolute differences
+    # 0.5 * E|X - X'| via sorted formula
+    # For sorted X: 0.5*E|X-X'| = 1/(n^2) * sum_i (2i - n + 1) * X_(i)
+    # The sorted formula already includes the 0.5 factor.
+    # Fair (unbiased) version uses n*(n-1) denominator instead of n^2.
     if n == 1:
-        term2 = 0.0
+        spread_term = 0.0
     else:
-        # Efficient O(n log n): for sorted X, E|X-X'| = 2/(n^2) * sum_i (2i - n + 1) * X_(i)
         sorted_f = np.sort(forecasts)
         weights = 2.0 * np.arange(n) - n + 1.0
-        term2 = float(np.sum(weights * sorted_f)) / (n * n)
+        denom = n * (n - 1) if fair else n * n
+        spread_term = float(np.sum(weights * sorted_f)) / denom
 
-    return term1 - 0.5 * term2
+    return term1 - spread_term
 
 
 def brier_score(probabilities: np.ndarray, outcomes: np.ndarray) -> float:

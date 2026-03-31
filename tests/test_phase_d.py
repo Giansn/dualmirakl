@@ -44,6 +44,28 @@ class TestCRPS:
         from stats.scoring import crps
         assert crps(np.array([]), 0.5) == float("inf")
 
+    def test_fair_crps_leq_biased(self):
+        from stats.scoring import crps
+        forecasts = np.array([0.1, 0.3, 0.5, 0.7, 0.9])
+        observed = 0.5
+        biased = crps(forecasts, observed, fair=False)
+        fair = crps(forecasts, observed, fair=True)
+        assert fair < biased
+
+    def test_fair_single_member_equals_biased(self):
+        from stats.scoring import crps
+        # n=1 → spread term is 0 regardless of denominator
+        forecasts = np.array([0.3])
+        observed = 0.5
+        biased = crps(forecasts, observed, fair=False)
+        fair = crps(forecasts, observed, fair=True)
+        assert abs(fair - biased) < 1e-12
+
+    def test_fair_perfect_still_zero(self):
+        from stats.scoring import crps
+        forecasts = np.array([0.5, 0.5, 0.5])
+        assert abs(crps(forecasts, 0.5, fair=True)) < 1e-12
+
 
 class TestBrierScore:
 
