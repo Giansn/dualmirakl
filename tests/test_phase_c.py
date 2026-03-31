@@ -591,3 +591,48 @@ class TestCalibratedProbabilities:
             assert "dirichlet" in b.probability_method
         for b in r_stable.branches:
             assert "dirichlet" in b.probability_method
+
+    def test_full_pipeline_multi_run(self):
+        """Integration test: multi-run data exercises CI, conformal, and audit trail."""
+        from simulation.possibility_report import compute_possibility_report
+        import json
+
+        multi = [self._make_logs(n_agents=6, n_ticks=20, seed=i) for i in range(8)]
+        config = self._make_config(discovery_gamma=0.5, conformal_alpha=0.1)
+
+        report = compute_possibility_report(
+            multi[0], config, run_id="integration_test", multi_run_logs=multi
+        )
+
+        total_prob = sum(b.probability for b in report.branches)
+        assert abs(total_prob - 1.0) < 0.01, f"Probabilities sum to {total_prob}"
+
+        for b in report.branches:
+            assert 0.0 <= b.probability <= 1.0
+
+        assert any(b.in_conformal_set for b in report.branches)
+
+        for b in report.branches:
+            assert b.confidence_interval is not None, f"Branch {b.branch_id} missing CI"
+            ci_lo, ci_hi = b.confidence_interval
+            assert ci_lo <= ci_hi
+
+        for b in report.branches:
+            assert "dirichlet" in b.probability_method
+            assert "c=" in b.probability_method
+            assert "norm:" in b.probability_method
+            assert "prior_influence" in b.probability_method
+
+        assert report.metadata.n_agents == 6
+        assert report.metadata.multi_run is True
+        assert report.metadata.n_runs == 8
+        assert report.metadata.probability_method == "dirichlet_multinomial"
+        assert report.metadata.computation_time_s >= 0
+        assert report.metadata.prior_concentration > 0
+
+        json.dumps(report.to_dict(), default=str)
+
+        assert report.run_id == "integration_test"
+
+        probs = [b.probability for b in report.branches]
+        assert probs == sorted(probs, reverse=True)
