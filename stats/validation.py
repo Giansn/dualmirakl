@@ -49,9 +49,10 @@ def bootstrap_ci(
     n_bootstrap: int = 10_000,
     alpha: float = 0.05,
     statistic=np.mean,
+    seed: int = 42,
 ) -> dict:
     """Bootstrap confidence interval for a statistic."""
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
     n = len(values)
     boot_stats = np.zeros(n_bootstrap)
 
