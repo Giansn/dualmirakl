@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from sentence_transformers import SentenceTransformer
 import httpx
 
@@ -12,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _proj_dir = Path(__file__).parent
+app.mount("/static", StaticFiles(directory=_proj_dir / "static"), name="static")
 
 AUTHORITY = os.getenv("AUTHORITY_URL", "http://localhost:8000/v1")
 SWARM     = os.getenv("SWARM_URL",     "http://localhost:8001/v1")

@@ -1,8 +1,14 @@
-# dualmirakl
+<p align="center">
+  <img src="static/logo.svg" width="120" alt="dualmirakl">
+</p>
 
-[![CodeQL](https://github.com/Giansn/dualmirakl/actions/workflows/codeql.yml/badge.svg)](https://github.com/Giansn/dualmirakl/actions/workflows/codeql.yml)
-![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
-![Tests](https://img.shields.io/badge/tests-508-green)
+<h1 align="center">dualmirakl</h1>
+
+<p align="center">
+  <a href="https://github.com/Giansn/dualmirakl/actions/workflows/codeql.yml"><img src="https://github.com/Giansn/dualmirakl/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <img src="https://img.shields.io/badge/python-3.12-blue" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/tests-696-green" alt="Tests">
+</p>
 
 Multi-GPU vLLM orchestration framework for large-scale agent-based simulation research. Domain-agnostic YAML scenarios, dual vLLM backends, optional **FLAME GPU 2** population amplifier.
 

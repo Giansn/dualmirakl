@@ -16,7 +16,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .sb{width:260px;min-width:260px;background:rgba(24,26,33,.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-right:1px solid var(--bd);display:flex;flex-direction:column;height:100vh}
 .sbh{padding:20px;border-bottom:1px solid var(--bd)}
 .logo{display:flex;align-items:center;gap:10px;margin-bottom:16px}
-.logo-ic{width:24px;height:24px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--t1);font-weight:600;border:1px solid var(--bd)}
+.logo-ic{width:28px;height:28px;border-radius:4px;overflow:hidden;flex-shrink:0}
+.logo-ic img{width:100%;height:100%;object-fit:cover}
 .logo-tx{font-weight:400;font-size:14px;letter-spacing:1.5px;text-transform:lowercase;color:var(--t1)}
 .logo-bx{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);padding:1px 5px;margin-left:auto;letter-spacing:.5px}
 .nc-btn{width:100%;padding:8px 12px;background:transparent;border:1px solid var(--bd);border-radius:var(--rad);color:var(--t1);font-family:'Outfit',sans-serif;font-size:12px;font-weight:400;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .2s;letter-spacing:.3px}
@@ -251,7 +252,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 <aside class="sb">
   <div class="sbh">
     <div class="logo">
-      <div class="logo-ic">&#9671;</div>
+      <div class="logo-ic"><img src="/static/logo.svg" alt="mirakl"></div>
       <span class="logo-tx">dualmirakl</span>
     </div>
     <div class="health-bar">
