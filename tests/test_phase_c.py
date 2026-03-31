@@ -561,3 +561,33 @@ class TestCalibratedProbabilities:
         r2 = compute_possibility_report(self._make_logs(), self._make_config(lyapunov_threshold=0.99))
         assert abs(sum(b.probability for b in r1.branches) - 1.0) < 0.01
         assert abs(sum(b.probability for b in r2.branches) - 1.0) < 0.01
+
+    def test_chaos_entropy_blend_pushes_toward_uniform(self):
+        """High Lyapunov should push probabilities closer to uniform."""
+        from simulation.possibility_report import compute_possibility_report
+        rng = np.random.RandomState(42)
+        n_agents = 6
+        n_ticks = 50
+        chaotic_logs = []
+        for _ in range(n_agents):
+            x = rng.uniform(0.1, 0.9)
+            log = []
+            for _ in range(n_ticks):
+                x = 3.9 * x * (1 - x)
+                log.append(float(x))
+            chaotic_logs.append(log)
+
+        stable_logs = [[0.5 + rng.normal(0, 0.001) for _ in range(n_ticks)]
+                       for _ in range(n_agents)]
+
+        config = self._make_config()
+        r_chaotic = compute_possibility_report(chaotic_logs, config)
+        r_stable = compute_possibility_report(stable_logs, config)
+
+        assert abs(sum(b.probability for b in r_chaotic.branches) - 1.0) < 0.01
+        assert abs(sum(b.probability for b in r_stable.branches) - 1.0) < 0.01
+
+        for b in r_chaotic.branches:
+            assert "dirichlet" in b.probability_method
+        for b in r_stable.branches:
+            assert "dirichlet" in b.probability_method
