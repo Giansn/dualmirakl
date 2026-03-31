@@ -243,14 +243,21 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .drop-zone:hover,.drop-zone.drag-over{border-color:var(--a);color:var(--a);background:var(--ad)}
 
 /* WORLD SNAPSHOTS */
-.snapshot-btn{display:flex;flex-direction:column;gap:2px;padding:10px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);cursor:pointer;transition:all .2s;text-align:left;position:relative}
-.snapshot-btn:hover{border-color:var(--a);background:var(--bg2)}
-.snapshot-btn.loaded{border-color:rgba(56,200,200,.3)}
-.snapshot-btn.loading{border-color:var(--w);opacity:.7}
-.snap-icon{font-size:14px;color:var(--t2)}
-.snap-label{font-size:11px;font-weight:500;color:var(--t1)}
-.snap-desc{font-size:9px;color:var(--t2);line-height:1.4}
-.snap-status{position:absolute;top:6px;right:6px;font-family:'JetBrains Mono',monospace;font-size:8px}
+.snapshot-row{display:grid;grid-template-columns:36px 1fr 140px 40px 20px;gap:6px;align-items:center;padding:6px 8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);position:relative}
+.snapshot-row.loaded{border-color:rgba(56,200,200,.2)}
+.snapshot-row.loading{border-color:var(--w);opacity:.7}
+.snapshot-fetch{background:none;border:1px solid var(--bd);border-radius:var(--rax);color:var(--t2);width:34px;height:34px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.snapshot-fetch:hover{border-color:var(--a);color:var(--a);box-shadow:0 0 10px rgba(56,200,200,.15)}
+.snapshot-info{display:flex;flex-direction:column;gap:1px;min-width:0}
+.snap-label{font-size:10px;font-weight:500;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snap-desc{font-size:8px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snapshot-focus{padding:3px 6px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t0);font-family:'JetBrains Mono',monospace;font-size:9px;outline:none}
+.snapshot-focus:focus{border-color:var(--a)}
+.snapshot-focus::placeholder{color:var(--t2);opacity:.5}
+.snap-status{font-family:'JetBrains Mono',monospace;font-size:8px;text-align:right;color:var(--t2)}
+.snapshot-expand{background:none;border:none;color:var(--t2);cursor:pointer;font-size:9px;padding:0;transition:transform .2s}
+.snapshot-expand.open{transform:rotate(180deg)}
+.snap-summary{grid-column:1/-1;padding:8px;background:var(--bg1);border-top:1px solid var(--bd);border-radius:0 0 var(--rax) var(--rax);font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);line-height:1.6;max-height:150px;overflow-y:auto}
 
 /* WORLD CATEGORIES */
 .world-cat{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);font-size:11px;color:var(--t1)}
@@ -618,44 +625,81 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 
           <!-- World Snapshot Feeds -->
           <div>
-            <label>World Snapshots <span class="info-tip">i<span class="tip-text">Pull real-time data from free public APIs to ground your simulation in the actual world. Each topic bundle fetches relevant news, statistics, and events. The data feeds into the environment agent's context so stimuli reflect what's really happening.</span></span></label>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px" id="snapshotGrid">
-              <button class="snapshot-btn" data-topic="social" onclick="fetchSnapshot('social')">
-                <span class="snap-icon">&#9883;</span>
-                <span class="snap-label">Social &amp; Culture</span>
-                <span class="snap-desc">Trends, public opinion, social media, demographics</span>
+            <label>World Snapshots <span class="info-tip">i<span class="tip-text">Pull real-time data from free public APIs to ground your simulation in the actual world. Each topic fetches relevant news and events. Use the focus field to narrow the search to your specific domain. Click the summary after fetching to see what was found.</span></span></label>
+            <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px" id="snapshotList">
+
+              <div class="snapshot-row" data-topic="social">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('social')">&#9883;</button>
+                <div class="snapshot-info"><span class="snap-label">Social &amp; Culture</span><span class="snap-desc">Trends, public opinion, social media</span></div>
+                <input type="text" class="snapshot-focus" id="focusSocial" placeholder="focus: e.g. 'youth social media'" title="Narrow the search to a specific angle">
                 <span class="snap-status" id="snapSocial"></span>
-              </button>
-              <button class="snapshot-btn" data-topic="health" onclick="fetchSnapshot('health')">
-                <span class="snap-icon">&#9764;</span>
-                <span class="snap-label">Health &amp; Psychology</span>
-                <span class="snap-desc">Mental health, addiction, wellbeing, public health</span>
+                <button class="snapshot-expand" id="expandSocial" onclick="toggleSnapSummary('social')" style="display:none" title="Show summary">&#9660;</button>
+                <div class="snap-summary" id="summarySocial" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="health">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('health')">&#9764;</button>
+                <div class="snapshot-info"><span class="snap-label">Health &amp; Psychology</span><span class="snap-desc">Mental health, addiction, wellbeing</span></div>
+                <input type="text" class="snapshot-focus" id="focusHealth" placeholder="focus: e.g. 'gaming disorder'" title="Narrow the search">
                 <span class="snap-status" id="snapHealth"></span>
-              </button>
-              <button class="snapshot-btn" data-topic="tech" onclick="fetchSnapshot('tech')">
-                <span class="snap-icon">&#9889;</span>
-                <span class="snap-label">Technology &amp; Digital</span>
-                <span class="snap-desc">Platforms, AI, digital regulation, online behavior</span>
+                <button class="snapshot-expand" id="expandHealth" onclick="toggleSnapSummary('health')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryHealth" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="tech">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('tech')">&#9889;</button>
+                <div class="snapshot-info"><span class="snap-label">Technology &amp; Digital</span><span class="snap-desc">Platforms, AI, regulation, online behavior</span></div>
+                <input type="text" class="snapshot-focus" id="focusTech" placeholder="focus: e.g. 'algorithm regulation'" title="Narrow the search">
                 <span class="snap-status" id="snapTech"></span>
-              </button>
-              <button class="snapshot-btn" data-topic="economy" onclick="fetchSnapshot('economy')">
-                <span class="snap-icon">&#9878;</span>
-                <span class="snap-label">Economy &amp; Markets</span>
-                <span class="snap-desc">Finance, employment, consumer behavior, trade</span>
+                <button class="snapshot-expand" id="expandTech" onclick="toggleSnapSummary('tech')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryTech" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="economy">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('economy')">&#9878;</button>
+                <div class="snapshot-info"><span class="snap-label">Economy &amp; Markets</span><span class="snap-desc">Finance, employment, consumer behavior</span></div>
+                <input type="text" class="snapshot-focus" id="focusEconomy" placeholder="focus: e.g. 'gig economy'" title="Narrow the search">
                 <span class="snap-status" id="snapEconomy"></span>
-              </button>
-              <button class="snapshot-btn" data-topic="politics" onclick="fetchSnapshot('politics')">
-                <span class="snap-icon">&#9878;</span>
-                <span class="snap-label">Politics &amp; Governance</span>
-                <span class="snap-desc">Policy, regulation, elections, institutional trust</span>
+                <button class="snapshot-expand" id="expandEconomy" onclick="toggleSnapSummary('economy')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryEconomy" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="politics">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('politics')">&#9878;</button>
+                <div class="snapshot-info"><span class="snap-label">Politics &amp; Governance</span><span class="snap-desc">Policy, regulation, institutional trust</span></div>
+                <input type="text" class="snapshot-focus" id="focusPolitics" placeholder="focus: e.g. 'EU digital policy'" title="Narrow the search">
                 <span class="snap-status" id="snapPolitics"></span>
-              </button>
-              <button class="snapshot-btn" data-topic="environment" onclick="fetchSnapshot('environment')">
-                <span class="snap-icon">&#9728;</span>
-                <span class="snap-label">Environment &amp; Climate</span>
-                <span class="snap-desc">Climate events, sustainability, resource pressure</span>
+                <button class="snapshot-expand" id="expandPolitics" onclick="toggleSnapSummary('politics')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryPolitics" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="environment">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('environment')">&#9728;</button>
+                <div class="snapshot-info"><span class="snap-label">Environment &amp; Climate</span><span class="snap-desc">Climate events, sustainability, resource pressure</span></div>
+                <input type="text" class="snapshot-focus" id="focusEnvironment" placeholder="focus: e.g. 'water scarcity'" title="Narrow the search">
                 <span class="snap-status" id="snapEnvironment"></span>
-              </button>
+                <button class="snapshot-expand" id="expandEnvironment" onclick="toggleSnapSummary('environment')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryEnvironment" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="demographics">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('demographics')">&#9823;</button>
+                <div class="snapshot-info"><span class="snap-label">Demographics</span><span class="snap-desc">Population, age groups, migration, urbanization</span></div>
+                <input type="text" class="snapshot-focus" id="focusDemographics" placeholder="focus: e.g. 'gen-z europe'" title="Narrow the search">
+                <span class="snap-status" id="snapDemographics"></span>
+                <button class="snapshot-expand" id="expandDemographics" onclick="toggleSnapSummary('demographics')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryDemographics" style="display:none"></div>
+              </div>
+
+              <div class="snapshot-row" data-topic="research">
+                <button class="snapshot-fetch" onclick="fetchSnapshot('research')">&#9878;</button>
+                <div class="snapshot-info"><span class="snap-label">Academic Research</span><span class="snap-desc">Recent papers, citations, findings</span></div>
+                <input type="text" class="snapshot-focus" id="focusResearch" placeholder="focus: e.g. 'persuasive design'" title="Narrow the search">
+                <span class="snap-status" id="snapResearch"></span>
+                <button class="snapshot-expand" id="expandResearch" onclick="toggleSnapSummary('research')" style="display:none">&#9660;</button>
+                <div class="snap-summary" id="summaryResearch" style="display:none"></div>
+              </div>
+
             </div>
             <div style="display:flex;gap:6px;margin-top:8px">
               <button class="mac" onclick="fetchAllSnapshots()">fetch all</button>
@@ -2617,30 +2661,47 @@ function applyOntology() {
 // ── WORLD SNAPSHOTS ──
 
 const SNAPSHOT_QUERIES = {
-  social: ['social media trends','public opinion','demographics','cultural shift','community behavior'],
+  social: ['social media trends','public opinion','cultural shift','community behavior','youth engagement'],
   health: ['mental health','addiction research','wellbeing study','public health policy','behavioral psychology'],
   tech: ['artificial intelligence regulation','digital platform','online behavior','technology adoption','cybersecurity'],
   economy: ['economic indicators','market trends','employment','consumer behavior','financial regulation'],
   politics: ['policy change','government regulation','election','institutional trust','political polarization'],
   environment: ['climate change impact','sustainability','environmental policy','natural disaster','resource scarcity'],
+  demographics: ['population growth','age distribution','migration patterns','urbanization trends','generational differences'],
+  research: ['behavioral science study','randomized controlled trial','longitudinal study','meta-analysis','intervention effectiveness'],
 };
 
+S.snapSummaries = {}; // topic -> {articles, text, ts}
+
 async function fetchSnapshot(topic) {
-  const btn = document.querySelector(`.snapshot-btn[data-topic="${topic}"]`);
-  const statusEl = document.getElementById('snap' + topic.charAt(0).toUpperCase() + topic.slice(1));
+  const row = document.querySelector(`.snapshot-row[data-topic="${topic}"]`);
+  const capTopic = topic.charAt(0).toUpperCase() + topic.slice(1);
+  const statusEl = document.getElementById('snap' + capTopic);
+  const expandBtn = document.getElementById('expand' + capTopic);
+  const summaryEl = document.getElementById('summary' + capTopic);
+  const focusEl = document.getElementById('focus' + capTopic);
   const progressEl = document.getElementById('snapProgress');
 
-  btn.classList.add('loading');
-  btn.classList.remove('loaded');
+  row.classList.add('loading');
+  row.classList.remove('loaded');
   if (statusEl) statusEl.textContent = 'fetching...';
   if (progressEl) progressEl.textContent = topic + '...';
 
-  const queries = SNAPSHOT_QUERIES[topic] || [topic];
+  // Build queries: base queries + focus modifier
+  const focus = focusEl?.value?.trim() || '';
+  let queries = SNAPSHOT_QUERIES[topic] || [topic];
+  if (focus) {
+    // Prepend focus to each query for specificity
+    queries = queries.map(q => focus + ' ' + q);
+    // Also add focus as standalone query
+    queries.unshift(focus);
+  }
+
   let allArticles = [];
 
   try {
     // GDELT DOC API (free, no key, real-time global events)
-    for (const q of queries.slice(0, 3)) {
+    for (const q of queries.slice(0, 4)) {
       try {
         const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(q)}&mode=artlist&maxrecords=5&format=json&timespan=7d`;
         const r = await fetch(gdeltUrl);
@@ -2651,17 +2712,38 @@ async function fetchSnapshot(topic) {
               title: a.title || '',
               source: a.domain || a.source || '',
               date: a.seendate || '',
-              snippet: (a.title || '') + '. ' + (a.sourcecountry || ''),
+              country: a.sourcecountry || '',
               url: a.url || '',
             })));
           }
         }
-      } catch { /* single query fail, continue */ }
+      } catch { /* single query fail */ }
+    }
+
+    // For research topic, also try OpenAlex
+    if (topic === 'research') {
+      try {
+        const searchTerm = focus || 'behavioral simulation';
+        const oaUrl = `https://api.openalex.org/works?search=${encodeURIComponent(searchTerm)}&per_page=10&sort=publication_date:desc&filter=is_oa:true`;
+        const r = await fetch(oaUrl);
+        if (r.ok) {
+          const d = await r.json();
+          if (d.results) {
+            allArticles.push(...d.results.map(w => ({
+              title: w.display_name || w.title || '',
+              source: w.primary_location?.source?.display_name || 'OpenAlex',
+              date: w.publication_date || '',
+              country: '',
+              url: w.doi ? `https://doi.org/${w.doi.replace('https://doi.org/','')}` : '',
+              cited: w.cited_by_count || 0,
+            })));
+          }
+        }
+      } catch { /* OpenAlex fail */ }
     }
 
     if (allArticles.length === 0) {
-      // Fallback: generate a minimal context note
-      allArticles = [{title: `No real-time data available for "${topic}"`, snippet: 'Try again later or write context manually in the notes field above.'}];
+      allArticles = [{title: `No results for "${topic}"${focus ? ' + "' + focus + '"' : ''}`, source: '', date: ''}];
     }
 
     // Deduplicate by title
@@ -2674,11 +2756,21 @@ async function fetchSnapshot(topic) {
     }).slice(0, 15);
 
     // Format as world context text
-    const contextText = `[World Snapshot: ${topic.toUpperCase()} — ${new Date().toISOString().split('T')[0]}]\n\n` +
-      allArticles.map((a, i) => `${i+1}. ${a.title}${a.source ? ' (' + a.source + ')' : ''}${a.date ? ' [' + a.date.slice(0,10) + ']' : ''}`).join('\n');
+    const focusNote = focus ? ` (focus: "${focus}")` : '';
+    const contextText = `[World Snapshot: ${topic.toUpperCase()}${focusNote} — ${new Date().toISOString().split('T')[0]}]\n\n` +
+      allArticles.map((a, i) => {
+        let line = `${i+1}. ${a.title}`;
+        if (a.source) line += ` (${a.source})`;
+        if (a.date) line += ` [${a.date.slice(0,10)}]`;
+        if (a.cited) line += ` — cited ${a.cited}x`;
+        return line;
+      }).join('\n');
+
+    // Store summary for preview
+    S.snapSummaries[topic] = {articles: allArticles, text: contextText, ts: Date.now(), focus};
 
     // Store as world doc
-    S.worldDocs.push({name: `snapshot_${topic}.txt`, text: contextText, ts: Date.now(), chars: contextText.length});
+    S.worldDocs.push({name: `snapshot_${topic}${focus ? '_' + focus.replace(/\s+/g,'_').slice(0,20) : ''}.txt`, text: contextText, ts: Date.now(), chars: contextText.length});
 
     // Push to server
     const gwUrl = url.gw();
@@ -2694,25 +2786,46 @@ async function fetchSnapshot(topic) {
       if (statusEl) statusEl.textContent = `${done}/${total}`;
     });
 
-    // Detect context categories
     detectContextCategories(contextText);
 
-    btn.classList.remove('loading');
-    btn.classList.add('loaded');
-    if (statusEl) { statusEl.textContent = allArticles.length + ' items'; statusEl.style.color = 'var(--a)'; }
+    row.classList.remove('loading');
+    row.classList.add('loaded');
+    if (statusEl) { statusEl.textContent = allArticles.length + ''; statusEl.style.color = 'var(--a)'; }
+    if (expandBtn) expandBtn.style.display = '';
+    if (summaryEl) {
+      summaryEl.innerHTML = allArticles.map((a, i) =>
+        `<div style="padding:2px 0;${i<allArticles.length-1?'border-bottom:1px solid var(--bd)':''}">` +
+        `<span style="color:var(--t1)">${a.title}</span>` +
+        (a.source ? ` <span style="opacity:.5">${a.source}</span>` : '') +
+        (a.date ? ` <span style="opacity:.4">${a.date.slice(0,10)}</span>` : '') +
+        (a.cited ? ` <span style="color:var(--a)">cited ${a.cited}x</span>` : '') +
+        `</div>`
+      ).join('');
+    }
     if (progressEl) progressEl.textContent = '';
     renderWorldDocs();
     refreshWorldStats();
 
   } catch (e) {
-    btn.classList.remove('loading');
-    if (statusEl) { statusEl.textContent = 'error'; statusEl.style.color = 'var(--r)'; }
+    row.classList.remove('loading');
+    if (statusEl) { statusEl.textContent = 'err'; statusEl.style.color = 'var(--r)'; }
     if (progressEl) progressEl.textContent = e.message;
   }
 }
 
+function toggleSnapSummary(topic) {
+  const capTopic = topic.charAt(0).toUpperCase() + topic.slice(1);
+  const summaryEl = document.getElementById('summary' + capTopic);
+  const expandBtn = document.getElementById('expand' + capTopic);
+  if (!summaryEl) return;
+  const open = summaryEl.style.display !== 'none';
+  summaryEl.style.display = open ? 'none' : '';
+  if (expandBtn) expandBtn.classList.toggle('open', !open);
+}
+
 async function fetchAllSnapshots() {
-  const topics = Object.keys(SNAPSHOT_QUERIES);
+  const rows = document.querySelectorAll('.snapshot-row');
+  const topics = Array.from(rows).map(r => r.dataset.topic);
   const progressEl = document.getElementById('snapProgress');
   for (let i = 0; i < topics.length; i++) {
     if (progressEl) progressEl.textContent = `${i+1}/${topics.length}: ${topics[i]}`;
