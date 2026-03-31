@@ -252,6 +252,15 @@ def compute_possibility_report(
     basin_discount = config.get("basin_discount", 0.1)
     prior_concentration = config.get("prior_concentration", basin_grid_n * basin_discount)
 
+    # Normalize basin sizes so sum(alpha_k) == c (Dirichlet requirement)
+    total_basin_size = sum(a.basin_size for a in attractors)
+    if total_basin_size > 0 and abs(total_basin_size - 1.0) > 0.01:
+        for a in attractors:
+            a.basin_size = a.basin_size / total_basin_size
+
+    # Discovery prior: reserve mass for undetected basins (Pitman-Yor)
+    discovery_gamma = config.get("discovery_gamma", 0.5)
+
     # Lyapunov time: ticks until prediction becomes unreliable
     lyap_time = 1.0 / max(0.01, lyapunov_max) if lyapunov_max > lyapunov_threshold else None
 
@@ -269,14 +278,18 @@ def compute_possibility_report(
         # ── Dirichlet-Multinomial posterior ───────────────────────────
         # Prior: basin_size * concentration (virtual observations from ODE sweep)
         # Likelihood: n_in_basin out of n_agents observed
-        # Posterior mean: (n_in_basin + alpha_prior) / (n_agents + c)
+        # Posterior mean: (n_in_basin + alpha_prior) / (n_agents + c + gamma)
         c = prior_concentration
         alpha_prior = c * attractor.basin_size
-        raw_prob = (n_in_basin + alpha_prior) / (n_agents + c) if (n_agents + c) > 0 else 1.0 / n_branches
+        denominator = n_agents + c + discovery_gamma
+        raw_prob = (n_in_basin + alpha_prior) / denominator if denominator > 0 else 1.0 / n_branches
+
+        # Prior influence: how much of this probability comes from the ODE prior vs data
+        prior_pct = alpha_prior / (n_in_basin + alpha_prior) if (n_in_basin + alpha_prior) > 0 else 0.0
 
         method = (
             f"dirichlet(c={c:.1f}, alpha_k={alpha_prior:.2f}, "
-            f"n_k={n_in_basin}, N={n_agents})"
+            f"n_k={n_in_basin}, N={n_agents}, prior_influence={prior_pct:.0%})"
         )
 
         # ── Chaos-aware entropy blend ────────────────────────────────
@@ -374,32 +387,36 @@ def compute_possibility_report(
     conformal_coverage = 1.0 - conformal_alpha
 
     if multi_run_logs and len(multi_run_logs) >= 5:
-        # Split conformal: use half as calibration, half as validation
+        # Split conformal prediction (Vovk et al.)
+        # Uses PER-RUN fractions, not global probabilities, to avoid
+        # the identity-score bug where all nonconformity scores are equal.
         n_cal = len(multi_run_logs) // 2
         cal_logs = multi_run_logs[:n_cal]
 
         # Compute nonconformity scores on calibration set
+        # Score = 1 - fraction_of_dominant_basin_in_THIS_run
         nonconf_scores = []
         for run_logs in cal_logs:
             run_assignments = _classify_agents_to_basins(run_logs, attractors)
-            # Find which branch this run "belongs to" (highest fraction)
             fracs = [len(run_assignments.get(i, [])) / max(len(run_logs), 1)
                      for i in range(len(attractors))]
-            dominant_idx = int(np.argmax(fracs))
-            # Nonconformity = 1 - probability of the dominant branch
-            dominant_prob = branches[dominant_idx].probability if dominant_idx < len(branches) else 0.0
-            nonconf_scores.append(1.0 - dominant_prob)
+            dominant_frac = max(fracs) if fracs else 0.0
+            nonconf_scores.append(1.0 - dominant_frac)
 
         if nonconf_scores:
-            # Quantile of nonconformity scores
-            q_hat = float(np.quantile(nonconf_scores, conformal_coverage))
+            # Finite-sample correction: ceil((n_cal+1)(1-alpha)) / n_cal
+            # This is what gives the marginal coverage guarantee.
+            import math
+            adjusted_level = math.ceil((n_cal + 1) * conformal_coverage) / n_cal
+            adjusted_level = min(adjusted_level, 1.0)
+            q_hat = float(np.quantile(nonconf_scores, adjusted_level))
+
             # Prediction set: branches with probability >= 1 - q_hat
             threshold = max(0.0, 1.0 - q_hat)
             for b in branches:
                 b.in_conformal_set = b.probability >= threshold
             n_in_set = sum(1 for b in branches if b.in_conformal_set)
             if n_in_set == 0:
-                # At least include the most probable branch
                 branches[0].in_conformal_set = True if branches else None
     else:
         # Not enough data for conformal — mark all as in set (conservative)
@@ -408,11 +425,20 @@ def compute_possibility_report(
         if len(branches) > 1:
             conformal_coverage = None  # no valid coverage guarantee
 
-    # ── Step 7: Normalize probabilities ──────────────────────────────────
+    # ── Step 7: Discovery prior branch (undetected basins) ────────────
+    # Reserve mass for basins the ODE sweep may have missed.
+    # Only meaningful when there's a single detected attractor.
+    if discovery_gamma > 0 and len(branches) == 1:
+        discovery_prob = discovery_gamma / (n_agents + prior_concentration + discovery_gamma)
+        branches[0].probability -= discovery_prob
+        branches[0].probability_method += f" - discovery({discovery_gamma:.1f}={discovery_prob:.3f})"
+
+    # ── Step 8: Normalize probabilities ──────────────────────────────────
     total = sum(b.probability for b in branches)
     if total > 0:
         for b in branches:
             b.probability = b.probability / total
+            b.probability_method += f" [norm: /{total:.3f}]"
 
     # Sort by probability descending
     branches.sort(key=lambda b: b.probability, reverse=True)
