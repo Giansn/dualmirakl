@@ -4140,16 +4140,17 @@ function dismissSplash() {
   const wic = document.querySelector('.wic');
   if (!bgImg || !wic) { splash.classList.add('hidden'); return; }
 
-  // Measure .wic target position underneath splash
-  splash.style.pointerEvents = 'none';
-  const wicRect = wic.getBoundingClientRect();
-  const toCx = wicRect.left + wicRect.width / 2;
-  const toCy = wicRect.top + wicRect.height / 2;
-  const toSize = wicRect.width || 160;
-
   const fromCx = window.innerWidth / 2;
   const fromCy = window.innerHeight / 2;
   const fromSize = bgImg.getBoundingClientRect().width;
+
+  // Compute target: .wic is centered in main area (after 260px sidebar)
+  // We calculate this rather than measuring, since .wic may have zero rect behind the splash
+  const sidebarW = window.innerWidth > 768 ? 260 : 0;
+  const mainW = window.innerWidth - sidebarW;
+  const toCx = sidebarW + mainW / 2;
+  const toCy = window.innerHeight * 0.3; // welcome area is ~30% from top
+  const toSize = 160;
 
   // Phase 1: fade text, pin sigil to fixed position at current center (no jump)
   splash.classList.add('transitioning');
