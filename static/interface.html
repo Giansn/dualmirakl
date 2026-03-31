@@ -373,16 +373,15 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .splash{position:fixed;inset:0;z-index:9999;background:#171a1e;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:opacity .8s ease,visibility .8s ease;overflow:hidden}
 .splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
-.splash-bg img{width:110vmax;height:110vmax;object-fit:cover;opacity:.35;filter:blur(0px);animation:splashBgIn 1.5s ease both}
-@keyframes splashBgIn{from{opacity:0;transform:scale(1.15)}to{opacity:.35;transform:scale(1)}}
-.splash-content{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center}
-.splash-logo{width:320px;height:320px;overflow:hidden;margin-bottom:40px;animation:splashIn 1s ease both}
-.splash-logo img{width:100%;height:100%;object-fit:cover;border-radius:0}
-@keyframes splashIn{from{opacity:0;transform:scale(.9) translateY(16px)}to{opacity:1;transform:scale(1) translateY(0)}}
-.splash-title{font-size:36px;font-weight:300;letter-spacing:6px;text-transform:lowercase;color:var(--t0);margin-bottom:12px;animation:splashIn 1s ease .2s both;text-shadow:0 0 40px rgba(56,200,200,.15)}
-.splash-sub{font-size:14px;color:var(--t2);font-weight:300;max-width:520px;text-align:center;line-height:1.8;animation:splashIn 1s ease .4s both}
-.splash-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.3;margin-top:48px;letter-spacing:1.5px;animation:splashIn 1s ease .7s both}
-.splash-version{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.2;margin-top:8px;animation:splashIn 1s ease .8s both}
+.splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.splash-bg img{width:120vmax;height:120vmax;object-fit:cover;opacity:.55;animation:splashBgIn 2s ease both}
+@keyframes splashBgIn{from{opacity:0;transform:scale(1.2)}to{opacity:.55;transform:scale(1)}}
+.splash-content{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;padding:48px 56px;background:rgba(23,26,30,.75);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(56,200,200,.08);border-radius:16px;max-width:560px;animation:splashIn 1.2s ease .3s both}
+@keyframes splashIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.splash-title{font-size:38px;font-weight:300;letter-spacing:8px;text-transform:lowercase;color:var(--t0);margin-bottom:16px;text-shadow:0 0 50px rgba(56,200,200,.2)}
+.splash-sub{font-size:14px;color:var(--t1);font-weight:300;line-height:1.8;margin-bottom:6px}
+.splash-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.4;margin-top:32px;letter-spacing:1.5px}
+.splash-version{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.25;margin-top:8px}
 
 @media(max-width:768px){.sb{display:none}.bgt{min-width:130px}.welcome-actions{flex-direction:column}.sim-cfg{grid-template-columns:1fr}.splash-logo{width:200px;height:200px}.splash-title{font-size:24px}}
 </style>
@@ -393,7 +392,6 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 <div class="splash" id="splash" onclick="dismissSplash()">
   <div class="splash-bg"><img src="/static/mirakl_sigil.svg" alt=""></div>
   <div class="splash-content">
-    <div class="splash-logo"><img src="/static/mirakl_sigil.svg" alt="mirakl sigil"></div>
     <div class="splash-title">dualmirakl</div>
     <div class="splash-sub">Multi-agent simulation platform with calibrated probability prediction, real-time world data integration, and LLM-driven behavioral dynamics</div>
     <div class="splash-hint">click anywhere to enter</div>
