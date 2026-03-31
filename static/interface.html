@@ -4179,7 +4179,7 @@ function dismissSplash() {
 }
 
 function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
-  const n = 180;
+  const n = 400;
   const goldenAngle = 137.508 * (Math.PI / 180);
   const halfFrom = fromSize / 2;
   const halfTo = toSize / 2;
@@ -4223,7 +4223,7 @@ function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
     const endY = toY + Math.sin(endAngle) * endR;
 
     const size = 1 + chaos[(i+5)%n] * 3.5;
-    const stagger = i * 2;
+    const stagger = i * 0.8;
 
     setTimeout(() => {
       const p = document.createElement('div');
