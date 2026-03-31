@@ -242,6 +242,22 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .drop-zone{margin-top:16px;padding:20px;border:1px dashed var(--bd);border-radius:var(--rad);color:var(--t2);font-size:12px;cursor:pointer;text-align:center;transition:all .2s;width:100%;max-width:480px}
 .drop-zone:hover,.drop-zone.drag-over{border-color:var(--a);color:var(--a);background:var(--ad)}
 
+/* WORLD SNAPSHOTS */
+.snapshot-btn{display:flex;flex-direction:column;gap:2px;padding:10px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);cursor:pointer;transition:all .2s;text-align:left;position:relative}
+.snapshot-btn:hover{border-color:var(--a);background:var(--bg2)}
+.snapshot-btn.loaded{border-color:rgba(56,200,200,.3)}
+.snapshot-btn.loading{border-color:var(--w);opacity:.7}
+.snap-icon{font-size:14px;color:var(--t2)}
+.snap-label{font-size:11px;font-weight:500;color:var(--t1)}
+.snap-desc{font-size:9px;color:var(--t2);line-height:1.4}
+.snap-status{position:absolute;top:6px;right:6px;font-family:'JetBrains Mono',monospace;font-size:8px}
+
+/* WORLD CATEGORIES */
+.world-cat{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);font-size:11px;color:var(--t1)}
+.world-cat .dot{width:6px;height:6px;flex-shrink:0}
+.world-cat .dot.on{background:var(--a);box-shadow:0 0 6px rgba(56,200,200,.4)}
+.world-cat .dot.partial{background:var(--w)}
+
 /* INFO TOOLTIP */
 .info-tip{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;border:1px solid var(--bd);color:var(--t2);font-size:8px;font-weight:600;cursor:help;position:relative;margin-left:4px;flex-shrink:0;font-family:'JetBrains Mono',monospace;vertical-align:middle}
 .info-tip:hover{border-color:var(--a);color:var(--a)}
@@ -421,7 +437,14 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
         <span id="simStatusBadge" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-left:auto">idle</span>
       </div>
 
-      <!-- CONFIG -->
+      <!-- SIM SUB-TABS -->
+      <div style="display:flex;gap:2px;margin-bottom:12px">
+        <button class="mode-tab active" id="simSubSpecs" onclick="switchSimSub('specs')">Specs</button>
+        <button class="mode-tab" id="simSubWorld" onclick="switchSimSub('world')">World</button>
+      </div>
+
+      <!-- SPECS TAB (existing config) -->
+      <div id="simSpecsPanel">
       <div class="sim-cfg" id="simCfgPanel">
         <div>
           <label>Scenario <span class="info-tip">i<span class="tip-text">The YAML file that defines the simulation domain: agent roles, archetypes, scoring parameters, and outcome criteria. Each scenario is a self-contained experiment configuration.</span></span></label>
@@ -444,11 +467,15 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
         </div>
         <div id="pipelineCfg" style="display:none">
           <label>Ensemble Runs <span class="info-tip">i<span class="tip-text">How many independent simulation runs to execute. More runs = more statistical power. The pipeline monitors convergence (CV) and may stop early if results stabilize. Minimum 3 for scenario tree construction.</span></span></label>
-          <div class="rr"><input type="range" id="simNRuns" min="3" max="50" step="1" value="10" oninput="document.getElementById('simNRunsV').textContent=this.value;updateTimeEstimate()"><span class="rv" id="simNRunsV">10</span></div>
+          <div class="rr"><input type="range" id="simNRuns" min="3" max="500" step="1" value="10" oninput="document.getElementById('simNRunsV').textContent=this.value;updateTimeEstimate()"><span class="rv" id="simNRunsV">10</span></div>
         </div>
         <div id="seedCfg" style="display:none">
-          <label>Base Seed <span class="info-tip">i<span class="tip-text">Random seed for reproducibility. Each ensemble run uses base_seed + run_index, so the full ensemble is deterministic given the same base seed. Change this to explore different random trajectories.</span></span></label>
+          <label>Base Seed <span class="info-tip">i<span class="tip-text">Random seed for reproducibility. Same seed = same results every time. Doesn't add runtime — just controls which random path each run takes.</span></span></label>
           <input type="number" id="simSeed" value="42">
+        </div>
+        <div id="paramSeedCfg" style="display:none">
+          <label>Parameter Variants <span class="info-tip">i<span class="tip-text">How many different parameter configurations to explore. Each variant slightly shifts key parameters (alpha, kappa, threshold) and runs the full ensemble with those settings. This is the outer loop of a nested ensemble — it separates "we don't know the right parameters" (epistemic uncertainty) from "same parameters, different outcomes" (aleatory uncertainty). 1 = single config. 3 = three configs. Total runs = variants x ensemble runs. More variants = longer runtime but better understanding of which parameters matter.</span></span></label>
+          <div class="rr"><input type="range" id="simParamSeeds" min="1" max="10" step="1" value="1" oninput="document.getElementById('simParamSeedsV').textContent=this.value;updateTimeEstimate()"><span class="rv" id="simParamSeedsV">1</span></div>
         </div>
         <!-- INLINE SCENARIO PARAMS (editable) -->
         <div class="sim-cfg-full" id="scenarioParams" style="margin-top:8px;padding-top:10px;border-top:1px solid var(--bd);overflow:visible">
@@ -470,7 +497,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
               <input type="number" id="spKappa" value="0.0" step="0.05" min="-0.5" max="0.5" style="width:100%;font-size:10px;padding:4px 6px">
             </div>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:6px">
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:6px">
             <div>
               <label style="font-size:8px">Obs. K <span class="info-tip">i<span class="tip-text">How often the system checks in. K=1 means every tick (tight supervision). K=4 means every 4th tick (agents run freely between checks).</span></span></label>
               <input type="number" id="spK" value="4" min="1" max="24" style="width:100%;font-size:10px;padding:4px 6px">
@@ -486,6 +513,15 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
             <div>
               <label style="font-size:8px">Threshold <span class="info-tip">i<span class="tip-text">The warning line. Agents whose score goes above this get flagged for escalation. Also triggers archetype transitions (e.g., a moderate agent becoming high-susceptibility after staying above threshold for 3 ticks).</span></span></label>
               <input type="number" id="spThreshold" value="0.7" step="0.05" min="0.3" max="0.95" style="width:100%;font-size:10px;padding:4px 6px">
+            </div>
+            <div>
+              <label style="font-size:8px">Tick = <span class="info-tip">i<span class="tip-text">What one tick represents in real time. This changes how agents behave: an hour-tick produces quick reactions with little reflection. A month-tick produces considered responses that account for time passing, habit formation, and accumulated experience. Longer time units also give agents more context to respond to — producing richer behavioral signals but slower ticks.</span></span></label>
+              <select id="spTickUnit" style="width:100%;font-size:10px;padding:4px 6px" onchange="updateTimeEstimate()">
+                <option value="hour">hour</option>
+                <option value="week" selected>week</option>
+                <option value="month">month</option>
+                <option value="year">year</option>
+              </select>
             </div>
           </div>
           <!-- INLINE ARCHETYPES -->
@@ -511,6 +547,147 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
           <button class="results-btn" id="calibrateBtn" onclick="runCalibration()" style="padding:3px 10px;font-size:9px;font-family:'JetBrains Mono',monospace" title="Run a micro-sim to measure real vLLM latency and calibrate time estimates">calibrate</button>
         </div>
       </div>
+      </div><!-- /simSpecsPanel -->
+
+      <!-- WORLD TAB -->
+      <div id="simWorldPanel" style="display:none">
+        <div class="sim-cfg" style="display:flex;flex-direction:column;gap:14px">
+
+          <!-- Context Categories Status -->
+          <div>
+            <label>Context Categories <span class="info-tip">i<span class="tip-text">The simulation needs domain knowledge to produce meaningful results. Upload documents to fill these categories. Without them, agents interact in a vacuum and results are generic.</span></span></label>
+            <div id="worldContextStatus" style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+              <div class="world-cat" data-cat="scenario_description">
+                <span class="dot off" id="wcDotScenario"></span>
+                <span style="flex:1">What is this about <span class="info-tip">i<span class="tip-text">Describe the real-world situation you're simulating in plain language. Example: "A group of young adults is exposed to increasingly persuasive social media content over 12 weeks. We want to understand who gets drawn in, who resists, and whether the group splits or stays together." Without this, the simulated people interact in a void — their conversations are generic and meaningless.</span></span></span>
+                <span class="world-cat-status" id="wcStatusScenario" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">missing</span>
+              </div>
+              <div class="world-cat" data-cat="population_characteristics">
+                <span class="dot off" id="wcDotPopulation"></span>
+                <span style="flex:1">Who are the people <span class="info-tip">i<span class="tip-text">Describe the group being simulated. What makes them different from each other? Example: "25% are highly engaged and struggle to step back, 50% have normal usage, 25% are disciplined and set clear limits. Younger participants (16-20) tend to be more easily drawn in." Without this, the personality types are just random — not grounded in any real population.</span></span></span>
+                <span class="world-cat-status" id="wcStatusPopulation" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">missing</span>
+              </div>
+              <div class="world-cat" data-cat="outcome_criteria">
+                <span class="dot off" id="wcDotOutcome"></span>
+                <span style="flex:1">What would surprise you <span class="info-tip">i<span class="tip-text">Not "what should happen" but "what would make you doubt the simulation." Think in two layers:<br><br><b>Structural</b> (checked automatically): Does the group split into distinct behavioral patterns? Do individual outliers exist? Do interventions actually change anything? Is the system predictably unstable or just random noise?<br><br><b>Surprise bounds</b> (you define): "I'd be surprised if nobody at all crossed into problematic territory" or "I'd be surprised if the entire group ended up in the same place." These aren't targets — they're sanity checks. The sim is free to produce unexpected results, but flags anything outside what you'd consider remotely plausible.</span></span></span>
+                <span class="world-cat-status" id="wcStatusOutcome" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">missing</span>
+              </div>
+              <div class="world-cat" data-cat="intervention_rules">
+                <span class="dot off" id="wcDotIntervention"></span>
+                <span style="flex:1">What help exists <span class="info-tip">i<span class="tip-text">When things go wrong in the real world, what can be done? Example: "If someone shows signs of compulsive use for 3 weeks straight, offer a reflection prompt. If someone approaches a critical threshold, flag it. No more than 2 interventions per observation cycle — too many backfire." Without this, the simulation uses generic intervention types that may not match how your domain actually works.</span></span></span>
+                <span class="world-cat-status" id="wcStatusIntervention" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">optional</span>
+              </div>
+              <div class="world-cat" data-cat="temporal_structure">
+                <span class="dot off" id="wcDotTemporal"></span>
+                <span style="flex:1">How time passes <span class="info-tip">i<span class="tip-text">What does one step in the simulation represent in real time? Are there phases or turning points? Example: "Each step is one week. Weeks 1-4 are a baseline period. Weeks 5-8 introduce the main challenge. Weeks 9-12 measure whether people recovered or got stuck." Without this, time is just abstract steps — the simulation can't distinguish an early-phase reaction from a late-stage pattern.</span></span></span>
+                <span class="world-cat-status" id="wcStatusTemporal" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)">optional</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Uploaded Documents -->
+          <div>
+            <label>World Documents <span class="info-tip">i<span class="tip-text">Documents uploaded here become the simulation's knowledge base. The environment agent uses them to generate realistic stimuli. The ontology generator can extract archetypes and population parameters from them.</span></span></label>
+            <div id="worldDocs" style="margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">
+              <span style="opacity:.5">No documents uploaded yet</span>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <button class="upload-btn" onclick="document.getElementById('worldFileIn').click()">&#9965; Upload Document</button>
+              <input type="file" id="worldFileIn" accept=".pdf,.txt,.md,.csv" style="display:none" onchange="handleWorldFile(event)">
+              <button class="results-btn" id="extractBtn" onclick="extractOntology()" style="display:none;font-size:10px;padding:4px 10px">Extract Archetypes</button>
+            </div>
+          </div>
+
+          <!-- Extracted Ontology Preview -->
+          <div id="worldOntology" style="display:none">
+            <label>Extracted from Documents <span class="info-tip">i<span class="tip-text">The ontology generator used the authority LLM to analyze your documents and suggest archetypes, population distributions, and scenario parameters. Review and apply to your Specs config.</span></span></label>
+            <div id="ontologyPreview" style="margin-top:6px;padding:10px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t1);line-height:1.7;max-height:200px;overflow-y:auto"></div>
+            <button class="results-btn" onclick="applyOntology()" style="margin-top:6px;font-size:10px;padding:4px 10px">Apply to Specs</button>
+          </div>
+
+          <!-- World Stats / Notes -->
+          <div>
+            <label>World Context Notes <span class="info-tip">i<span class="tip-text">Write anything the simulation should know about the world: domain background, constraints, population details, expected behaviors, real-world observations. This text is injected into the environment agent's context alongside uploaded documents.</span></span></label>
+            <textarea id="worldNotes" rows="4" style="width:100%;margin-top:6px;padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t0);font-family:'Outfit',sans-serif;font-size:12px;font-weight:300;resize:vertical;outline:none;line-height:1.6" placeholder="e.g. 'This simulates a cohort of 18-25 year olds in an urban setting. Baseline engagement is moderate. The intervention window is 6 months. Expected polarization around week 8-10...'"></textarea>
+            <div style="display:flex;gap:6px;margin-top:4px;align-items:center">
+              <button class="mac" onclick="saveWorldNotes()">save</button>
+              <span id="worldNotesSaved" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--a);display:none">saved</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-left:auto" id="worldNotesLen">0 chars</span>
+            </div>
+          </div>
+
+          <!-- World Snapshot Feeds -->
+          <div>
+            <label>World Snapshots <span class="info-tip">i<span class="tip-text">Pull real-time data from free public APIs to ground your simulation in the actual world. Each topic bundle fetches relevant news, statistics, and events. The data feeds into the environment agent's context so stimuli reflect what's really happening.</span></span></label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px" id="snapshotGrid">
+              <button class="snapshot-btn" data-topic="social" onclick="fetchSnapshot('social')">
+                <span class="snap-icon">&#9883;</span>
+                <span class="snap-label">Social &amp; Culture</span>
+                <span class="snap-desc">Trends, public opinion, social media, demographics</span>
+                <span class="snap-status" id="snapSocial"></span>
+              </button>
+              <button class="snapshot-btn" data-topic="health" onclick="fetchSnapshot('health')">
+                <span class="snap-icon">&#9764;</span>
+                <span class="snap-label">Health &amp; Psychology</span>
+                <span class="snap-desc">Mental health, addiction, wellbeing, public health</span>
+                <span class="snap-status" id="snapHealth"></span>
+              </button>
+              <button class="snapshot-btn" data-topic="tech" onclick="fetchSnapshot('tech')">
+                <span class="snap-icon">&#9889;</span>
+                <span class="snap-label">Technology &amp; Digital</span>
+                <span class="snap-desc">Platforms, AI, digital regulation, online behavior</span>
+                <span class="snap-status" id="snapTech"></span>
+              </button>
+              <button class="snapshot-btn" data-topic="economy" onclick="fetchSnapshot('economy')">
+                <span class="snap-icon">&#9878;</span>
+                <span class="snap-label">Economy &amp; Markets</span>
+                <span class="snap-desc">Finance, employment, consumer behavior, trade</span>
+                <span class="snap-status" id="snapEconomy"></span>
+              </button>
+              <button class="snapshot-btn" data-topic="politics" onclick="fetchSnapshot('politics')">
+                <span class="snap-icon">&#9878;</span>
+                <span class="snap-label">Politics &amp; Governance</span>
+                <span class="snap-desc">Policy, regulation, elections, institutional trust</span>
+                <span class="snap-status" id="snapPolitics"></span>
+              </button>
+              <button class="snapshot-btn" data-topic="environment" onclick="fetchSnapshot('environment')">
+                <span class="snap-icon">&#9728;</span>
+                <span class="snap-label">Environment &amp; Climate</span>
+                <span class="snap-desc">Climate events, sustainability, resource pressure</span>
+                <span class="snap-status" id="snapEnvironment"></span>
+              </button>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <button class="mac" onclick="fetchAllSnapshots()">fetch all</button>
+              <span id="snapProgress" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-left:auto"></span>
+            </div>
+          </div>
+
+          <!-- World Stats Summary -->
+          <div>
+            <label>World State <span class="info-tip">i<span class="tip-text">Live summary of what the simulation knows. Documents, embedded chunks, knowledge graph entities, and past run data all contribute to richer, more grounded simulation outputs.</span></span></label>
+            <div id="worldStats" style="margin-top:6px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <div style="padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax)">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Documents</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--t1)" id="wsDocCount">0</div>
+              </div>
+              <div style="padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax)">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Chunks</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--t1)" id="wsChunkCount">0</div>
+              </div>
+              <div style="padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax)">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Graph Entities</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--t1)" id="wsEntityCount">0</div>
+              </div>
+              <div style="padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax)">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Past Runs</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:16px;color:var(--t1)" id="wsRunCount">0</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div><!-- /simWorldPanel -->
 
       <!-- PROGRESS: SINGLE RUN -->
       <div id="simSingleProgress" style="display:none">
@@ -891,11 +1068,13 @@ async function handleFile(event) {
   bar.classList.add('vis'); tx.textContent=`Reading ${file.name}\u2026`;
   try {
     let text = file.type==='application/pdf' ? await extractPdf(file) : await file.text();
-    const trunc = text.length>12000;
-    text = text.slice(0,12000);
+    const trunc = text.length>150000;
+    text = text.slice(0,150000);
     S.attachedFile = {name:file.name, text};
-    tx.textContent=`Embedding ${file.name}\u2026`;
-    await embedStore(text, S.cid||'global', 'document');
+    tx.textContent=`Embedding ${file.name} (${(text.length/1000).toFixed(0)}k chars)\u2026`;
+    await embedStore(text, S.cid||'global', 'document', (done,total) => {
+      tx.textContent=`Embedding ${file.name} (${done}/${total} chunks)\u2026`;
+    });
     // Also push to server-side document store for simulation world context
     tx.textContent=`Storing for simulation\u2026`;
     try {
@@ -988,10 +1167,14 @@ function chunkText(t,sz) {
   for(const s of sents){if((cur+s).length>sz&&cur){chunks.push(cur.trim());cur=s;}else cur+=s;}
   if(cur.trim()) chunks.push(cur.trim()); return chunks;
 }
-async function embedStore(text,chatId,role) {
+async function embedStore(text,chatId,role,onProgress) {
   const chunks=chunkText(text,cfg().chunk);
-  for(const ch of chunks){const v=await embed(ch); if(v) S.embeds.push({text:ch,embedding:v,chatId,role,ts:Date.now()});}
-  if(S.embeds.length>500) S.embeds=S.embeds.slice(-500);
+  for(let i=0;i<chunks.length;i++){
+    const v=await embed(chunks[i]);
+    if(v) S.embeds.push({text:chunks[i],embedding:v,chatId,role,ts:Date.now()});
+    if(onProgress && i%5===0) onProgress(i+1, chunks.length);
+  }
+  if(S.embeds.length>2000) S.embeds=S.embeds.slice(-2000);
   updEmbedCnt();
 }
 async function ragRetrieve(query) {
@@ -1348,7 +1531,9 @@ function setSimMode(mode) {
   document.getElementById('modePipeline').className = mode==='pipeline' ? 'active' : '';
   document.getElementById('pipelineCfg').style.display = mode==='pipeline' ? '' : 'none';
   document.getElementById('seedCfg').style.display = mode==='pipeline' ? '' : 'none';
+  document.getElementById('paramSeedCfg').style.display = mode==='pipeline' ? '' : 'none';
   document.getElementById('simStartBtn').textContent = mode==='pipeline' ? 'Run Pipeline' : 'Start Simulation';
+  updateTimeEstimate();
 }
 
 function handleSimStart() {
@@ -1678,39 +1863,39 @@ function renderTendencyCards(possReport, dynamics, statistics) {
       </div>
 
       <div class="tendency-metrics">
-        <span class="tendency-metric">attractor: ${(b.attractor_center||0).toFixed(2)}</span>
-        <span class="tendency-metric">basin: ${b.basin_range ? b.basin_range.map(v=>v.toFixed(2)).join('-') : '?'}</span>
-        <span class="tendency-metric">\u03bb: ${maxLyap} (${regime})</span>
-        <span class="tendency-metric">coupling: ${couplingEffect}</span>
+        <span class="tendency-metric">typical level: ${(b.attractor_center||0).toFixed(2)}</span>
+        <span class="tendency-metric">range: ${b.basin_range ? b.basin_range.map(v=>v.toFixed(2)).join(' - ') : '?'}</span>
+        <span class="tendency-metric">${regime==='stable'?'predictable':regime==='marginal'?'on the edge':regime==='chaotic'?'unpredictable':'unknown'}</span>
+        <span class="tendency-metric">${nAttractors>1?'group splits into camps':'group stays together'}</span>
       </div>
 
       <div class="tendency-section">
-        <div class="tendency-section-label"><span class="ts-icon">\u2192</span> CAUSE</div>
+        <div class="tendency-section-label"><span class="ts-icon">\u2192</span> WHY THIS HAPPENS</div>
         <div class="tendency-text">${cause}</div>
       </div>
 
       <div class="tendency-section">
-        <div class="tendency-section-label"><span class="ts-icon">\u25ce</span> EFFECT</div>
+        <div class="tendency-section-label"><span class="ts-icon">\u25ce</span> WHAT IT LOOKS LIKE</div>
         <div class="tendency-text">${effect}</div>
       </div>
 
       <div class="tendency-section">
-        <div class="tendency-section-label"><span class="ts-icon">\u21d2</span> CONSEQUENCE</div>
+        <div class="tendency-section-label"><span class="ts-icon">\u21d2</span> WHAT IT MEANS</div>
         <div class="tendency-text">${consequence}</div>
       </div>
 
       ${extremes ? `<div class="tendency-section">
-        <div class="tendency-section-label"><span class="ts-icon">\u26a0</span> EXTREMES</div>
+        <div class="tendency-section-label"><span class="ts-icon">\u26a0</span> WHO TO WATCH</div>
         ${extremes}
       </div>` : ''}
 
       ${developing ? `<div class="tendency-section">
-        <div class="tendency-section-label"><span class="ts-icon">\u2197</span> DEVELOPING</div>
+        <div class="tendency-section-label"><span class="ts-icon">\u2197</span> WHERE THIS IS HEADING</div>
         ${developing}
       </div>` : ''}
 
       <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
-        DRIVER: ${driverStr}
+        Main factor: ${driverStr}
       </div>
     </div>`;
   }).join('');
@@ -1719,62 +1904,66 @@ function renderTendencyCards(possReport, dynamics, statistics) {
 function buildCause(b, sobol, m) {
   const parts = [];
   if (m.mean_final_score != null) {
-    if (m.mean_final_score > 0.6) parts.push('High mean signal drives agents toward the upper basin.');
-    else if (m.mean_final_score < 0.4) parts.push('Low mean signal keeps agents in the lower basin.');
-    else parts.push('Moderate signal levels create a balanced field for agent interaction.');
+    if (m.mean_final_score > 0.6) parts.push('The content or stimuli are strong enough to pull most people into high engagement.');
+    else if (m.mean_final_score < 0.4) parts.push('The stimuli are not compelling enough to move most people beyond baseline engagement.');
+    else parts.push('The stimuli are moderately engaging — enough to create differentiation between personality types.');
   }
   if (m.polarization != null && m.polarization > 0.2)
-    parts.push('Heterogeneous susceptibility splits the population into divergent response groups.');
+    parts.push('People with different personality profiles react very differently to the same situation, causing the group to split.');
   if (sobol?.S1) {
     const top2 = Object.entries(sobol.S1).sort((a,b)=>b[1]-a[1]).slice(0,2);
-    if (top2.length) parts.push(`Parameter sensitivity dominated by ${top2.map(x=>x[0]).join(' and ')}.`);
+    const nameMap = {alpha:'how fast people react', kappa:'peer influence', threshold:'the warning threshold', susceptibility:'individual vulnerability', resilience:'individual resistance', dampening:'intervention strength'};
+    if (top2.length) parts.push(`The most influential factors are ${top2.map(x=>nameMap[x[0]]||x[0]).join(' and ')}.`);
   }
-  return parts.join(' ') || 'Dynamics emerge from the interaction of scoring parameters and agent heterogeneity.';
+  return parts.join(' ') || 'This pattern emerges from the mix of personality types and how they respond to what happens around them.';
 }
 
 function buildEffect(b, m, maxLyap, regime) {
   const parts = [];
-  parts.push(`Agents migrate toward attractor at ${(b.attractor_center||0).toFixed(2)} [basin: ${b.basin_range ? b.basin_range.map(v=>v.toFixed(2)).join('\u2013') : '?'}].`);
-  parts.push(`System regime: ${regime} (\u03bb=${maxLyap}).`);
-  if (m.convergence) parts.push('Score trajectories converge — variance decreasing over time.');
-  else parts.push('No convergence detected — trajectories remain spread.');
+  const level = (b.attractor_center||0);
+  const levelWord = level > 0.7 ? 'high' : level > 0.4 ? 'moderate' : 'low';
+  parts.push(`Most people settle around a ${levelWord} engagement level (${level.toFixed(2)}).`);
+  const regimeWord = regime === 'stable' ? 'predictable and consistent' : regime === 'marginal' ? 'on the edge — small changes could tip it either way' : regime === 'chaotic' ? 'unpredictable — outcomes vary wildly between runs' : 'unclear';
+  parts.push(`The overall pattern is ${regimeWord}.`);
+  if (m.convergence) parts.push('Over time, individual differences shrink — people end up in similar places.');
+  else parts.push('Individual differences persist — some people stay in very different places from others throughout.');
   return parts.join(' ');
 }
 
 function buildConsequence(b, m) {
   const parts = [];
-  if (m.convergence) parts.push('Low intervention pressure expected. System self-regulates.');
-  else if (m.polarization > 0.25) parts.push('High intervention pressure. Growing gap between groups may require dampening.');
-  else parts.push('Moderate intervention may be needed to prevent drift.');
-  if (m.mean_final_score > 0.75) parts.push('Risk of sustained high engagement — boundary monitoring recommended.');
-  else if (m.mean_final_score < 0.25) parts.push('Risk of disengagement cascade — pacing adjustment may help.');
-  return parts.join(' ') || 'Outcomes depend on parameter regime and intervention timing.';
+  if (m.convergence) parts.push('The group self-regulates. External intervention is unlikely to be needed.');
+  else if (m.polarization > 0.25) parts.push('The group is splitting apart. Without intervention, the gap between high and low engagement will keep growing.');
+  else parts.push('The group is drifting. Some monitoring is needed to catch people heading toward extremes.');
+  if (m.mean_final_score > 0.75) parts.push('Risk: many people are stuck at very high engagement. This may need active boundary-setting.');
+  else if (m.mean_final_score < 0.25) parts.push('Risk: most people have disengaged. The situation may need re-energizing to prevent total dropout.');
+  return parts.join(' ') || 'What happens next depends on whether interventions are applied and when.';
 }
 
 function buildExtremes(b, m) {
-  // Extremes come from confidence_interval spread or branch-level agent data
   if (!b.confidence_interval) return '';
   const ci = b.confidence_interval;
   const spread = (ci[1]||0) - (ci[0]||0);
   if (spread < 0.1) return '';
   return `<div class="tendency-extreme">
-    CI spread: ${ci[0]?.toFixed(2)} \u2013 ${ci[1]?.toFixed(2)} (wide \u2014 some runs show agents at basin edges).
-    Monitor agents near ${b.basin_range ? b.basin_range[1]?.toFixed(2) : '?'} threshold for potential basin escape.
+    In some runs, individual outcomes ranged from ${ci[0]?.toFixed(2)} to ${ci[1]?.toFixed(2)} — a wide spread.
+    People near the ${b.basin_range ? b.basin_range[1]?.toFixed(2) : 'upper'} boundary could tip into a different behavioral pattern at any point.
   </div>`;
 }
 
 function buildDeveloping(b, m, te, pol) {
   const trends = [];
   if (pol?.trend_slope != null) {
-    const dir = pol.trend_slope > 0 ? '\u2197 rising' : '\u2198 falling';
-    trends.push(`<div class="tendency-trend"><span class="trend-icon">${pol.trend_slope>0?'\u2197':'\u2198'}</span> Polarization ${dir} (slope: ${pol.trend_slope.toFixed(4)}/tick)</div>`);
+    if (pol.trend_slope > 0.001) trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2197</span> The group is becoming more divided over time</div>`);
+    else if (pol.trend_slope < -0.001) trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2198</span> The group is becoming more aligned over time</div>`);
   }
   if (te?.asymmetry != null && Math.abs(te.asymmetry) > 0.01) {
-    trends.push(`<div class="tendency-trend"><span class="trend-icon">\u21c4</span> Information flow asymmetry: ${te.asymmetry.toFixed(3)} (directional influence active)</div>`);
+    trends.push(`<div class="tendency-trend"><span class="trend-icon">\u21c4</span> Some individuals are disproportionately influencing others (not evenly distributed)</div>`);
   }
   if (m.mean_final_score != null) {
-    const vel = m.mean_final_score > 0.5 ? 'upward' : 'downward';
-    trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2022</span> Group tendency: ${vel} toward ${(m.mean_final_score).toFixed(2)}</div>`);
+    if (m.mean_final_score > 0.6) trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2022</span> The group as a whole is trending toward higher engagement</div>`);
+    else if (m.mean_final_score < 0.4) trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2022</span> The group as a whole is trending toward disengagement</div>`);
+    else trends.push(`<div class="tendency-trend"><span class="trend-icon">\u2022</span> The group is hovering around a moderate level without strong direction</div>`);
   }
   return trends.join('') || '';
 }
@@ -1859,10 +2048,10 @@ async function viewSimResults() {
 // ── SCENARIO PRESETS ──
 
 const SCENARIO_PRESETS = {
-  'scenarios/social_dynamics.yaml': {ticks:12, agents:4, alpha:0.15, kappa:0.0, k:4, mode:'ema', dampen:1.0, threshold:0.7},
-  'scenarios/market_ecosystem.yaml': {ticks:24, agents:6, alpha:0.20, kappa:0.1, k:3, mode:'logistic', dampen:0.8, threshold:0.65},
-  'scenarios/network_resilience.yaml': {ticks:20, agents:8, alpha:0.10, kappa:0.05, k:4, mode:'ema', dampen:1.0, threshold:0.7},
-  'scenarios/minimal.yaml': {ticks:3, agents:2, alpha:0.15, kappa:0.0, k:2, mode:'ema', dampen:1.0, threshold:0.7},
+  'scenarios/social_dynamics.yaml': {ticks:12, agents:4, alpha:0.15, kappa:0.0, k:4, mode:'ema', dampen:1.0, threshold:0.7, tickUnit:'week'},
+  'scenarios/market_ecosystem.yaml': {ticks:24, agents:6, alpha:0.20, kappa:0.1, k:3, mode:'logistic', dampen:0.8, threshold:0.65, tickUnit:'hour'},
+  'scenarios/network_resilience.yaml': {ticks:20, agents:8, alpha:0.10, kappa:0.05, k:4, mode:'ema', dampen:1.0, threshold:0.7, tickUnit:'month'},
+  'scenarios/minimal.yaml': {ticks:3, agents:2, alpha:0.15, kappa:0.0, k:2, mode:'ema', dampen:1.0, threshold:0.7, tickUnit:'hour'},
 };
 
 function loadScenarioPreset() {
@@ -1876,6 +2065,7 @@ function loadScenarioPreset() {
   document.getElementById('spScoreMode').value = p.mode;
   document.getElementById('spDampen').value = p.dampen;
   document.getElementById('spThreshold').value = p.threshold;
+  document.getElementById('spTickUnit').value = p.tickUnit || 'week';
   // Load archetypes
   const archs = SCENARIO_ARCHETYPES[scenario] || SCENARIO_ARCHETYPES['scenarios/social_dynamics.yaml'];
   renderSpArchetypes(archs);
@@ -1892,6 +2082,8 @@ function getScenarioParams() {
     mode: document.getElementById('spScoreMode').value || 'ema',
     dampen: parseFloat(document.getElementById('spDampen').value) || 1.0,
     threshold: parseFloat(document.getElementById('spThreshold').value) || 0.7,
+    tickUnit: document.getElementById('spTickUnit').value || 'week',
+    maxTokens: ({hour:64, week:192, month:384, year:512})[document.getElementById('spTickUnit').value] || 192,
   };
 }
 
@@ -1903,13 +2095,17 @@ document.getElementById('simScenario')?.addEventListener('change', loadScenarioP
 function updateTimeEstimate() {
   const p = getScenarioParams();
   const nRuns = S.simMode === 'pipeline' ? (parseInt(document.getElementById('simNRuns')?.value) || 10) : 1;
+  const paramSeeds = S.simMode === 'pipeline' ? (parseInt(document.getElementById('simParamSeeds')?.value) || 1) : 1;
 
-  const secPerCall = S.calibratedLatency || 0.5;
+  // Tick depth multiplier: more tokens = longer generation time
+  const depthMultiplier = (p.maxTokens || 192) / 192;
+  const secPerCall = (S.calibratedLatency || 0.5) * depthMultiplier;
   const calibrated = S.calibratedLatency != null;
   const callsPerTick = p.agents + 1 + 0.25; // participants + env + observer amortized
   const singleRunSec = Math.round(p.ticks * callsPerTick * secPerCall);
-  const totalSec = singleRunSec * nRuns;
-  const analysisSec = nRuns > 1 ? 5 : 0;
+  const totalRuns = nRuns * paramSeeds;
+  const totalSec = singleRunSec * totalRuns;
+  const analysisSec = totalRuns > 1 ? 5 * paramSeeds : 0;
 
   let estStr;
   const total = totalSec + analysisSec;
@@ -1918,11 +2114,14 @@ function updateTimeEstimate() {
   else estStr = `~${Math.round(total/3600)}h ${Math.round((total%3600)/60)}m`;
 
   document.getElementById('simTimeEst').textContent = estStr;
+  const unit = p.tickUnit || 'week';
+  const simSpan = p.ticks + ' ' + unit + (p.ticks > 1 ? 's' : '');
   const label = `${p.ticks} ticks x ${p.agents} agents`;
-  const srcTag = calibrated ? `${secPerCall}s/call calibrated` : `~${secPerCall}s/call est.`;
-  const detail = nRuns > 1
-    ? `(${nRuns} runs x ${label} x ${srcTag} + analysis)`
-    : `(${label} x ${srcTag})`;
+  const srcTag = calibrated ? `${secPerCall.toFixed(2)}s/call` : `~${secPerCall.toFixed(2)}s/call`;
+  const variantTag = paramSeeds > 1 ? `${paramSeeds} variants x ` : '';
+  const detail = totalRuns > 1
+    ? `(${variantTag}${nRuns} runs x ${label} x ${srcTag}) simulating ${simSpan}`
+    : `(${label} x ${srcTag}) simulating ${simSpan}`;
   document.getElementById('simTimeDetail').textContent = detail;
 }
 
@@ -2210,6 +2409,345 @@ outcome_criteria:
     resultEl.style.display = '';
     resultEl.innerHTML = `<span style="color:var(--r)">Error: ${e.message}</span>`;
   }
+}
+
+// ── SIM SUB-TABS ──
+
+function switchSimSub(tab) {
+  document.getElementById('simSpecsPanel').style.display = tab === 'specs' ? '' : 'none';
+  document.getElementById('simWorldPanel').style.display = tab === 'world' ? '' : 'none';
+  document.getElementById('simSubSpecs').className = 'mode-tab' + (tab === 'specs' ? ' active' : '');
+  document.getElementById('simSubWorld').className = 'mode-tab' + (tab === 'world' ? ' active' : '');
+  if (tab === 'world') refreshWorldStats();
+}
+
+// ── WORLD TAB ──
+
+S.worldDocs = [];
+
+async function handleWorldFile(event) {
+  const file = event.target.files[0]; if (!file) return;
+  event.target.value = '';
+  const docsEl = document.getElementById('worldDocs');
+  docsEl.innerHTML = '<span style="color:var(--w)">Processing ' + file.name + '...</span>';
+
+  try {
+    let text = file.type === 'application/pdf' ? await extractPdf(file) : await file.text();
+    text = text.slice(0, 150000);
+
+    // Store locally
+    S.worldDocs.push({name: file.name, text, ts: Date.now(), chars: text.length});
+
+    // Push to server doc store
+    const gwUrl = url.gw();
+    try {
+      await fetch(`${gwUrl}/v1/documents`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text, name: file.name, role: 'world_context', append: true})
+      });
+    } catch { /* server offline */ }
+
+    // Embed for RAG
+    await embedStore(text, 'world', 'document', (done,total) => {
+      docsEl.innerHTML = `<span style="color:var(--w)">Embedding ${file.name} (${done}/${total} chunks)\u2026</span>`;
+    });
+
+    // Detect context categories
+    detectContextCategories(text);
+
+    renderWorldDocs();
+    refreshWorldStats();
+
+    // Show extract button if we have docs
+    document.getElementById('extractBtn').style.display = '';
+
+  } catch (e) {
+    docsEl.innerHTML = '<span style="color:var(--r)">Error: ' + e.message + '</span>';
+  }
+}
+
+function renderWorldDocs() {
+  const el = document.getElementById('worldDocs');
+  if (!S.worldDocs.length) {
+    el.innerHTML = '<span style="opacity:.5">No documents uploaded yet</span>';
+    return;
+  }
+  el.innerHTML = S.worldDocs.map((d, i) => `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--bd)">
+    <span style="color:var(--a)">&#9965;</span>
+    <span style="flex:1">${d.name}</span>
+    <span style="opacity:.5">${(d.chars/1000).toFixed(1)}k</span>
+    <button onclick="S.worldDocs.splice(${i},1);renderWorldDocs();refreshWorldStats()" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:10px">&times;</button>
+  </div>`).join('');
+}
+
+function detectContextCategories(text) {
+  const lower = text.toLowerCase();
+  const checks = [
+    {cat: 'Scenario', dot: 'wcDotScenario', status: 'wcStatusScenario',
+     keywords: ['simulation', 'scenario', 'study', 'experiment', 'research', 'investigation', 'purpose', 'objective']},
+    {cat: 'Population', dot: 'wcDotPopulation', status: 'wcStatusPopulation',
+     keywords: ['population', 'participant', 'user', 'demographic', 'age group', 'sample', 'cohort', 'subject']},
+    {cat: 'Outcome', dot: 'wcDotOutcome', status: 'wcStatusOutcome',
+     keywords: ['outcome', 'result', 'measure', 'metric', 'criterion', 'success', 'indicator', 'score']},
+    {cat: 'Intervention', dot: 'wcDotIntervention', status: 'wcStatusIntervention',
+     keywords: ['intervention', 'treatment', 'strategy', 'prevention', 'program', 'therapy', 'support']},
+    {cat: 'Temporal', dot: 'wcDotTemporal', status: 'wcStatusTemporal',
+     keywords: ['timeline', 'duration', 'week', 'month', 'longitudinal', 'follow-up', 'phase', 'period']},
+  ];
+  checks.forEach(c => {
+    const hits = c.keywords.filter(k => lower.includes(k)).length;
+    const dot = document.getElementById(c.dot);
+    const status = document.getElementById(c.status);
+    if (hits >= 3) { dot.className = 'dot on'; status.textContent = 'detected'; status.style.color = 'var(--a)'; }
+    else if (hits >= 1) { dot.className = 'dot partial'; status.textContent = 'partial'; status.style.color = 'var(--w)'; }
+  });
+}
+
+async function refreshWorldStats() {
+  document.getElementById('wsDocCount').textContent = S.worldDocs.length;
+  document.getElementById('wsChunkCount').textContent = S.embeds.filter(e => e.role === 'document').length;
+
+  // Try to get graph + run counts from server
+  const gwUrl = url.gw();
+  try {
+    const r = await fetch(`${gwUrl}/v1/graph`);
+    if (r.ok) {
+      const d = await r.json();
+      document.getElementById('wsEntityCount').textContent = d.entities?.length || d.n_entities || 0;
+    }
+  } catch { /* offline */ }
+  try {
+    const r = await fetch(`${gwUrl}/v1/documents`);
+    if (r.ok) {
+      const d = await r.json();
+      const serverDocs = d.documents?.length || d.count || 0;
+      if (serverDocs > S.worldDocs.length) {
+        document.getElementById('wsDocCount').textContent = serverDocs;
+      }
+    }
+  } catch { /* offline */ }
+}
+
+async function extractOntology() {
+  const btn = document.getElementById('extractBtn');
+  btn.disabled = true;
+  btn.textContent = 'Extracting...';
+  const gwUrl = url.gw();
+
+  try {
+    // Concatenate all world docs
+    const allText = S.worldDocs.map(d => d.text).join('\n\n---\n\n');
+    if (!allText.trim()) throw new Error('No documents to extract from');
+
+    // Call authority to extract archetypes
+    const r = await fetch(`${gwUrl}/v1/chat/completions`, {
+      method: 'POST', headers: url.hdrs(),
+      body: JSON.stringify({
+        model: 'authority',
+        messages: [{role: 'system', content: 'You are an ontology extractor. Given domain documents, extract agent archetypes suitable for a multi-agent simulation. Return JSON only.'}, {
+          role: 'user', content: `Extract from this document:
+1. 3-5 agent archetypes with: id, label, description, susceptibility (high/medium/low), resilience (high/medium/low), suggested_distribution_pct
+2. Key population characteristics
+3. Suggested outcome criteria (metric name, plausible low, plausible high)
+4. Temporal structure (what timeframe, what a tick represents)
+
+Return as JSON: {archetypes: [...], population: "...", outcomes: [...], temporal: "..."}
+
+DOCUMENT:
+${allText.slice(0, 6000)}`
+        }],
+        max_tokens: 1024, temperature: 0.3,
+      })
+    });
+
+    if (!r.ok) throw new Error('Authority not available');
+    const d = await r.json();
+    const content = d.choices?.[0]?.message?.content || '';
+
+    document.getElementById('worldOntology').style.display = '';
+    document.getElementById('ontologyPreview').textContent = content;
+    S._extractedOntology = content;
+
+    btn.textContent = 'Extract Archetypes';
+    btn.disabled = false;
+  } catch (e) {
+    btn.textContent = 'Failed: ' + e.message;
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = 'Extract Archetypes'; }, 3000);
+  }
+}
+
+function applyOntology() {
+  // Try to parse the extracted JSON and apply to specs
+  if (!S._extractedOntology) return;
+  try {
+    const raw = S._extractedOntology;
+    // Extract JSON from response (may be wrapped in markdown)
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON found');
+    const data = JSON.parse(jsonMatch[0]);
+
+    if (data.archetypes && data.archetypes.length) {
+      const archs = data.archetypes.map((a, i) => ({
+        id: a.id || 'K' + (i+1),
+        label: a.label || 'Type ' + (i+1),
+        susc: a.susceptibility || 'medium',
+        res: a.resilience || 'medium',
+        pct: a.suggested_distribution_pct || Math.round(100 / data.archetypes.length),
+      }));
+      renderSpArchetypes(archs);
+    }
+
+    if (data.temporal) {
+      const t = data.temporal.toLowerCase();
+      if (t.includes('hour')) document.getElementById('spTickUnit').value = 'hour';
+      else if (t.includes('week')) document.getElementById('spTickUnit').value = 'week';
+      else if (t.includes('month')) document.getElementById('spTickUnit').value = 'month';
+      else if (t.includes('year')) document.getElementById('spTickUnit').value = 'year';
+    }
+
+    updateTimeEstimate();
+    switchSimSub('specs');
+    alert('Archetypes applied to Specs tab. Review and adjust.');
+  } catch (e) {
+    alert('Could not parse extraction: ' + e.message);
+  }
+}
+
+// ── WORLD SNAPSHOTS ──
+
+const SNAPSHOT_QUERIES = {
+  social: ['social media trends','public opinion','demographics','cultural shift','community behavior'],
+  health: ['mental health','addiction research','wellbeing study','public health policy','behavioral psychology'],
+  tech: ['artificial intelligence regulation','digital platform','online behavior','technology adoption','cybersecurity'],
+  economy: ['economic indicators','market trends','employment','consumer behavior','financial regulation'],
+  politics: ['policy change','government regulation','election','institutional trust','political polarization'],
+  environment: ['climate change impact','sustainability','environmental policy','natural disaster','resource scarcity'],
+};
+
+async function fetchSnapshot(topic) {
+  const btn = document.querySelector(`.snapshot-btn[data-topic="${topic}"]`);
+  const statusEl = document.getElementById('snap' + topic.charAt(0).toUpperCase() + topic.slice(1));
+  const progressEl = document.getElementById('snapProgress');
+
+  btn.classList.add('loading');
+  btn.classList.remove('loaded');
+  if (statusEl) statusEl.textContent = 'fetching...';
+  if (progressEl) progressEl.textContent = topic + '...';
+
+  const queries = SNAPSHOT_QUERIES[topic] || [topic];
+  let allArticles = [];
+
+  try {
+    // GDELT DOC API (free, no key, real-time global events)
+    for (const q of queries.slice(0, 3)) {
+      try {
+        const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(q)}&mode=artlist&maxrecords=5&format=json&timespan=7d`;
+        const r = await fetch(gdeltUrl);
+        if (r.ok) {
+          const d = await r.json();
+          if (d.articles) {
+            allArticles.push(...d.articles.map(a => ({
+              title: a.title || '',
+              source: a.domain || a.source || '',
+              date: a.seendate || '',
+              snippet: (a.title || '') + '. ' + (a.sourcecountry || ''),
+              url: a.url || '',
+            })));
+          }
+        }
+      } catch { /* single query fail, continue */ }
+    }
+
+    if (allArticles.length === 0) {
+      // Fallback: generate a minimal context note
+      allArticles = [{title: `No real-time data available for "${topic}"`, snippet: 'Try again later or write context manually in the notes field above.'}];
+    }
+
+    // Deduplicate by title
+    const seen = new Set();
+    allArticles = allArticles.filter(a => {
+      const key = a.title.toLowerCase().slice(0, 50);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 15);
+
+    // Format as world context text
+    const contextText = `[World Snapshot: ${topic.toUpperCase()} — ${new Date().toISOString().split('T')[0]}]\n\n` +
+      allArticles.map((a, i) => `${i+1}. ${a.title}${a.source ? ' (' + a.source + ')' : ''}${a.date ? ' [' + a.date.slice(0,10) + ']' : ''}`).join('\n');
+
+    // Store as world doc
+    S.worldDocs.push({name: `snapshot_${topic}.txt`, text: contextText, ts: Date.now(), chars: contextText.length});
+
+    // Push to server
+    const gwUrl = url.gw();
+    try {
+      await fetch(`${gwUrl}/v1/documents`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: contextText, name: `snapshot_${topic}`, role: 'world_context', append: true})
+      });
+    } catch { /* offline */ }
+
+    // Embed for RAG
+    await embedStore(contextText, 'world', 'document', (done, total) => {
+      if (statusEl) statusEl.textContent = `${done}/${total}`;
+    });
+
+    // Detect context categories
+    detectContextCategories(contextText);
+
+    btn.classList.remove('loading');
+    btn.classList.add('loaded');
+    if (statusEl) { statusEl.textContent = allArticles.length + ' items'; statusEl.style.color = 'var(--a)'; }
+    if (progressEl) progressEl.textContent = '';
+    renderWorldDocs();
+    refreshWorldStats();
+
+  } catch (e) {
+    btn.classList.remove('loading');
+    if (statusEl) { statusEl.textContent = 'error'; statusEl.style.color = 'var(--r)'; }
+    if (progressEl) progressEl.textContent = e.message;
+  }
+}
+
+async function fetchAllSnapshots() {
+  const topics = Object.keys(SNAPSHOT_QUERIES);
+  const progressEl = document.getElementById('snapProgress');
+  for (let i = 0; i < topics.length; i++) {
+    if (progressEl) progressEl.textContent = `${i+1}/${topics.length}: ${topics[i]}`;
+    await fetchSnapshot(topics[i]);
+  }
+  if (progressEl) progressEl.textContent = 'all done';
+  setTimeout(() => { if (progressEl) progressEl.textContent = ''; }, 3000);
+}
+
+// ── WORLD NOTES ──
+
+// Update char counter live
+document.getElementById('worldNotes')?.addEventListener('input', function() {
+  document.getElementById('worldNotesLen').textContent = this.value.length + ' chars';
+  document.getElementById('worldNotesSaved').style.display = 'none';
+});
+
+async function saveWorldNotes() {
+  const text = document.getElementById('worldNotes').value.trim();
+  if (!text) return;
+  const gwUrl = url.gw();
+  try {
+    await fetch(`${gwUrl}/v1/documents`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text, name: 'world_notes', role: 'world_context', append: true})
+    });
+  } catch { /* offline */ }
+  // Also embed for RAG
+  await embedStore(text, 'world', 'document');
+  // Detect categories from notes too
+  detectContextCategories(text);
+  refreshWorldStats();
+  const saved = document.getElementById('worldNotesSaved');
+  saved.style.display = '';
+  setTimeout(() => { saved.style.display = 'none'; }, 2000);
 }
 
 // ── ARCHETYPE EDITORS ──
