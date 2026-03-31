@@ -424,6 +424,7 @@ class TestEnsembleScoreLogs:
         assert r.all_score_logs == []
 
 
+<<<<<<< HEAD
 class TestThreeLevelDecomposition:
     """Tests for decompose_variance_three_level."""
 
@@ -553,3 +554,10 @@ class TestCalibratedProbabilities:
         multi = [self._make_logs(seed=i) for i in range(3)]
         report = compute_possibility_report(multi[0], self._make_config(), multi_run_logs=multi)
         assert any("conformal" in w.lower() for w in report.warnings)
+
+    def test_configurable_lyapunov_threshold(self):
+        from simulation.possibility_report import compute_possibility_report
+        r1 = compute_possibility_report(self._make_logs(), self._make_config(lyapunov_threshold=0.01))
+        r2 = compute_possibility_report(self._make_logs(), self._make_config(lyapunov_threshold=0.99))
+        assert abs(sum(b.probability for b in r1.branches) - 1.0) < 0.01
+        assert abs(sum(b.probability for b in r2.branches) - 1.0) < 0.01
