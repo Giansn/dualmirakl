@@ -32,7 +32,7 @@ def convergence_check(
     n = len(series)
     first = series[:n // 3]
     last = series[-n // 3:]
-    t_stat, p_value = sp_stats.ttest_ind(first, last)
+    t_stat, p_value = sp_stats.ttest_ind(first, last, equal_var=False)
 
     return {
         "converged": ratio < threshold and p_value > 0.05,
