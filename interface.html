@@ -703,9 +703,25 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
               </div>
 
             </div>
-            <div style="display:flex;gap:6px;margin-top:8px">
-              <button class="mac" onclick="fetchAllSnapshots()">fetch all</button>
-              <span id="snapProgress" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-left:auto"></span>
+            <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)">
+              <div style="display:flex;gap:6px;align-items:center">
+                <button class="results-btn" onclick="runSnapshotCollector()" style="padding:6px 14px;font-size:11px">Collect World Snapshot</button>
+                <button class="mac" onclick="fetchAllSnapshots()">fetch individual</button>
+                <span id="snapProgress" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin-left:auto"></span>
+              </div>
+              <div class="sn" style="margin-top:4px">Collector pulls from GDELT (events + sentiment + trends), World Bank (demographics + economics), and OpenAlex (research) in one pass. Optional: add a NewsData.io API key below for richer news coverage.</div>
+              <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+                <input type="text" id="newsDataKey" placeholder="NewsData.io API key (optional, free at newsdata.io)" style="flex:1;padding:4px 6px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t0);font-family:'JetBrains Mono',monospace;font-size:9px;outline:none">
+              </div>
+            </div>
+            <!-- Collector Digest -->
+            <div id="collectorDigest" style="display:none;margin-top:10px;padding:12px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rax)">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1px">World Snapshot Digest</span>
+                <span id="collectorTs" style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2)"></span>
+              </div>
+              <div id="collectorBullets" style="font-size:11px;color:var(--t1);line-height:1.8"></div>
+              <div id="collectorStats" style="display:flex;gap:12px;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd);font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)"></div>
             </div>
           </div>
 
@@ -2743,22 +2759,61 @@ async function fetchSnapshot(topic) {
       } catch { /* single query fail */ }
     }
 
-    // ── Wikipedia Current Events (free, structured, daily) ──
+    // ── GDELT Tone Digest (compressed sentiment snapshot) ──
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const wikiUrl = `https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/${new Date().getMonth()+1}/${new Date().getDate()}`;
-      const wr = await fetch(wikiUrl);
-      if (wr.ok) {
-        const wd = await wr.json();
-        if (wd.events) {
-          const relevant = wd.events.slice(0, 3).map(e => ({
-            title: e.text || '', source: 'Wikipedia', date: today,
-            country: '', lang: 'English', url: '', provider: 'Wikipedia',
-          }));
-          allArticles.push(...relevant);
+      const toneQuery = (focus || queries[0]) + langFilter + countryFilter;
+      const toneUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(toneQuery)}&mode=tonechart&format=json&timespan=30d`;
+      const tr = await fetch(toneUrl);
+      if (tr.ok) {
+        const td = await tr.json();
+        if (td.tonechart) {
+          // Compress into sentiment summary
+          let negCount = 0, neuCount = 0, posCount = 0;
+          let negSample = '', posSample = '';
+          for (const bin of td.tonechart) {
+            const b = parseFloat(bin.bin);
+            const c = bin.count || 0;
+            if (b < -3) { negCount += c; if (!negSample && bin.toparts?.[0]) negSample = bin.toparts[0].title || ''; }
+            else if (b > 3) { posCount += c; if (!posSample && bin.toparts?.[0]) posSample = bin.toparts[0].title || ''; }
+            else neuCount += c;
+          }
+          const total = negCount + neuCount + posCount || 1;
+          const digest = `[Sentiment Digest] Coverage: ${total} articles over 30 days. ` +
+            `Negative: ${Math.round(negCount/total*100)}% | Neutral: ${Math.round(neuCount/total*100)}% | Positive: ${Math.round(posCount/total*100)}%. ` +
+            (negSample ? `Negative example: "${negSample}". ` : '') +
+            (posSample ? `Positive example: "${posSample}".` : '');
+          allArticles.push({
+            title: digest, source: 'GDELT Tone', date: new Date().toISOString().split('T')[0],
+            country: countryFilter ? countryFilter.replace(/ sourcecountry:"|"/g,'') : 'global',
+            lang: 'English', url: '', provider: 'Digest',
+          });
         }
       }
-    } catch { /* wiki fail */ }
+    } catch { /* tone fail */ }
+
+    // ── GDELT Trend (30-day sentiment trajectory) ──
+    try {
+      const trendQuery = (focus || queries[0]) + langFilter + countryFilter;
+      const trendUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(trendQuery)}&mode=timelinetone&format=json&timespan=30d`;
+      const ttr = await fetch(trendUrl);
+      if (ttr.ok) {
+        const ttd = await ttr.json();
+        if (ttd.timeline?.[0]?.data) {
+          const points = ttd.timeline[0].data;
+          const vals = points.map(p => p.value);
+          const avg = vals.reduce((a,b)=>a+b,0) / vals.length;
+          const recent = vals.slice(-7);
+          const recentAvg = recent.reduce((a,b)=>a+b,0) / recent.length;
+          const trend = recentAvg > avg + 0.3 ? 'improving' : recentAvg < avg - 0.3 ? 'deteriorating' : 'stable';
+          const trendLine = `[30-Day Trend] Average tone: ${avg.toFixed(2)}. Last 7 days: ${recentAvg.toFixed(2)} (${trend}). ` +
+            `Range: ${Math.min(...vals).toFixed(2)} to ${Math.max(...vals).toFixed(2)}.`;
+          allArticles.push({
+            title: trendLine, source: 'GDELT Trend', date: new Date().toISOString().split('T')[0],
+            country: '', lang: 'English', url: '', provider: 'Trend',
+          });
+        }
+      }
+    } catch { /* trend fail */ }
 
     // For research topic, also try OpenAlex
     if (topic === 'research') {
@@ -2863,6 +2918,270 @@ function toggleSnapSummary(topic) {
   const open = summaryEl.style.display !== 'none';
   summaryEl.style.display = open ? 'none' : '';
   if (expandBtn) expandBtn.classList.toggle('open', !open);
+}
+
+// ── WORLD SNAPSHOT COLLECTOR (multi-provider, single pass) ──
+
+async function runSnapshotCollector() {
+  const progressEl = document.getElementById('snapProgress');
+  const digestEl = document.getElementById('collectorDigest');
+  const bulletsEl = document.getElementById('collectorBullets');
+  const statsEl = document.getElementById('collectorStats');
+  const tsEl = document.getElementById('collectorTs');
+  const newsKey = document.getElementById('newsDataKey')?.value?.trim();
+
+  progressEl.textContent = 'collecting...';
+  digestEl.style.display = 'none';
+
+  // Get focus from all individual snapshot fields
+  const globalFocus = Array.from(document.querySelectorAll('.snapshot-focus'))
+    .map(f => f.value.trim()).filter(Boolean).join(', ') || '';
+
+  const sections = [];
+  const stats = {providers: 0, articles: 0, indicators: 0, papers: 0};
+  const today = new Date().toISOString().split('T')[0];
+
+  // Detect country from any focus field
+  let country = '';
+  let countryCode = '';
+  const focusFields = Array.from(document.querySelectorAll('.snapshot-focus')).map(f=>f.value.trim().toLowerCase());
+  const CC_MAP = {
+    'switzerland':['CHE','Switzerland'],'schweiz':['CHE','Switzerland'],'germany':['DEU','Germany'],
+    'austria':['AUT','Austria'],'france':['FRA','France'],'uk':['GBR','United Kingdom'],
+    'usa':['USA','United States'],'japan':['JPN','Japan'],'china':['CHN','China'],
+    'india':['IND','India'],'brazil':['BRA','Brazil'],'canada':['CAN','Canada'],
+    'australia':['AUS','Australia'],'italy':['ITA','Italy'],'spain':['ESP','Spain'],
+    'netherlands':['NLD','Netherlands'],'sweden':['SWE','Sweden'],'korea':['KOR','South Korea'],
+    'mexico':['MEX','Mexico'],'nigeria':['NGA','Nigeria'],'south africa':['ZAF','South Africa'],
+  };
+  for (const f of focusFields) {
+    for (const [key, [code, name]] of Object.entries(CC_MAP)) {
+      if (f.includes(key)) { countryCode = code; country = name; break; }
+    }
+    if (country) break;
+  }
+
+  try {
+    // ── 1. GDELT: top headlines per topic (parallel) ──
+    progressEl.textContent = '1/5 GDELT headlines...';
+    const gdeltTopics = ['social trends','health policy','technology regulation','economic outlook','political developments','climate environment'];
+    const gdeltPromises = gdeltTopics.map(async (q) => {
+      const query = (globalFocus ? globalFocus + ' ' : '') + q + ' sourcelang:english' + (country ? ` sourcecountry:"${country}"` : '');
+      try {
+        const r = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&maxrecords=3&format=json&timespan=7d`);
+        if (r.ok) { const d = await r.json(); return d.articles || []; }
+      } catch {}
+      return [];
+    });
+    const gdeltResults = await Promise.all(gdeltPromises);
+    const gdeltArticles = gdeltResults.flat();
+    // Deduplicate
+    const seen = new Set();
+    const uniqueArticles = gdeltArticles.filter(a => {
+      const k = (a.title||'').toLowerCase().slice(0,40);
+      if (seen.has(k)) return false; seen.add(k); return true;
+    }).slice(0, 20);
+
+    if (uniqueArticles.length) {
+      stats.articles += uniqueArticles.length;
+      stats.providers++;
+      sections.push({
+        label: 'Current Events',
+        provider: 'GDELT',
+        bullets: uniqueArticles.map(a => a.title + (a.sourcecountry ? ` (${a.sourcecountry})` : '')),
+      });
+    }
+
+    // ── 2. GDELT: sentiment digest ──
+    progressEl.textContent = '2/5 GDELT sentiment...';
+    try {
+      const sentQuery = (globalFocus || 'world news') + ' sourcelang:english' + (country ? ` sourcecountry:"${country}"` : '');
+      const sr = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(sentQuery)}&mode=tonechart&format=json&timespan=30d`);
+      if (sr.ok) {
+        const sd = await sr.json();
+        if (sd.tonechart) {
+          let neg=0,neu=0,pos=0;
+          for (const bin of sd.tonechart) {
+            const b=parseFloat(bin.bin), c=bin.count||0;
+            if(b<-3) neg+=c; else if(b>3) pos+=c; else neu+=c;
+          }
+          const total=neg+neu+pos||1;
+          sections.push({
+            label: 'Media Sentiment (30 days)',
+            provider: 'GDELT',
+            bullets: [
+              `Coverage: ${total.toLocaleString()} articles analyzed`,
+              `Negative: ${Math.round(neg/total*100)}% | Neutral: ${Math.round(neu/total*100)}% | Positive: ${Math.round(pos/total*100)}%`,
+              neg/total > 0.4 ? 'Predominantly negative coverage — tension or crisis framing' :
+              pos/total > 0.4 ? 'Predominantly positive coverage — optimistic or constructive framing' :
+              'Balanced coverage — mixed signals, no dominant narrative',
+            ],
+          });
+        }
+      }
+    } catch {}
+
+    // ── 3. GDELT: 30-day trend ──
+    try {
+      const trendQuery = (globalFocus || 'world') + ' sourcelang:english' + (country ? ` sourcecountry:"${country}"` : '');
+      const tr = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(trendQuery)}&mode=timelinetone&format=json&timespan=30d`);
+      if (tr.ok) {
+        const td = await tr.json();
+        if (td.timeline?.[0]?.data) {
+          const vals = td.timeline[0].data.map(p=>p.value);
+          const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+          const recent = vals.slice(-7);
+          const recentAvg = recent.reduce((a,b)=>a+b,0)/recent.length;
+          const dir = recentAvg > avg+0.3 ? 'improving' : recentAvg < avg-0.3 ? 'worsening' : 'stable';
+          sections.push({
+            label: 'Sentiment Trend',
+            provider: 'GDELT',
+            bullets: [
+              `30-day average tone: ${avg.toFixed(2)} (${avg>0?'slightly positive':'slightly negative'})`,
+              `Last 7 days: ${recentAvg.toFixed(2)} — ${dir}`,
+              `Volatility range: ${Math.min(...vals).toFixed(2)} to ${Math.max(...vals).toFixed(2)}`,
+            ],
+          });
+        }
+      }
+    } catch {}
+
+    // ── 4. World Bank: demographics + economics ──
+    progressEl.textContent = '3/5 World Bank...';
+    if (countryCode) {
+      const indicators = [
+        ['SP.POP.TOTL', 'Population'],
+        ['SP.POP.GROW', 'Population growth %'],
+        ['NY.GDP.PCAP.CD', 'GDP per capita (USD)'],
+        ['SL.UEM.TOTL.ZS', 'Unemployment %'],
+        ['SH.XPD.CHEX.PC.CD', 'Health expenditure per capita'],
+        ['IT.NET.USER.ZS', 'Internet users %'],
+        ['SE.ADT.LITR.ZS', 'Literacy rate %'],
+      ];
+      const wbBullets = [];
+      const wbPromises = indicators.map(async ([id, label]) => {
+        try {
+          const r = await fetch(`https://api.worldbank.org/v2/country/${countryCode}/indicator/${id}?format=json&per_page=1&date=2020:2025&mrv=1`);
+          if (r.ok) {
+            const d = await r.json();
+            const val = d[1]?.[0]?.value;
+            const year = d[1]?.[0]?.date;
+            if (val != null) {
+              stats.indicators++;
+              const formatted = val > 1000000 ? (val/1000000).toFixed(1)+'M' : val > 1000 ? (val/1000).toFixed(1)+'K' : typeof val === 'number' ? val.toFixed(1) : val;
+              return `${label}: ${formatted} (${year})`;
+            }
+          }
+        } catch {}
+        return null;
+      });
+      const wbResults = await Promise.all(wbPromises);
+      wbResults.filter(Boolean).forEach(b => wbBullets.push(b));
+      if (wbBullets.length) {
+        stats.providers++;
+        sections.push({
+          label: `${country} — Key Indicators`,
+          provider: 'World Bank',
+          bullets: wbBullets,
+        });
+      }
+    }
+
+    // ── 5. OpenAlex: recent research ──
+    progressEl.textContent = '4/5 OpenAlex research...';
+    try {
+      const searchTerm = globalFocus || 'behavioral simulation';
+      const oaUrl = `https://api.openalex.org/works?search=${encodeURIComponent(searchTerm)}&per_page=8&sort=publication_date:desc&filter=is_oa:true`;
+      const oar = await fetch(oaUrl);
+      if (oar.ok) {
+        const oad = await oar.json();
+        if (oad.results?.length) {
+          stats.papers += oad.results.length;
+          stats.providers++;
+          sections.push({
+            label: 'Recent Research',
+            provider: 'OpenAlex',
+            bullets: oad.results.map(w => {
+              const cite = w.cited_by_count ? ` (cited ${w.cited_by_count}x)` : '';
+              const year = w.publication_date ? ` [${w.publication_date.slice(0,4)}]` : '';
+              return (w.display_name || w.title) + year + cite;
+            }),
+          });
+        }
+      }
+    } catch {}
+
+    // ── 6. NewsData.io (if key provided) ──
+    if (newsKey) {
+      progressEl.textContent = '5/5 NewsData.io...';
+      try {
+        const ndQuery = globalFocus || 'world';
+        const ndUrl = `https://newsdata.io/api/1/latest?apikey=${newsKey}&q=${encodeURIComponent(ndQuery)}&language=en&size=10${country ? '&country=' + countryCode.slice(0,2).toLowerCase() : ''}`;
+        const ndr = await fetch(ndUrl);
+        if (ndr.ok) {
+          const ndd = await ndr.json();
+          if (ndd.results?.length) {
+            stats.articles += ndd.results.length;
+            stats.providers++;
+            sections.push({
+              label: 'News Headlines',
+              provider: 'NewsData.io',
+              bullets: ndd.results.map(a => a.title + (a.source_name ? ` (${a.source_name})` : '')),
+            });
+          }
+        }
+      } catch {}
+    }
+
+    // ── Build unified digest ──
+    const fullText = sections.map(s =>
+      `[${s.label}] (${s.provider})\n` + s.bullets.map((b,i) => `  ${i+1}. ${b}`).join('\n')
+    ).join('\n\n');
+
+    const contextText = `[World Snapshot Digest — ${today}${country ? ' — ' + country : ''}${globalFocus ? ' — focus: ' + globalFocus : ''}]\n\n${fullText}`;
+
+    // Store + embed in one pass
+    S.worldDocs.push({name: `collector_${today}.txt`, text: contextText, ts: Date.now(), chars: contextText.length});
+
+    const gwUrl = url.gw();
+    try {
+      await fetch(`${gwUrl}/v1/documents`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: contextText, name: `collector_${today}`, role: 'world_context', append: true})
+      });
+    } catch {}
+
+    progressEl.textContent = 'embedding...';
+    await embedStore(contextText, 'world', 'document', (done, total) => {
+      progressEl.textContent = `embedding ${done}/${total}`;
+    });
+
+    detectContextCategories(contextText);
+    renderWorldDocs();
+    refreshWorldStats();
+
+    // Render digest
+    digestEl.style.display = '';
+    tsEl.textContent = today + (country ? ' · ' + country : '');
+    bulletsEl.innerHTML = sections.map(s =>
+      `<div style="margin-bottom:10px">` +
+      `<div style="font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--a);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">${s.label} <span style="color:var(--t2);font-size:7px;border:1px solid var(--bd);padding:0 3px;border-radius:2px;margin-left:4px">${s.provider}</span></div>` +
+      s.bullets.map(b => `<div style="padding:1px 0;padding-left:10px;position:relative"><span style="position:absolute;left:0;color:var(--t2)">·</span>${b}</div>`).join('') +
+      `</div>`
+    ).join('');
+
+    statsEl.innerHTML = `<span>${stats.providers} providers</span><span>${stats.articles} articles</span><span>${stats.indicators} indicators</span><span>${stats.papers} papers</span><span>${contextText.length} chars</span>`;
+
+    progressEl.textContent = 'done';
+    setTimeout(() => { progressEl.textContent = ''; }, 3000);
+
+    // Mark individual snapshot rows as loaded
+    document.querySelectorAll('.snapshot-row').forEach(r => r.classList.add('loaded'));
+
+  } catch (e) {
+    progressEl.textContent = 'error: ' + e.message;
+    setTimeout(() => { progressEl.textContent = ''; }, 5000);
+  }
 }
 
 async function fetchAllSnapshots() {
