@@ -244,6 +244,34 @@ class EnvironmentConfig(BaseModel):
     initial_state: dict[str, Any] = Field(default_factory=dict)
 
 
+class MetricTarget(BaseModel):
+    """A single metric with its plausible range for validation."""
+    name: str                           # e.g., "mean_score", "polarization", "score_std"
+    low: float                          # lower bound of plausible range
+    high: float                         # upper bound of plausible range
+    observed: Optional[float] = None    # optional point observation for CRPS scoring
+    weight: float = 1.0                 # relative importance for multi-target scoring
+
+
+class OutcomeCriteria(BaseModel):
+    """Domain-agnostic outcome criteria for pipeline validation."""
+    targets: list[MetricTarget] = Field(default_factory=list)
+    validation_metrics: list[str] = Field(
+        default_factory=lambda: ["crps", "wasserstein"],
+    )
+    prediction_horizon: int = 0         # 0 = final state only
+    convergence_required: bool = True
+
+    @field_validator("validation_metrics")
+    @classmethod
+    def validate_metrics(cls, v):
+        valid = {"crps", "brier", "wasserstein"}
+        for m in v:
+            if m not in valid:
+                raise ValueError(f"Unknown validation metric '{m}'. Valid: {sorted(valid)}")
+        return v
+
+
 # ── Main ScenarioConfig ──────────────────────────────────────────────────────
 
 class ScenarioConfig(BaseModel):
@@ -276,6 +304,7 @@ class ScenarioConfig(BaseModel):
     ensemble: EnsembleConfig = Field(default_factory=EnsembleConfig)
     batching: BatchingConfig = Field(default_factory=BatchingConfig)
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
+    outcome_criteria: Optional[OutcomeCriteria] = None
 
     # ── Loaders ───────────────────────────────────────────────────────────
 

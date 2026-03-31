@@ -422,3 +422,128 @@ class TestEnsembleScoreLogs:
         r = NestedEnsembleResult(experiment_id="test")
         assert hasattr(r, "all_score_logs")
         assert r.all_score_logs == []
+
+
+class TestThreeLevelDecomposition:
+    """Tests for decompose_variance_three_level."""
+
+    def test_basic_decomposition(self):
+        from stats.validation import decompose_variance_three_level
+        # 3 param sets × 4 seeds × 2 replicates
+        rng = np.random.RandomState(42)
+        results = []
+        for p in range(3):
+            seeds = []
+            for s in range(4):
+                reps = [0.5 + p * 0.1 + rng.normal(0, 0.02) for _ in range(2)]
+                seeds.append(reps)
+            results.append(seeds)
+        vd = decompose_variance_three_level(results)
+        assert vd["var_total"] > 0
+        assert vd["var_epistemic"] >= 0
+        assert vd["var_aleatory"] >= 0
+        assert vd["var_llm"] >= 0
+        # Epistemic should dominate (we used p*0.1 offset)
+        assert vd["pct_epistemic"] > 0.5
+
+    def test_additivity(self):
+        from stats.validation import decompose_variance_three_level
+        rng = np.random.RandomState(123)
+        results = [[[rng.normal(p * 0.2, 0.05) for _ in range(3)]
+                     for _ in range(5)] for p in range(4)]
+        vd = decompose_variance_three_level(results)
+        computed_total = vd["var_epistemic"] + vd["var_aleatory"] + vd["var_llm"]
+        assert abs(computed_total - vd["var_total"]) < 1e-6
+
+    def test_zero_llm_variance(self):
+        from stats.validation import decompose_variance_three_level
+        # All replicates identical → var_llm = 0
+        results = [[[0.5 + p * 0.1] * 3 for _ in range(4)] for p in range(3)]
+        vd = decompose_variance_three_level(results)
+        assert vd["var_llm"] == 0.0
+        assert vd["var_epistemic"] > 0
+
+    def test_empty_input(self):
+        from stats.validation import decompose_variance_three_level
+        vd = decompose_variance_three_level([])
+        assert vd["var_total"] == 0.0
+
+    def test_percentages_sum(self):
+        from stats.validation import decompose_variance_three_level
+        rng = np.random.RandomState(99)
+        results = [[[rng.normal(0, 1) for _ in range(2)]
+                     for _ in range(3)] for _ in range(4)]
+        vd = decompose_variance_three_level(results)
+        pct_sum = vd["pct_epistemic"] + vd["pct_aleatory"] + vd["pct_llm"]
+        assert abs(pct_sum - 1.0) < 0.01
+
+
+class TestCalibratedProbabilities:
+    """Tests for the Dirichlet-Multinomial + conformal probability system."""
+
+    def _make_config(self, **overrides):
+        base = {'alpha': 0.15, 'kappa': 0.0, 'dampening': 1.0,
+                'score_mode': 'ema', 'logistic_k': 6.0,
+                'susceptibility': 0.4, 'resilience': 0.29,
+                'basin_discount': 0.1, 'conformal_alpha': 0.1}
+        base.update(overrides)
+        return base
+
+    def _make_logs(self, n_agents=4, n_ticks=12, seed=42):
+        rng = np.random.RandomState(seed)
+        return [[float(np.clip(rng.uniform(0.2, 0.8) + rng.normal(0, 0.02), 0, 1))
+                 for _ in range(n_ticks)] for _ in range(n_agents)]
+
+    def test_probabilities_sum_to_one(self):
+        from simulation.possibility_report import compute_possibility_report
+        report = compute_possibility_report(self._make_logs(), self._make_config())
+        total = sum(b.probability for b in report.branches)
+        assert abs(total - 1.0) < 0.01
+
+    def test_method_string_present(self):
+        from simulation.possibility_report import compute_possibility_report
+        report = compute_possibility_report(self._make_logs(), self._make_config())
+        for b in report.branches:
+            assert "dirichlet" in b.probability_method
+            assert "c=" in b.probability_method
+
+    def test_prior_influence_in_method(self):
+        from simulation.possibility_report import compute_possibility_report
+        report = compute_possibility_report(self._make_logs(), self._make_config())
+        for b in report.branches:
+            assert "prior_influence" in b.probability_method
+
+    def test_normalization_in_method(self):
+        from simulation.possibility_report import compute_possibility_report
+        report = compute_possibility_report(self._make_logs(), self._make_config())
+        for b in report.branches:
+            assert "norm:" in b.probability_method
+
+    def test_basin_discount_affects_prior(self):
+        from simulation.possibility_report import compute_possibility_report
+        r1 = compute_possibility_report(self._make_logs(), self._make_config(basin_discount=0.01))
+        r2 = compute_possibility_report(self._make_logs(), self._make_config(basin_discount=1.0))
+        # Different discounts → different prior concentrations in metadata
+        assert r1.metadata.prior_concentration != r2.metadata.prior_concentration
+
+    def test_conformal_set_with_multi_run(self):
+        from simulation.possibility_report import compute_possibility_report
+        multi = [self._make_logs(seed=i) for i in range(8)]
+        report = compute_possibility_report(multi[0], self._make_config(), multi_run_logs=multi)
+        # At least one branch should be in the conformal set
+        assert any(b.in_conformal_set for b in report.branches)
+
+    def test_single_basin_has_discovery_prior(self):
+        from simulation.possibility_report import compute_possibility_report
+        report = compute_possibility_report(self._make_logs(), self._make_config(discovery_gamma=0.5))
+        if report.n_branches == 1:
+            # Discovery prior should reduce probability below 1.0 before normalization
+            assert "discovery" in report.branches[0].probability_method
+
+    def test_lyapunov_time_present(self):
+        from simulation.possibility_report import compute_possibility_report
+        report = compute_possibility_report(
+            self._make_logs(n_ticks=40), self._make_config())
+        # lyapunov_time should be set (either a float or None)
+        for b in report.branches:
+            assert hasattr(b, "lyapunov_time")

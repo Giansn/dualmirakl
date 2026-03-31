@@ -1,9 +1,13 @@
 """
-GPU Harmony v2 — phase-overlapped dual-GPU execution.
+GPU Harmony v3 — adaptive phase-overlapped dual-GPU execution.
 
 Key insight: Phase C (embedding) is CPU-only. During Phase C, both GPUs
 are idle. We fill this gap by generating T(n+1) stimuli on authority
 while CPU embeds T(n) responses.
+
+v3 adds: real-time GPU power monitoring via pynvml + adaptive participant
+split. The balancer samples GPU power between ticks and shifts participants
+to equalize load. Target: both GPUs at ~195W constant draw.
 
 Four concurrent workers connected by async queues:
 
@@ -21,20 +25,28 @@ Four concurrent workers connected by async queues:
   │  (GPU 0: Phase D) │
   └──────────────────┘
 
+  ┌──────────────────────────────────────────────────────┐
+  │  Adaptive Balancer (runs between ticks)               │
+  │  sample GPUs → compute imbalance → shift participants │
+  └──────────────────────────────────────────────────────┘
+
 Timeline (12-tick, K=4):
 
   Tick:    T1          T2          T3          T4(obs)     T5
   GPU 0: [A1][B1×N/2]  [A2][B2×N/2]  [A3][B3×N/2]  [A4][B4×N/2][D4]  [A5]...
   GPU 1:     [B1×N/2]      [B2×N/2]      [B3×N/2]      [B4×N/2]      [B5]...
   CPU:            [C1]          [C2]          [C3]          [C4]
+  BAL:       [bal]        [bal]        [bal]         [bal]         [bal]
 
   A(n+1) starts as soon as B(n) responses are queued → fills the Phase C gap.
   On observer ticks, D runs after C completes (authority handles observer_a+b).
+  Balancer adjusts split dynamically based on measured GPU power.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Optional
 
@@ -43,15 +55,16 @@ logger = logging.getLogger(__name__)
 
 class GPUHarmony:
     """
-    Phase-overlapped coordinator: stimulus prefetch fills the CPU-embedding gap.
+    Phase-overlapped coordinator with adaptive GPU load balancing.
+
+    v3: integrates GPUMonitor + AdaptiveBalancer for real-time power-driven
+    participant redistribution. Both GPUs target ~195W constant draw.
 
     Stimulus worker (GPU 0/authority): generates stimuli, runs 1-2 ticks ahead.
     Swarm worker (GPU 0+1): processes participant responses on both GPUs.
     Score worker (CPU): embedding + score update, signals observer when done.
     Observer worker (GPU 0): observer_a + observer_b on observer ticks.
-
-    The stimulus worker generates T(n+1) stimuli during T(n)'s Phase C
-    (CPU embedding), keeping authority busy when it would otherwise be idle.
+    Balancer: samples GPU power between ticks, shifts participants to equalize.
     """
 
     def __init__(
@@ -89,17 +102,58 @@ class GPUHarmony:
         # Completed tick results for caller
         self._tick_done_q: asyncio.Queue = asyncio.Queue()
 
+        # ── Adaptive GPU balancing (v3) ──────────────────────────────
+        self._monitor = None
+        self._balancer = None
+        _adaptive = os.getenv("SIM_ADAPTIVE_GPU", "1") == "1"
+        if _adaptive:
+            try:
+                from simulation.gpu_monitor import GPUMonitor
+                from simulation.adaptive_balancer import AdaptiveBalancer
+
+                gpu_ids = [
+                    int(os.getenv("AUTHORITY_GPU", "0")),
+                    int(os.getenv("SWARM_GPU", "1")),
+                ]
+                target_w = float(os.getenv("SIM_TARGET_POWER_W", "195"))
+                deadband = float(os.getenv("SIM_BALANCE_DEADBAND", "0.10"))
+
+                self._monitor = GPUMonitor(gpu_ids=gpu_ids, target_power_w=target_w)
+                if self._monitor.start():
+                    self._balancer = AdaptiveBalancer(
+                        self._monitor,
+                        n_participants=len(participants),
+                        target_power_w=target_w,
+                        deadband=deadband,
+                    )
+                    # Apply initial split
+                    self._balancer.apply_to_participants(participants)
+                    logger.info("GPU Harmony v3: adaptive balancing ACTIVE (target=%.0fW)", target_w)
+                else:
+                    logger.info("GPU Harmony v3: monitor init failed — static split")
+                    self._monitor = None
+            except Exception as e:
+                logger.info("GPU Harmony v3: adaptive unavailable (%s) — static split", e)
+
     async def run(self, n_ticks: int):
         """Launch all workers concurrently — pipeline starts immediately."""
         t0 = time.monotonic()
-        await asyncio.gather(
-            self._stimulus_worker(n_ticks),
-            self._swarm_worker(n_ticks),
-            self._score_worker(n_ticks),
-            self._observer_worker(n_ticks),
-        )
+        try:
+            await asyncio.gather(
+                self._stimulus_worker(n_ticks),
+                self._swarm_worker(n_ticks),
+                self._score_worker(n_ticks),
+                self._observer_worker(n_ticks),
+            )
+        finally:
+            if self._monitor:
+                self._monitor.stop()
         elapsed = time.monotonic() - t0
-        logger.info("GPU Harmony v2: %d ticks in %.1fs (%.1fs/tick)", n_ticks, elapsed, elapsed / n_ticks)
+        adj = self._balancer.state.adjustments if self._balancer else 0
+        logger.info(
+            "GPU Harmony v3: %d ticks in %.1fs (%.1fs/tick, %d rebalances)",
+            n_ticks, elapsed, elapsed / n_ticks, adj,
+        )
 
     # ── Worker 1: Stimulus generation (authority GPU, runs ahead) ──────
 
@@ -288,6 +342,25 @@ class GPUHarmony:
                         "modifier": iv.modifier, "activated_at": iv.activated_at,
                         "duration": iv.duration, "source": iv.source,
                     })
+
+            # ── Adaptive rebalance between ticks ────────────────────
+            if self._balancer:
+                adjusted = self._balancer.rebalance(tick)
+                if adjusted:
+                    self._balancer.apply_to_participants(participants)
+                    # Check if environment should move too
+                    new_env = self._balancer.should_move_env(tick)
+                    if new_env and hasattr(self.env, 'cfg'):
+                        self.env.cfg["backend"] = new_env
+                        logger.info("[Tick %d] Environment backend → %s", tick, new_env)
+
+                # Emit balancer telemetry to event stream
+                try:
+                    from simulation.sim_loop import SCORE  # reuse event type
+                    report = self._balancer.tick_report()
+                    self.ws.stream.emit(tick, "BAL", "gpu_balance", "balancer", report)
+                except Exception:
+                    pass
 
             # Signal tick complete to caller
             await self._tick_done_q.put((tick, participants, ivs_before))

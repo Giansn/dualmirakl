@@ -5,7 +5,7 @@ echo ""
 
 echo "--- [DISK] ---"
 echo "  /per.volume : $(df -h /per.volume | tail -n 1 | awk '{print $3 " used of " $2 " (" $5 ")"}')"
-echo "  hub         : $(du -sh /per.volume/huggingface/hub 2>/dev/null | cut -f1)"
+echo "  hub         : $(du -sh /workspace/huggingface/hub 2>/dev/null | cut -f1)"
 echo ""
 
 echo "--- [GPU] ---"
@@ -24,7 +24,7 @@ echo ""
 
 echo "--- [MODEL FILES] ---"
 # Authority slot
-AUTH_MODEL=$(grep '^MODEL=' /per.volume/dualmirakl/models/authority.env 2>/dev/null | cut -d= -f2 | tr -d '"')
+AUTH_MODEL=$(grep '^MODEL=' /workspace/dualmirakl/models/authority.env 2>/dev/null | cut -d= -f2 | tr -d '"')
 if [ -z "$AUTH_MODEL" ]; then
   echo "  ⚠️  authority : MODEL not set in models/authority.env"
 elif [ -f "$AUTH_MODEL/config.json" ]; then
@@ -33,11 +33,11 @@ else
   echo "  ❌ authority : MODEL set but not found at $AUTH_MODEL"
 fi
 # Swarm slot
-[ -f /per.volume/huggingface/hub/nemotron-nano-30b/config.json ] \
+[ -f /workspace/huggingface/hub/nemotron-nano-30b/config.json ] \
   && echo "  ✅ swarm     : nemotron-nano-30b" \
   || echo "  ❌ swarm     : nemotron-nano-30b MISSING"
 # Embedding
-[ -f /per.volume/huggingface/hub/e5-small-v2/config.json ] \
+[ -f /workspace/huggingface/hub/e5-small-v2/config.json ] \
   && echo "  ✅ embedding : e5-small-v2" \
   || echo "  ❌ embedding : e5-small-v2 MISSING"
 echo ""

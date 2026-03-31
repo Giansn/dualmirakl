@@ -200,6 +200,19 @@ context_categories:
     description: "Service level agreements and response time targets"
     required: false
 
+outcome_criteria:
+  targets:
+    - name: "mean_score"
+      low: 0.40
+      high: 0.90
+    - name: "min_score"
+      low: 0.10
+      high: 0.50
+  validation_metrics:
+    - "crps"
+    - "wasserstein"
+  convergence_required: true
+
 flame:
   enabled: false
   population_size: 5000
