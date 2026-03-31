@@ -4212,7 +4212,7 @@ function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
       lrx += dx; lry += dy; lrz += dz;
     }
     // Map Lorenz (x,y) to screen coordinates — scale to burst radius
-    const lorenzScale = 5;
+    const lorenzScale = 12;
     const scatterX = fromX + lrx * lorenzScale;
     const scatterY = fromY + lry * lorenzScale;
 
