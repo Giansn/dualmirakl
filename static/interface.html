@@ -374,10 +374,11 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 
 /* SPLASH SCREEN */
 .splash{position:fixed;inset:0;z-index:9999;background:#171a1e;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:opacity .8s ease,visibility .8s ease;overflow:hidden}
-.splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
-.transition-burst{position:fixed;inset:0;z-index:9998;pointer-events:none;overflow:hidden}
-.burst-particle{position:absolute;border-radius:50%;opacity:0;animation:burstOut 3s cubic-bezier(.05,.2,.4,1) forwards}
-@keyframes burstOut{0%{opacity:.5;transform:translate(0,0) scale(1)}15%{opacity:.4;transform:translate(calc(var(--bx) * 0.03),calc(var(--by) * 0.03)) scale(1)}40%{opacity:.3;transform:translate(calc(var(--bx) * 0.15),calc(var(--by) * 0.15)) scale(.8)}100%{opacity:0;transform:translate(var(--bx),var(--by)) scale(0)}}
+.splash.transitioning .splash-content{opacity:0;transition:opacity .3s}
+.splash.transitioning .splash-bg img{transition:all 1.2s cubic-bezier(.4,0,.2,1);border-radius:0}
+.splash.hidden{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .4s ease .8s,visibility 0s 1.2s}
+.trail-particle{position:fixed;border-radius:50%;background:#38c8c8;pointer-events:none;z-index:9998;opacity:0;animation:trailFade 2s ease-out forwards}
+@keyframes trailFade{0%{opacity:.4;transform:scale(1)}100%{opacity:0;transform:scale(0) translate(var(--drift-x),var(--drift-y))}}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg img{width:95vmin;height:95vmin;object-fit:contain;opacity:.5;animation:splashBgIn 2.5s ease both}
@@ -4015,51 +4016,85 @@ document.addEventListener('mouseover', function(e) {
   }
 })();
 
-// ── SPLASH ──
+// ── SPLASH TRANSITION ──
+
 function dismissSplash() {
-  const el = document.getElementById('splash');
-  if (!el || el.classList.contains('hidden')) return;
-  triggerLogisticBurst();
-  el.classList.add('hidden');
+  const splash = document.getElementById('splash');
+  if (!splash || splash.classList.contains('hidden') || splash.classList.contains('transitioning')) return;
+
+  const bgImg = splash.querySelector('.splash-bg img');
+  const wic = document.querySelector('.wic');
+  if (!bgImg || !wic) { splash.classList.add('hidden'); return; }
+
+  // Get positions
+  const fromRect = bgImg.getBoundingClientRect();
+  const fromCx = fromRect.left + fromRect.width / 2;
+  const fromCy = fromRect.top + fromRect.height / 2;
+
+  // Target: where the welcome sigil will be (approximate — content is behind splash)
+  // The welcome area is centered in main (after 260px sidebar), vertically ~30% from top
+  const mainLeft = 260;
+  const mainWidth = window.innerWidth - mainLeft;
+  const toCx = mainLeft + mainWidth / 2;
+  const toCy = window.innerHeight * 0.28;
+  const toSize = 160;
+
+  // Phase 1: fade text, start moving the sigil
+  splash.classList.add('transitioning');
+
+  // Animate the background image to the target position
+  requestAnimationFrame(() => {
+    bgImg.style.width = toSize + 'px';
+    bgImg.style.height = toSize + 'px';
+    bgImg.style.position = 'fixed';
+    bgImg.style.left = (toCx - toSize / 2) + 'px';
+    bgImg.style.top = (toCy - toSize / 2) + 'px';
+    bgImg.style.opacity = '0.6';
+  });
+
+  // Spawn trail particles along the flight path
+  spawnTrailParticles(fromCx, fromCy, toCx, toCy);
+
+  // Phase 2: after sigil arrives, fade splash and reveal main
+  setTimeout(() => {
+    splash.classList.add('hidden');
+  }, 800);
 }
 
-function triggerLogisticBurst() {
-  const burst = document.createElement('div');
-  burst.className = 'transition-burst';
-  document.body.appendChild(burst);
-
-  const cx = window.innerWidth / 2;
-  const cy = window.innerHeight / 2;
-  const n = 55;
-
-  // Golden angle phyllotaxis: angle = i * 137.508° (golden angle)
-  // Same spiral pattern as sunflower seeds — mathematically optimal spacing.
-  // Distance follows sqrt(i) — Fermat spiral.
+function spawnTrailParticles(x1, y1, x2, y2) {
+  const n = 35;
   const goldenAngle = 137.508 * (Math.PI / 180);
 
   for (let i = 0; i < n; i++) {
-    const p = document.createElement('div');
-    p.className = 'burst-particle';
+    const t = i / n; // 0 to 1 along path
+    const delay = t * 600; // stagger along path
 
-    const angle = i * goldenAngle;
-    const dist = 80 + Math.sqrt(i / n) * 500;
+    setTimeout(() => {
+      const p = document.createElement('div');
+      p.className = 'trail-particle';
 
-    const bx = Math.cos(angle) * dist;
-    const by = Math.sin(angle) * dist;
-    const size = 1 + (1 - i / n) * 2.5; // larger near center, smaller at edge
-    const delay = i * 0.04; // staggered outward — slow start, fast finish
+      // Position along the bezier curve from splash center to welcome center
+      // Slight arc upward for visual interest
+      const arcHeight = -80;
+      const px = x1 + (x2 - x1) * t;
+      const py = y1 + (y2 - y1) * t + arcHeight * Math.sin(t * Math.PI);
 
-    p.style.cssText = `left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;background:#38c8c8;--bx:${bx}px;--by:${by}px;animation-delay:${delay}s;box-shadow:0 0 ${size*2}px rgba(56,200,200,.4)`;
-    burst.appendChild(p);
+      // Drift away from path using golden angle for structure
+      const angle = i * goldenAngle;
+      const driftDist = 20 + Math.random() * 40;
+      const driftX = Math.cos(angle) * driftDist;
+      const driftY = Math.sin(angle) * driftDist;
+
+      const size = 1.5 + (1 - t) * 2; // larger at start, smaller at end
+      p.style.cssText = `left:${px}px;top:${py}px;width:${size}px;height:${size}px;--drift-x:${driftX}px;--drift-y:${driftY}px;animation-delay:${Math.random()*0.3}s;box-shadow:0 0 ${size*3}px rgba(56,200,200,.3)`;
+      document.body.appendChild(p);
+      setTimeout(() => p.remove(), 2500);
+    }, delay);
   }
-
-  setTimeout(() => burst.remove(), 5000);
 }
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter' && document.getElementById('splash') && !document.getElementById('splash').classList.contains('hidden')) {
-    dismissSplash();
-  }
+  if (e.key === 'Enter') dismissSplash();
 });
 
 // ── INIT ──
