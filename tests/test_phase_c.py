@@ -547,3 +547,57 @@ class TestCalibratedProbabilities:
         # lyapunov_time should be set (either a float or None)
         for b in report.branches:
             assert hasattr(b, "lyapunov_time")
+
+    def test_full_pipeline_multi_run(self):
+        """Integration test: multi-run data exercises CI, conformal, and audit trail."""
+        from simulation.possibility_report import compute_possibility_report
+
+        # Generate 8 runs of synthetic data
+        multi = [self._make_logs(n_agents=6, n_ticks=20, seed=i) for i in range(8)]
+        config = self._make_config(discovery_gamma=0.5, conformal_alpha=0.1)
+
+        report = compute_possibility_report(
+            multi[0], config, run_id="integration_test", multi_run_logs=multi
+        )
+
+        # 1. Probabilities sum to 1
+        total_prob = sum(b.probability for b in report.branches)
+        assert abs(total_prob - 1.0) < 0.01, f"Probabilities sum to {total_prob}"
+
+        # 2. All probabilities are valid
+        for b in report.branches:
+            assert 0.0 <= b.probability <= 1.0
+
+        # 3. Conformal set is non-empty (at least one branch marked)
+        assert any(b.in_conformal_set for b in report.branches)
+
+        # 4. Bootstrap CI should be present (8 runs >= 3 threshold)
+        for b in report.branches:
+            assert b.confidence_interval is not None, f"Branch {b.branch_id} missing CI"
+            ci_lo, ci_hi = b.confidence_interval
+            assert ci_lo <= ci_hi
+
+        # 5. Audit trail completeness
+        for b in report.branches:
+            assert "dirichlet" in b.probability_method
+            assert "c=" in b.probability_method
+            assert "norm:" in b.probability_method
+            assert "prior_influence" in b.probability_method
+
+        # 6. Metadata populated
+        assert report.metadata.n_agents == 6
+        assert report.metadata.multi_run is True
+        assert report.metadata.n_runs == 8
+        assert report.metadata.probability_method == "dirichlet_multinomial"
+        assert report.metadata.computation_time_s >= 0
+        assert report.metadata.prior_concentration > 0
+
+        # 7. Report is JSON-serializable
+        json.dumps(report.to_dict(), default=str)
+
+        # 8. Run ID preserved
+        assert report.run_id == "integration_test"
+
+        # 9. Branches sorted by probability (descending)
+        probs = [b.probability for b in report.branches]
+        assert probs == sorted(probs, reverse=True)
