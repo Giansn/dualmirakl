@@ -16,7 +16,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .sb{width:260px;min-width:260px;background:rgba(24,26,33,.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-right:1px solid var(--bd);display:flex;flex-direction:column;height:100vh}
 .sbh{padding:20px;border-bottom:1px solid var(--bd)}
 .logo{display:flex;align-items:center;gap:10px;margin-bottom:16px}
-.logo-ic{width:24px;height:24px;background:var(--bg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--t1);font-weight:600;border:1px solid var(--bd)}
+.logo-ic{width:32px;height:32px;border-radius:6px;overflow:hidden;flex-shrink:0}
+.logo-ic img{width:100%;height:100%;object-fit:cover}
 .logo-tx{font-weight:400;font-size:14px;letter-spacing:1.5px;text-transform:lowercase;color:var(--t1)}
 .logo-bx{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);padding:1px 5px;margin-left:auto;letter-spacing:.5px}
 .nc-btn{width:100%;padding:8px 12px;background:transparent;border:1px solid var(--bd);border-radius:var(--rad);color:var(--t1);font-family:'Outfit',sans-serif;font-size:12px;font-weight:400;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .2s;letter-spacing:.3px}
@@ -72,7 +73,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .mi{max-width:720px;margin:0 auto;padding:0 24px}
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;text-align:center;animation:fi .5s ease}
 @keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-.wic{width:40px;height:40px;background:transparent;border:1px solid var(--bd);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:18px;color:var(--t2)}
+.wic{width:80px;height:80px;border-radius:12px;overflow:hidden;margin-bottom:18px}
+.wic img{width:100%;height:100%;object-fit:cover}
 .welcome h2{font-size:16px;font-weight:400;margin-bottom:6px;letter-spacing:1px;text-transform:lowercase;color:var(--t1)}
 .welcome p{color:var(--t2);font-size:12px;max-width:420px;line-height:1.7;font-weight:300}
 .arch{margin-top:28px;padding:18px 22px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);text-align:left;max-width:460px;width:100%}
@@ -376,7 +378,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 <aside class="sb">
   <div class="sbh">
     <div class="logo">
-      <div class="logo-ic">&#9671;</div>
+      <div class="logo-ic"><img src="/static/mirakl_sigil.svg" alt="mirakl"></div>
       <span class="logo-tx">dualmirakl</span>
     </div>
     <div class="health-bar">
@@ -420,7 +422,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
   <div class="mc mode-content" id="mc" data-mode="chat">
     <div class="mi" id="mi">
       <div class="welcome" id="ws">
-        <div class="wic">&#9671;</div>
+        <div class="wic"><img src="/static/mirakl_sigil.svg" alt="mirakl sigil"></div>
         <h2>dualmirakl</h2>
         <p>Multi-agent simulation framework. Chat with RAG-augmented context, run simulations, analyze dynamics.</p>
         <div class="welcome-actions">
