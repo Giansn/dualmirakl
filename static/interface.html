@@ -73,8 +73,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .mi{max-width:720px;margin:0 auto;padding:0 24px}
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;text-align:center;animation:fi .5s ease}
 @keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-.wic{width:160px;height:160px;border-radius:0;overflow:visible;margin-bottom:24px}
-.wic img{width:100%;height:100%;object-fit:cover}
+.wic{width:160px;height:160px;border-radius:0;overflow:visible;margin-bottom:24px;background:none;border:none}
+.wic img{width:100%;height:100%;object-fit:contain}
 .welcome h2{font-size:16px;font-weight:400;margin-bottom:6px;letter-spacing:1px;text-transform:lowercase;color:var(--t1)}
 .welcome p{color:var(--t2);font-size:12px;max-width:420px;line-height:1.7;font-weight:300}
 .arch{margin-top:28px;padding:18px 22px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);text-align:left;max-width:460px;width:100%}
@@ -374,14 +374,14 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
-.splash-bg img{width:120vmax;height:120vmax;object-fit:cover;opacity:.55;animation:splashBgIn 2s ease both}
-@keyframes splashBgIn{from{opacity:0;transform:scale(1.2)}to{opacity:.55;transform:scale(1)}}
-.splash-content{position:absolute;bottom:0;left:0;right:0;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;padding:32px 40px 28px;background:linear-gradient(to top,rgba(23,26,30,.92) 0%,rgba(23,26,30,.7) 60%,transparent 100%);animation:splashIn 1.2s ease .3s both}
+.splash-bg img{width:95vmin;height:95vmin;object-fit:contain;opacity:.5;animation:splashBgIn 2.5s ease both}
+@keyframes splashBgIn{from{opacity:0;transform:scale(1.1)}to{opacity:.5;transform:scale(1)}}
+.splash-content{position:absolute;bottom:0;left:0;right:0;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;padding:40px 40px 36px;background:linear-gradient(to top,rgba(23,26,30,.95) 0%,rgba(23,26,30,.85) 50%,rgba(23,26,30,.4) 80%,transparent 100%);border:none;animation:splashIn 1.2s ease .3s both}
 @keyframes splashIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 .splash-title{font-size:38px;font-weight:300;letter-spacing:8px;text-transform:lowercase;color:var(--t0);margin-bottom:16px;text-shadow:0 0 50px rgba(56,200,200,.2)}
 .splash-sub{font-size:14px;color:var(--t1);font-weight:300;line-height:1.8;margin-bottom:6px}
-.splash-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.4;margin-top:32px;letter-spacing:1.5px}
-.splash-version{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.25;margin-top:8px}
+.splash-hint{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t1);opacity:.7;margin-top:28px;letter-spacing:1.5px}
+.splash-version{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);opacity:.5;margin-top:8px}
 
 @media(max-width:768px){.sb{display:none}.bgt{min-width:130px}.welcome-actions{flex-direction:column}.sim-cfg{grid-template-columns:1fr}.splash-logo{width:200px;height:200px}.splash-title{font-size:24px}}
 </style>
@@ -394,7 +394,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
   <div class="splash-content">
     <div class="splash-title">dualmirakl</div>
     <div class="splash-sub">Multi-agent simulation platform with calibrated probability prediction, real-time world data integration, and LLM-driven behavioral dynamics</div>
-    <div class="splash-hint">click anywhere to enter</div>
+    <div class="splash-hint">click or press enter</div>
     <div class="splash-version">v3 &middot; Dirichlet-Multinomial &middot; Conformal Prediction &middot; 8-Provider World Snapshots</div>
   </div>
 </div>
@@ -3994,8 +3994,12 @@ function dismissSplash() {
   const el = document.getElementById('splash');
   if (el) el.classList.add('hidden');
 }
-// Auto-dismiss after 6 seconds
-setTimeout(dismissSplash, 6000);
+// Dismiss on Enter key
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && document.getElementById('splash') && !document.getElementById('splash').classList.contains('hidden')) {
+    dismissSplash();
+  }
+});
 
 // ── INIT ──
 renderChatList(); renderMessages(); updEmbedCnt(); updBurst(); loadScenarioPreset();
