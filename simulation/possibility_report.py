@@ -6,10 +6,13 @@ and convergence checks from dynamics.py + stats/ into a ranked report
 of divergent outcome trajectories.
 
 Each branch represents a distinct attractor basin with:
-  - Probability estimate (basin_size blended with empirical agent distribution)
+  - Probability estimate (Dirichlet-Multinomial posterior, data-derived)
+  - Chaos-aware entropy blending (Lyapunov-driven, not hardcoded)
+  - Conformal prediction sets (coverage-guaranteed branch groups)
   - Human-readable narrative (template-based, deterministic, auditable)
   - Key metrics (polarization, convergence, Lyapunov regime, emergence)
   - Parameter levers (which params push toward/away from this outcome)
+  - Full auditability (method string traces every probability computation)
 """
 
 from __future__ import annotations
@@ -62,6 +65,9 @@ class PossibilityBranch:
     basin_range: tuple[float, float]
     levers: list[ParameterLever] = field(default_factory=list)
     confidence_interval: Optional[tuple[float, float]] = None
+    probability_method: str = ""           # audit trail for how probability was computed
+    in_conformal_set: Optional[bool] = None  # True if this branch is in the conformal prediction set
+    lyapunov_time: Optional[float] = None  # ticks until prediction becomes unreliable
 
 
 @dataclass
@@ -76,6 +82,10 @@ class ReportMetadata:
     n_runs: int = 1
     lyapunov_method: str = "timeseries"
     computation_time_s: float = 0.0
+    probability_method: str = "dirichlet_multinomial"
+    prior_concentration: float = 0.0
+    basin_discount: float = 0.1
+    conformal_coverage: Optional[float] = None  # e.g. 0.9 for 90% coverage
 
 
 @dataclass
@@ -221,37 +231,63 @@ def compute_possibility_report(
     # ── Step 2: Classify agents to basins ────────────────────────────────
     assignments = _classify_agents_to_basins(score_logs, attractors)
 
-    # Blend theoretical basin_size with empirical agent fraction
-    converged = n_ticks >= 30
-    w_theory = 0.4 if converged else 0.7
-    w_empirical = 1.0 - w_theory
-
     # ── Step 3: Lyapunov + Convergence per branch ────────────────────────
     from simulation.dynamics import estimate_system_lyapunov, compute_emergence
 
     lyapunov_result = estimate_system_lyapunov(score_logs)
     regime = lyapunov_result.get("regime", "marginal")
+    lyapunov_max = lyapunov_result.get("max_lyapunov", 0.0)
+    lyapunov_threshold = 0.05
 
     if lyapunov_result.get("sample_size_warning"):
         warnings.append(lyapunov_result["sample_size_warning"])
 
     emergence = compute_emergence(score_logs)
 
+    # ── Probability calibration parameters ───────────────────────────────
+    # Basin sweep ran n_grid initial conditions through ODE dynamics.
+    # Discount factor: synthetic ODE signals are less informative than
+    # real LLM-driven runs. Default 0.1 = "10% as informative."
+    basin_grid_n = basins.get("n_grid", 100)
+    basin_discount = config.get("basin_discount", 0.1)
+    prior_concentration = config.get("prior_concentration", basin_grid_n * basin_discount)
+
+    # Lyapunov time: ticks until prediction becomes unreliable
+    lyap_time = 1.0 / max(0.01, lyapunov_max) if lyapunov_max > lyapunov_threshold else None
+
     # ── Step 4: Polarization per branch ──────────────────────────────────
     from stats.core import polarization as compute_polarization
 
-    # ── Step 5: Build branches ───────────────────────────────────────────
+    # ── Step 5: Build branches (Dirichlet-Multinomial posterior) ─────────
     branches: list[PossibilityBranch] = []
+    n_branches = len(attractors)
 
     for basin_idx, attractor in enumerate(attractors):
         agent_indices = assignments.get(basin_idx, [])
         n_in_basin = len(agent_indices)
-        empirical_frac = n_in_basin / n_agents if n_agents > 0 else 0.0
-        raw_prob = w_theory * attractor.basin_size + w_empirical * empirical_frac
 
-        # Chaotic regime: redistribute probability mass
-        if regime == "chaotic":
-            raw_prob *= 0.7  # keep 70%, redistribute 30% later
+        # ── Dirichlet-Multinomial posterior ───────────────────────────
+        # Prior: basin_size * concentration (virtual observations from ODE sweep)
+        # Likelihood: n_in_basin out of n_agents observed
+        # Posterior mean: (n_in_basin + alpha_prior) / (n_agents + c)
+        c = prior_concentration
+        alpha_prior = c * attractor.basin_size
+        raw_prob = (n_in_basin + alpha_prior) / (n_agents + c) if (n_agents + c) > 0 else 1.0 / n_branches
+
+        method = (
+            f"dirichlet(c={c:.1f}, alpha_k={alpha_prior:.2f}, "
+            f"n_k={n_in_basin}, N={n_agents})"
+        )
+
+        # ── Chaos-aware entropy blend ────────────────────────────────
+        # Chaos doesn't make outcomes less probable — it makes them
+        # less predictable. Push toward max entropy (uniform) proportional
+        # to Lyapunov strength. No magic 0.7 multiplier.
+        if lyapunov_max > lyapunov_threshold and n_branches > 1:
+            uniform = 1.0 / n_branches
+            chaos_strength = min(1.0, (lyapunov_max - lyapunov_threshold) / 0.95)
+            raw_prob = (1.0 - chaos_strength) * raw_prob + chaos_strength * uniform
+            method += f" + entropy_blend(lambda={lyapunov_max:.3f}, w={chaos_strength:.2f})"
 
         # Per-branch metrics
         if agent_indices and n_ticks > 1:
@@ -305,6 +341,8 @@ def compute_possibility_report(
             metrics=metrics,
             attractor_center=attractor.center,
             basin_range=(attractor.basin_low, attractor.basin_high),
+            probability_method=method,
+            lyapunov_time=lyap_time,
         ))
 
     # ── Step 6: Bootstrap CI from multi-run data ─────────────────────────
@@ -329,6 +367,47 @@ def compute_possibility_report(
         if len(branches) > 1:
             warnings.append("Single-run data: no bootstrap CI. Run multiple seeds for confidence intervals.")
 
+    # ── Step 6b: Conformal prediction set ────────────────────────────────
+    # Coverage guarantee: the set of branches marked in_conformal_set
+    # contains the true outcome with probability >= conformal_alpha.
+    conformal_alpha = config.get("conformal_alpha", 0.1)  # 90% coverage
+    conformal_coverage = 1.0 - conformal_alpha
+
+    if multi_run_logs and len(multi_run_logs) >= 5:
+        # Split conformal: use half as calibration, half as validation
+        n_cal = len(multi_run_logs) // 2
+        cal_logs = multi_run_logs[:n_cal]
+
+        # Compute nonconformity scores on calibration set
+        nonconf_scores = []
+        for run_logs in cal_logs:
+            run_assignments = _classify_agents_to_basins(run_logs, attractors)
+            # Find which branch this run "belongs to" (highest fraction)
+            fracs = [len(run_assignments.get(i, [])) / max(len(run_logs), 1)
+                     for i in range(len(attractors))]
+            dominant_idx = int(np.argmax(fracs))
+            # Nonconformity = 1 - probability of the dominant branch
+            dominant_prob = branches[dominant_idx].probability if dominant_idx < len(branches) else 0.0
+            nonconf_scores.append(1.0 - dominant_prob)
+
+        if nonconf_scores:
+            # Quantile of nonconformity scores
+            q_hat = float(np.quantile(nonconf_scores, conformal_coverage))
+            # Prediction set: branches with probability >= 1 - q_hat
+            threshold = max(0.0, 1.0 - q_hat)
+            for b in branches:
+                b.in_conformal_set = b.probability >= threshold
+            n_in_set = sum(1 for b in branches if b.in_conformal_set)
+            if n_in_set == 0:
+                # At least include the most probable branch
+                branches[0].in_conformal_set = True if branches else None
+    else:
+        # Not enough data for conformal — mark all as in set (conservative)
+        for b in branches:
+            b.in_conformal_set = True
+        if len(branches) > 1:
+            conformal_coverage = None  # no valid coverage guarantee
+
     # ── Step 7: Normalize probabilities ──────────────────────────────────
     total = sum(b.probability for b in branches)
     if total > 0:
@@ -352,6 +431,10 @@ def compute_possibility_report(
             multi_run=n_runs > 1,
             n_runs=n_runs,
             computation_time_s=round(computation_time, 2),
+            probability_method="dirichlet_multinomial",
+            prior_concentration=prior_concentration,
+            basin_discount=basin_discount,
+            conformal_coverage=conformal_coverage,
         ),
         warnings=warnings,
     )

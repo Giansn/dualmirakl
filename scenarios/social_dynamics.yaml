@@ -202,6 +202,9 @@ scoring:
     dampening: 1.0
     coupling_kappa: 0.0
     logistic_k: 6.0
+    # Probability calibration (Dirichlet-Multinomial posterior)
+    basin_discount: 0.1        # ODE basin sweep informativeness (0=ignore basins, 1=trust fully)
+    conformal_alpha: 0.1       # conformal prediction coverage: 1-alpha (0.1 = 90%)
 
 transitions:
   - from: "K2"
