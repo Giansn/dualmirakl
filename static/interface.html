@@ -71,7 +71,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 /* MESSAGES */
 .mc{flex:1;overflow-y:auto;padding:24px 0}
 .mi{max-width:720px;margin:0 auto;padding:0 24px}
-.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;text-align:center;animation:fi .5s ease}
+.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;animation:fi .5s ease;overflow:hidden}
 @keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .wic{width:160px;height:160px;border-radius:0;overflow:visible;margin-bottom:24px;background:none;border:none;position:relative}
 .wic img{width:100%;height:100%;object-fit:contain}
@@ -4144,12 +4144,17 @@ function dismissSplash() {
   const fromCy = window.innerHeight / 2;
   const fromSize = bgImg.getBoundingClientRect().width;
 
-  // Compute target: .wic is centered in main area (after 260px sidebar)
-  // We calculate this rather than measuring, since .wic may have zero rect behind the splash
+  // Compute exact target: .wic is centered in main area
+  // Main area = viewport minus 260px sidebar, vertically centered in (100vh - 120px)
+  // The welcome div centers content, sigil (160px) + h2 + cards below it
+  // Sigil center is roughly at: top_of_main + (available_height/2) - cards_offset
   const sidebarW = window.innerWidth > 768 ? 260 : 0;
   const mainW = window.innerWidth - sidebarW;
+  const topbarH = 50;
+  const inputH = 70;
+  const availH = window.innerHeight - topbarH - inputH;
   const toCx = sidebarW + mainW / 2;
-  const toCy = window.innerHeight * 0.3; // welcome area is ~30% from top
+  const toCy = topbarH + availH * 0.35; // sigil sits in upper third of welcome
   const toSize = 160;
 
   // Phase 1: fade text, pin sigil to fixed position at current center (no jump)
@@ -4194,37 +4199,37 @@ function spawnBurstParticles(fromX, fromY, toX, toY) {
   const totalDuration = 2200; // ms for full animation
 
   for (let i = 0; i < n; i++) {
-    const p = document.createElement('div');
-    p.className = 'trail-particle';
-    const size = 1.5 + (1 - i / n) * 2;
-    p.style.cssText = `left:${fromX}px;top:${fromY}px;width:${size}px;height:${size}px;opacity:.5;box-shadow:0 0 ${size*3}px rgba(56,200,200,.3);transition:left ${totalDuration}ms cubic-bezier(.2,.6,.3,1),top ${totalDuration}ms cubic-bezier(.2,.6,.3,1),opacity ${totalDuration}ms ease`;
-    document.body.appendChild(p);
-
-    // Phase 1: burst outward (golden angle spiral)
     const angle = i * goldenAngle;
-    const burstDist = 60 + Math.sqrt(i / n) * 120;
+    const burstDist = 80 + Math.sqrt(i / n) * 150;
     const burstX = fromX + Math.cos(angle) * burstDist;
     const burstY = fromY + Math.sin(angle) * burstDist;
+    const size = 2 + (1 - i / n) * 2.5;
 
-    // Burst outward immediately
-    requestAnimationFrame(() => {
+    // Stagger creation for visible spiral unfolding
+    setTimeout(() => {
+      const p = document.createElement('div');
+      p.className = 'trail-particle';
+      // Start at center, no transition
+      p.style.cssText = `left:${fromX}px;top:${fromY}px;width:${size}px;height:${size}px;opacity:0;box-shadow:0 0 ${size*3}px rgba(56,200,200,.5);transition:none`;
+      document.body.appendChild(p);
+
+      // Force layout, then burst outward
+      p.offsetHeight; // force reflow
+      p.style.transition = `left 500ms cubic-bezier(.15,.85,.35,1),top 500ms cubic-bezier(.15,.85,.35,1),opacity 300ms ease-out`;
       p.style.left = burstX + 'px';
       p.style.top = burstY + 'px';
-      p.style.transition = `left 400ms cubic-bezier(.1,.8,.3,1),top 400ms cubic-bezier(.1,.8,.3,1),opacity 400ms`;
-      p.style.opacity = '0.6';
-    });
+      p.style.opacity = '0.7';
 
-    // Phase 2: magnetize toward sidebar logo (staggered, slow start fast finish)
-    const magnetDelay = 350 + i * 15;
-    setTimeout(() => {
-      p.style.transition = `left 900ms cubic-bezier(.4,.0,.7,1),top 900ms cubic-bezier(.4,.0,.7,1),opacity 900ms ease-in`;
-      p.style.left = magX + 'px';
-      p.style.top = magY + 'px';
-      p.style.opacity = '0';
-    }, magnetDelay);
+      // Phase 2: magnetize toward sidebar logo
+      setTimeout(() => {
+        p.style.transition = `left 800ms cubic-bezier(.5,.0,.8,1),top 800ms cubic-bezier(.5,.0,.8,1),opacity 600ms ease-in`;
+        p.style.left = magX + 'px';
+        p.style.top = magY + 'px';
+        p.style.opacity = '0';
+      }, 500);
 
-    // Cleanup
-    setTimeout(() => p.remove(), magnetDelay + 1200);
+      setTimeout(() => p.remove(), 1500);
+    }, i * 12); // 12ms stagger per particle
   }
 }
 
