@@ -244,7 +244,9 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 
 /* WORLD SNAPSHOTS */
 .snapshot-row{display:grid;grid-template-columns:36px 1fr 140px 40px 20px;gap:6px;align-items:center;padding:6px 8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);position:relative}
-.snapshot-row.loaded{border-color:rgba(56,200,200,.2)}
+.snapshot-row.loaded{border-color:rgba(56,200,200,.3);background:rgba(56,200,200,.03)}
+.snapshot-row.loaded .snapshot-fetch{border-color:var(--a);color:var(--a)}
+.snapshot-row.loaded .snap-label{color:var(--a)}
 .snapshot-row.loading{border-color:var(--w);opacity:.7}
 .snapshot-fetch{background:none;border:1px solid var(--bd);border-radius:var(--rax);color:var(--t2);width:34px;height:34px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s}
 .snapshot-fetch:hover{border-color:var(--a);color:var(--a);box-shadow:0 0 10px rgba(56,200,200,.15)}
@@ -2687,23 +2689,42 @@ async function fetchSnapshot(topic) {
   if (statusEl) statusEl.textContent = 'fetching...';
   if (progressEl) progressEl.textContent = topic + '...';
 
-  // Build queries: base queries + focus modifier
+  // Build queries with country detection + English filter
   const focus = focusEl?.value?.trim() || '';
   let queries = SNAPSHOT_QUERIES[topic] || [topic];
+
+  // Detect country from focus text
+  const COUNTRY_MAP = {
+    'switzerland':'Switzerland','swiss':'Switzerland','schweiz':'Switzerland',
+    'germany':'Germany','deutschland':'Germany',
+    'austria':'Austria','france':'France',
+    'uk':'United Kingdom','england':'United Kingdom','britain':'United Kingdom',
+    'usa':'United States','us ':'United States','america':'United States',
+    'japan':'Japan','china':'China','india':'India','brazil':'Brazil',
+    'canada':'Canada','australia':'Australia','spain':'Spain','italy':'Italy',
+    'netherlands':'Netherlands','sweden':'Sweden','norway':'Norway',
+    'korea':'South Korea','mexico':'Mexico','russia':'Russia','turkey':'Turkey',
+    'israel':'Israel','nigeria':'Nigeria','south africa':'South Africa',
+  };
+  let countryFilter = '';
   if (focus) {
-    // Prepend focus to each query for specificity
+    const fl = focus.toLowerCase();
+    for (const [key, val] of Object.entries(COUNTRY_MAP)) {
+      if (fl.includes(key)) { countryFilter = ` sourcecountry:"${val}"`; break; }
+    }
     queries = queries.map(q => focus + ' ' + q);
-    // Also add focus as standalone query
     queries.unshift(focus);
   }
 
   let allArticles = [];
 
   try {
-    // GDELT DOC API (free, no key, real-time global events)
+    // ── GDELT DOC API (free, no key, real-time global events) ──
+    const langFilter = ' sourcelang:english';
     for (const q of queries.slice(0, 4)) {
       try {
-        const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(q)}&mode=artlist&maxrecords=5&format=json&timespan=7d`;
+        const fullQuery = q + langFilter + countryFilter;
+        const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(fullQuery)}&mode=artlist&maxrecords=5&format=json&timespan=14d`;
         const r = await fetch(gdeltUrl);
         if (r.ok) {
           const d = await r.json();
@@ -2713,12 +2734,31 @@ async function fetchSnapshot(topic) {
               source: a.domain || a.source || '',
               date: a.seendate || '',
               country: a.sourcecountry || '',
+              lang: a.language || '',
               url: a.url || '',
+              provider: 'GDELT',
             })));
           }
         }
       } catch { /* single query fail */ }
     }
+
+    // ── Wikipedia Current Events (free, structured, daily) ──
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const wikiUrl = `https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/${new Date().getMonth()+1}/${new Date().getDate()}`;
+      const wr = await fetch(wikiUrl);
+      if (wr.ok) {
+        const wd = await wr.json();
+        if (wd.events) {
+          const relevant = wd.events.slice(0, 3).map(e => ({
+            title: e.text || '', source: 'Wikipedia', date: today,
+            country: '', lang: 'English', url: '', provider: 'Wikipedia',
+          }));
+          allArticles.push(...relevant);
+        }
+      }
+    } catch { /* wiki fail */ }
 
     // For research topic, also try OpenAlex
     if (topic === 'research') {
@@ -2794,11 +2834,13 @@ async function fetchSnapshot(topic) {
     if (expandBtn) expandBtn.style.display = '';
     if (summaryEl) {
       summaryEl.innerHTML = allArticles.map((a, i) =>
-        `<div style="padding:2px 0;${i<allArticles.length-1?'border-bottom:1px solid var(--bd)':''}">` +
+        `<div style="padding:3px 0;${i<allArticles.length-1?'border-bottom:1px solid var(--bd)':''}">` +
         `<span style="color:var(--t1)">${a.title}</span>` +
-        (a.source ? ` <span style="opacity:.5">${a.source}</span>` : '') +
-        (a.date ? ` <span style="opacity:.4">${a.date.slice(0,10)}</span>` : '') +
+        (a.source ? ` <span style="opacity:.4">${a.source}</span>` : '') +
+        (a.country ? ` <span style="opacity:.3">${a.country}</span>` : '') +
+        (a.date ? ` <span style="opacity:.3">${a.date.slice(0,10)}</span>` : '') +
         (a.cited ? ` <span style="color:var(--a)">cited ${a.cited}x</span>` : '') +
+        (a.provider ? ` <span style="padding:0 3px;border:1px solid var(--bd);border-radius:2px;font-size:7px;opacity:.4">${a.provider}</span>` : '') +
         `</div>`
       ).join('');
     }
