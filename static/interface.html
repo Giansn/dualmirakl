@@ -77,7 +77,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .wic img{width:100%;height:100%;object-fit:contain}
 .particles{position:absolute;inset:-200px;pointer-events:none;overflow:visible}
 .particle{position:absolute;border-radius:50%;opacity:0;animation:particleDrift linear infinite}
-@keyframes particleDrift{0%{opacity:0;transform:translate(0,0) scale(1)}10%{opacity:.6}70%{opacity:.3}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(0.3)}}
+@keyframes particleDrift{0%{opacity:0;transform:translate(0,0) scale(1)}10%{opacity:.25}70%{opacity:.12}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(0.3)}}
 .welcome h2{font-size:16px;font-weight:400;margin-bottom:6px;letter-spacing:1px;text-transform:lowercase;color:var(--t1)}
 .welcome p{color:var(--t2);font-size:12px;max-width:420px;line-height:1.7;font-weight:300}
 .arch{margin-top:28px;padding:18px 22px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);text-align:left;max-width:460px;width:100%}
@@ -377,7 +377,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
 .transition-burst{position:fixed;inset:0;z-index:9998;pointer-events:none;overflow:hidden}
 .burst-particle{position:absolute;border-radius:50%;opacity:0;animation:burstOut 1.8s ease-out forwards}
-@keyframes burstOut{0%{opacity:.9;transform:translate(0,0) scale(1)}30%{opacity:.7}100%{opacity:0;transform:translate(var(--bx),var(--by)) scale(0)}}
+@keyframes burstOut{0%{opacity:.4;transform:translate(0,0) scale(1)}30%{opacity:.25}100%{opacity:0;transform:translate(var(--bx),var(--by)) scale(0)}}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg img{width:95vmin;height:95vmin;object-fit:contain;opacity:.5;animation:splashBgIn 2.5s ease both}
@@ -3998,7 +3998,7 @@ document.addEventListener('mouseover', function(e) {
 (function spawnParticles() {
   const container = document.getElementById('particles');
   if (!container) return;
-  const colors = ['#4ee8cc','#3cd8bc','#28b8a0','#d4a850','#e4c070','#787680'];
+  const colors = ['#38c8c8'];
   function spawn() {
     const p = document.createElement('div');
     p.className = 'particle';
@@ -4006,7 +4006,7 @@ document.addEventListener('mouseover', function(e) {
     const dist = 150 + Math.random() * 250;
     const dx = Math.cos(angle) * dist;
     const dy = Math.sin(angle) * dist;
-    const size = 1.5 + Math.random() * 3;
+    const size = 1 + Math.random() * 2;
     const dur = 4 + Math.random() * 6;
     const color = colors[Math.floor(Math.random() * colors.length)];
     p.style.cssText = `width:${size}px;height:${size}px;background:${color};left:calc(50% - ${size/2}px);top:calc(50% - ${size/2}px);--dx:${dx}px;--dy:${dy}px;animation-duration:${dur}s;animation-delay:${Math.random()*2}s;box-shadow:0 0 ${size*2}px ${color}`;
@@ -4036,8 +4036,8 @@ function triggerLogisticBurst() {
 
   const cx = window.innerWidth / 2;
   const cy = window.innerHeight / 2;
-  const colors = ['#4ee8cc','#3cd8bc','#6ef0dc','#d4a850','#e4c070','#c09038'];
-  const n = 60;
+  const colors = ['#38c8c8'];
+  const n = 40;
 
   // Logistic map: x(n+1) = r * x(n) * (1 - x(n))
   // r=3.9 produces chaos — same as dualmirakl's test dynamics
@@ -4060,7 +4060,7 @@ function triggerLogisticBurst() {
 
     const bx = Math.cos(angle) * dist;
     const by = Math.sin(angle) * dist;
-    const size = 2 + logisticValues[(i + 3) % n] * 5;
+    const size = 1 + logisticValues[(i + 3) % n] * 3;
     const color = colors[i % colors.length];
     const delay = logisticValues[(i + 11) % n] * 0.4;
 
