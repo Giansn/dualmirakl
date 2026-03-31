@@ -4239,12 +4239,9 @@ function dissolveAndReassemble(fromX, fromY, toX, toY, fromSize, toSize) {
 }
 }
 
-document.addEventListener('keydown', function(e) {
-  const splash = document.getElementById('splash');
-  if (splash && !splash.classList.contains('hidden') && !splash.classList.contains('transitioning')) {
-    dismissSplash();
-  }
-});
+// Dismiss splash on ANY key or click anywhere on the page
+document.addEventListener('keydown', function() { dismissSplash(); });
+document.addEventListener('click', function() { dismissSplash(); });
 
 // ── INIT ──
 renderChatList(); renderMessages(); updEmbedCnt(); updBurst(); loadScenarioPreset();
