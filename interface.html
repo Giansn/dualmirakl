@@ -242,13 +242,28 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .drop-zone{margin-top:16px;padding:20px;border:1px dashed var(--bd);border-radius:var(--rad);color:var(--t2);font-size:12px;cursor:pointer;text-align:center;transition:all .2s;width:100%;max-width:480px}
 .drop-zone:hover,.drop-zone.drag-over{border-color:var(--a);color:var(--a);background:var(--ad)}
 
+/* SUGGESTION CARDS */
+.sug-card{padding:10px 12px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);margin:6px 0;display:flex;flex-direction:column;gap:4px}
+.sug-card.high{border-left:3px solid var(--a)}
+.sug-card.medium{border-left:3px solid var(--w)}
+.sug-card.low{border-left:3px solid var(--t2)}
+.sug-header{display:flex;align-items:center;gap:8px}
+.sug-param{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--a);font-weight:500}
+.sug-change{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)}
+.sug-reason{font-size:11px;color:var(--t1);line-height:1.5}
+.sug-source{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);padding:1px 4px;border:1px solid var(--bd);border-radius:2px;display:inline-block}
+.sug-apply{padding:3px 10px;background:var(--a);border:none;border-radius:var(--rax);color:var(--bg0);font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer;align-self:flex-end}
+.sug-apply:hover{box-shadow:0 0 8px rgba(56,200,200,.3)}
+.sug-missing{padding:8px 10px;background:rgba(192,144,144,.06);border:1px solid rgba(192,144,144,.2);border-left:3px solid var(--r);border-radius:var(--rax);margin:6px 0;font-size:11px;color:var(--t1);line-height:1.5}
+.sug-warning{padding:8px 10px;background:rgba(196,174,128,.06);border:1px solid rgba(196,174,128,.2);border-left:3px solid var(--w);border-radius:var(--rax);margin:6px 0;font-size:11px;color:var(--t1);line-height:1.5}
+
 /* WORLD SNAPSHOTS */
 .snapshot-row{display:grid;grid-template-columns:36px 1fr 140px 40px 20px;gap:6px;align-items:center;padding:6px 8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);position:relative}
 .snapshot-row.loaded{border-color:rgba(56,200,200,.3);background:rgba(56,200,200,.03)}
 .snapshot-row.loaded .snapshot-fetch{border-color:var(--a);color:var(--a)}
 .snapshot-row.loaded .snap-label{color:var(--a)}
 .snapshot-row.loading{border-color:var(--w);opacity:.7}
-.snapshot-fetch{background:none;border:1px solid var(--bd);border-radius:var(--rax);color:var(--t2);width:34px;height:34px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.snapshot-fetch{background:none;border:1px solid var(--bd);border-radius:var(--rax);color:var(--t2);width:34px;height:34px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:all .2s;font-family:'JetBrains Mono',monospace}
 .snapshot-fetch:hover{border-color:var(--a);color:var(--a);box-shadow:0 0 10px rgba(56,200,200,.15)}
 .snapshot-info{display:flex;flex-direction:column;gap:1px;min-width:0}
 .snap-label{font-size:10px;font-weight:500;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -642,7 +657,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
             <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px" id="snapshotList">
 
               <div class="snapshot-row" data-topic="social">
-                <button class="snapshot-fetch" onclick="fetchSnapshot('social')">&#9883;</button>
+                <button class="snapshot-fetch" onclick="fetchSnapshot('social')">S</button>
                 <div class="snapshot-info"><span class="snap-label">Social &amp; Culture</span><span class="snap-desc">Trends, public opinion, social media</span></div>
                 <input type="text" class="snapshot-focus" id="focusSocial" placeholder="focus: e.g. 'youth social media'" title="Narrow the search to a specific angle">
                 <span class="snap-status" id="snapSocial"></span>
@@ -651,7 +666,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
               </div>
 
               <div class="snapshot-row" data-topic="health">
-                <button class="snapshot-fetch" onclick="fetchSnapshot('health')">&#9764;</button>
+                <button class="snapshot-fetch" onclick="fetchSnapshot('health')">H</button>
                 <div class="snapshot-info"><span class="snap-label">Health &amp; Psychology</span><span class="snap-desc">Mental health, addiction, wellbeing</span></div>
                 <input type="text" class="snapshot-focus" id="focusHealth" placeholder="focus: e.g. 'gaming disorder'" title="Narrow the search">
                 <span class="snap-status" id="snapHealth"></span>
@@ -660,7 +675,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
               </div>
 
               <div class="snapshot-row" data-topic="tech">
-                <button class="snapshot-fetch" onclick="fetchSnapshot('tech')">&#9889;</button>
+                <button class="snapshot-fetch" onclick="fetchSnapshot('tech')">T</button>
                 <div class="snapshot-info"><span class="snap-label">Technology &amp; Digital</span><span class="snap-desc">Platforms, AI, regulation, online behavior</span></div>
                 <input type="text" class="snapshot-focus" id="focusTech" placeholder="focus: e.g. 'algorithm regulation'" title="Narrow the search">
                 <span class="snap-status" id="snapTech"></span>
@@ -669,7 +684,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
               </div>
 
               <div class="snapshot-row" data-topic="economy">
-                <button class="snapshot-fetch" onclick="fetchSnapshot('economy')">&#9878;</button>
+                <button class="snapshot-fetch" onclick="fetchSnapshot('economy')">E</button>
                 <div class="snapshot-info"><span class="snap-label">Economy &amp; Markets</span><span class="snap-desc">Finance, employment, consumer behavior</span></div>
                 <input type="text" class="snapshot-focus" id="focusEconomy" placeholder="focus: e.g. 'gig economy'" title="Narrow the search">
                 <span class="snap-status" id="snapEconomy"></span>
@@ -678,7 +693,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
               </div>
 
               <div class="snapshot-row" data-topic="politics">
-                <button class="snapshot-fetch" onclick="fetchSnapshot('politics')">&#9878;</button>
+                <button class="snapshot-fetch" onclick="fetchSnapshot('politics')">P</button>
                 <div class="snapshot-info"><span class="snap-label">Politics &amp; Governance</span><span class="snap-desc">Policy, regulation, institutional trust</span></div>
                 <input type="text" class="snapshot-focus" id="focusPolitics" placeholder="focus: e.g. 'EU digital policy'" title="Narrow the search">
                 <span class="snap-status" id="snapPolitics"></span>
@@ -687,7 +702,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
               </div>
 
               <div class="snapshot-row" data-topic="environment">
-                <button class="snapshot-fetch" onclick="fetchSnapshot('environment')">&#9728;</button>
+                <button class="snapshot-fetch" onclick="fetchSnapshot('environment')">C</button>
                 <div class="snapshot-info"><span class="snap-label">Environment &amp; Climate</span><span class="snap-desc">Climate events, sustainability, resource pressure</span></div>
                 <input type="text" class="snapshot-focus" id="focusEnvironment" placeholder="focus: e.g. 'water scarcity'" title="Narrow the search">
                 <span class="snap-status" id="snapEnvironment"></span>
@@ -696,7 +711,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
               </div>
 
               <div class="snapshot-row" data-topic="demographics">
-                <button class="snapshot-fetch" onclick="fetchSnapshot('demographics')">&#9823;</button>
+                <button class="snapshot-fetch" onclick="fetchSnapshot('demographics')">D</button>
                 <div class="snapshot-info"><span class="snap-label">Demographics</span><span class="snap-desc">Population, age groups, migration, urbanization</span></div>
                 <input type="text" class="snapshot-focus" id="focusDemographics" placeholder="focus: e.g. 'gen-z europe'" title="Narrow the search">
                 <span class="snap-status" id="snapDemographics"></span>
@@ -705,7 +720,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
               </div>
 
               <div class="snapshot-row" data-topic="research">
-                <button class="snapshot-fetch" onclick="fetchSnapshot('research')">&#9878;</button>
+                <button class="snapshot-fetch" onclick="fetchSnapshot('research')">R</button>
                 <div class="snapshot-info"><span class="snap-label">Academic Research</span><span class="snap-desc">Recent papers, citations, findings</span></div>
                 <input type="text" class="snapshot-focus" id="focusResearch" placeholder="focus: e.g. 'persuasive design'" title="Narrow the search">
                 <span class="snap-status" id="snapResearch"></span>
@@ -814,8 +829,14 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
         </div>
       </div>
 
-      <!-- START BUTTON -->
-      <button class="sim-start" id="simStartBtn" onclick="handleSimStart()">Start Simulation</button>
+      <!-- SUGGESTIONS -->
+      <div id="suggestionsPanel" style="display:none"></div>
+
+      <!-- ACTIONS -->
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="sim-start" id="simStartBtn" onclick="handleSimStart()" style="flex:1">Start Simulation</button>
+        <button class="results-btn" onclick="getSuggestions()" id="suggestBtn" style="padding:10px 16px;font-size:12px" title="Ask the authority LLM to review your config against world data">Suggest</button>
+      </div>
     </div>
   </div>
 
@@ -933,7 +954,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
         <div class="ib">
           <span class="chip act" id="streamChip" onclick="toggleStream(this)">stream</span>
           <span class="chip act" id="tempChip">t:0.7</span>
-          <span class="chip" id="ctxChip">ctx:6k</span>
+          <span class="chip" id="ctxChip">ctx:64k</span>
           <span class="upload-btn" id="uploadChip" onclick="document.getElementById('fileIn').click()" title="Upload PDF/TXT/MD">&#9965; Upload</span>
           <input type="file" id="fileIn" accept=".pdf,.txt,.md" style="display:none" onchange="handleFile(event)">
           <span class="ih">Enter send &middot; Shift+Enter newline</span>
@@ -1346,6 +1367,17 @@ async function sendMessage() {
   if(!text||S.generating) return;
   if(!S.cid) newChat();
   const chat=getChat();
+
+  // ── COMMAND PARSER: intercept before LLM call ──
+  const cmd = parseChatCommand(text);
+  if (cmd) {
+    chat.messages.push({role:'user', content:text, ts:new Date().toISOString()});
+    inp.value=''; autoResize(inp);
+    const result = await executeChatCommand(cmd, text);
+    chat.messages.push({role:'assistant', content:result, ts:new Date().toISOString(), badges:[{t:'bdg-c',l:'cmd'}]});
+    renderMessages(); scrollBot();
+    return;
+  }
   chat.messages.push({role:'user',content:text,ts:new Date().toISOString()});
   inp.value=''; autoResize(inp); document.getElementById('sendBtn').disabled=true;
   renderMessages(); embedStore(text,chat.id,'user');
@@ -3570,6 +3602,350 @@ const SCENARIO_ARCHETYPES = {
     {id:'K2', label:'Agent B', susc:'medium', res:'medium', pct:50},
   ],
 };
+
+// ── CHAT COMMAND PARSER ──
+
+function parseChatCommand(text) {
+  const t = text.toLowerCase().trim();
+
+  // Direct parameter setters
+  const paramPatterns = [
+    {re: /set\s+alpha\s+(?:to\s+)?(\d*\.?\d+)/i, param: 'spAlpha'},
+    {re: /set\s+(?:kappa|coupling)\s+(?:to\s+)?(-?\d*\.?\d+)/i, param: 'spKappa'},
+    {re: /set\s+ticks?\s+(?:to\s+)?(\d+)/i, param: 'spTicks'},
+    {re: /set\s+(?:agents?|participants?)\s+(?:to\s+)?(\d+)/i, param: 'spAgents'},
+    {re: /set\s+threshold\s+(?:to\s+)?(\d*\.?\d+)/i, param: 'spThreshold'},
+    {re: /set\s+dampen(?:ing)?\s+(?:to\s+)?(\d*\.?\d+)/i, param: 'spDampen'},
+    {re: /set\s+(?:observer\s+)?k\s+(?:to\s+)?(\d+)/i, param: 'spK'},
+    {re: /set\s+mode\s+(?:to\s+)?(ema|logistic)/i, param: 'spScoreMode'},
+    {re: /set\s+tick\s*(?:unit)?\s+(?:to\s+)?(hour|week|month|year)/i, param: 'spTickUnit'},
+  ];
+  for (const pp of paramPatterns) {
+    const m = text.match(pp.re);
+    if (m) return {type: 'set_param', param: pp.param, value: m[1]};
+  }
+
+  // Scenario switching
+  const scenarioMatch = t.match(/(?:use|switch|load)\s+(?:scenario\s+)?(\S+)/);
+  if (scenarioMatch) {
+    const name = scenarioMatch[1].replace(/\.yaml$/, '');
+    return {type: 'switch_scenario', name};
+  }
+
+  // Run commands
+  if (/^run\s+pipeline\s*(?:with\s+)?(\d+)?\s*(?:runs?)?$/i.test(t)) {
+    const m = t.match(/(\d+)/);
+    return {type: 'run_pipeline', n_runs: m ? parseInt(m[1]) : null};
+  }
+  if (/^run\s+(?:sim(?:ulation)?|single)/i.test(t)) return {type: 'run_sim'};
+
+  // Fetch commands
+  if (/^(?:fetch|collect)\s+(?:world|snapshot|all)/i.test(t)) return {type: 'collect_world'};
+  const fetchMatch = t.match(/^fetch\s+(?:snapshot\s+)?(\w+)/i);
+  if (fetchMatch) return {type: 'fetch_topic', topic: fetchMatch[1]};
+
+  // Context/world notes
+  if (/^(?:this\s+is\s+about|context:|topic:|the\s+simulation\s+is\s+about)\s+(.+)/i.test(text)) {
+    const m = text.match(/^(?:this\s+is\s+about|context:|topic:|the\s+simulation\s+is\s+about)\s+(.+)/i);
+    return {type: 'set_context', text: m[1]};
+  }
+
+  // Suggestions
+  if (/^(?:suggest|suggestions?|what\s+should\s+I\s+(?:adjust|change|set)|review\s+(?:my\s+)?(?:config|setup|specs))/i.test(t)) {
+    return {type: 'suggest'};
+  }
+
+  // Not a command — return null, proceed to normal LLM chat
+  return null;
+}
+
+async function executeChatCommand(cmd, originalText) {
+  switch (cmd.type) {
+    case 'set_param': {
+      const el = document.getElementById(cmd.param);
+      if (!el) return `Parameter ${cmd.param} not found.`;
+      const old = el.value;
+      el.value = cmd.value;
+      updateTimeEstimate();
+      updateSpArchSum();
+      switchMode('sim'); switchSimSub('specs');
+      return `**Updated ${cmd.param.replace('sp','').toLowerCase()}:** ${old} → ${cmd.value}`;
+    }
+    case 'switch_scenario': {
+      const sel = document.getElementById('simScenario');
+      const opt = Array.from(sel.options).find(o => o.value.includes(cmd.name) || o.textContent.includes(cmd.name));
+      if (opt) {
+        sel.value = opt.value;
+        loadScenarioPreset();
+        switchMode('sim'); switchSimSub('specs');
+        return `**Switched scenario to:** ${opt.textContent}`;
+      }
+      return `Scenario "${cmd.name}" not found. Available: ${Array.from(sel.options).map(o => o.textContent).join(', ')}`;
+    }
+    case 'run_sim':
+      switchMode('sim');
+      setSimMode('single');
+      setTimeout(() => startSimulation(), 300);
+      return '**Starting single simulation run...**';
+    case 'run_pipeline': {
+      switchMode('sim');
+      setSimMode('pipeline');
+      if (cmd.n_runs) document.getElementById('simNRuns').value = cmd.n_runs;
+      setTimeout(() => startPipeline(), 300);
+      return `**Starting pipeline** with ${cmd.n_runs || document.getElementById('simNRuns').value} ensemble runs...`;
+    }
+    case 'collect_world':
+      switchMode('sim'); switchSimSub('world');
+      setTimeout(() => runSnapshotCollector(), 300);
+      return '**Collecting world snapshot** from all providers...';
+    case 'fetch_topic':
+      switchMode('sim'); switchSimSub('world');
+      setTimeout(() => fetchSnapshot(cmd.topic), 300);
+      return `**Fetching "${cmd.topic}" snapshot...**`;
+    case 'set_context': {
+      const notes = document.getElementById('worldNotes');
+      const existing = notes.value.trim();
+      notes.value = existing ? existing + '\n\n' + cmd.text : cmd.text;
+      await saveWorldNotes();
+      switchMode('sim'); switchSimSub('world');
+      return `**Added to world context:** "${cmd.text}"\n\nContext categories updated.`;
+    }
+    case 'suggest':
+      switchMode('sim'); switchSimSub('specs');
+      setTimeout(() => getSuggestions(), 300);
+      return '**Requesting data-grounded suggestions** from authority...';
+    default:
+      return `Unknown command type: ${cmd.type}`;
+  }
+}
+
+// ── DATA-GROUNDED SUGGESTIONS ──
+
+async function getSuggestions() {
+  const panel = document.getElementById('suggestionsPanel');
+  const btn = document.getElementById('suggestBtn');
+  panel.style.display = '';
+  panel.innerHTML = '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:var(--w);padding:12px">Analyzing config against world data...</div>';
+  btn.disabled = true;
+
+  // Gather all context
+  const params = getScenarioParams();
+  const archetypes = getSpArchetypes();
+  const worldNotes = document.getElementById('worldNotes')?.value || '';
+  const docs = S.worldDocs.map(d => d.name + ' (' + (d.chars/1000).toFixed(1) + 'k chars)');
+
+  // Context category status
+  const catStatus = {};
+  ['Scenario','Population','Outcome','Intervention','Temporal'].forEach(c => {
+    const st = document.getElementById('wcStatus' + c);
+    catStatus[c.toLowerCase()] = st ? st.textContent : 'unknown';
+  });
+
+  // Collector digest text
+  const digestEl = document.getElementById('collectorBullets');
+  const digestText = digestEl?.innerText || '';
+
+  // Snapshot summaries
+  const snapTexts = Object.entries(S.snapSummaries).map(([topic, data]) =>
+    `[${topic}] ${data.articles?.length || 0} items: ${data.articles?.slice(0,3).map(a=>a.title).join('; ') || 'none'}`
+  ).join('\n');
+
+  const prompt = `You are a simulation design advisor. Review this simulation configuration against the real-world data collected.
+
+CURRENT SPECS:
+- Ticks: ${params.ticks} (tick unit: ${params.tickUnit})
+- Agents: ${params.agents}
+- Alpha (learning rate): ${params.alpha}
+- Kappa (peer coupling): ${params.kappa}
+- Observer K: ${params.k}
+- Score mode: ${params.mode}
+- Dampening: ${params.dampen}
+- Threshold: ${params.threshold}
+
+ARCHETYPES:
+${archetypes.map(a => `${a.id}: ${a.label} (susceptibility: ${a.susc}, resilience: ${a.res}, ${a.pct}%)`).join('\n')}
+
+CONTEXT CATEGORY STATUS:
+${Object.entries(catStatus).map(([k,v]) => `${k}: ${v}`).join('\n')}
+
+WORLD NOTES:
+${worldNotes || '(empty)'}
+
+UPLOADED DOCUMENTS:
+${docs.length ? docs.join('\n') : '(none)'}
+
+COLLECTOR DIGEST:
+${digestText || '(not run yet)'}
+
+SNAPSHOT DATA:
+${snapTexts || '(none fetched)'}
+
+Respond with JSON ONLY. No markdown. No explanation outside JSON:
+{
+  "suggestions": [
+    {"param": "...", "current": "...", "suggested": "...", "reason": "specific reason citing actual data", "source": "data source name", "priority": "high|medium|low"}
+  ],
+  "missing": [
+    {"category": "...", "impact": "what goes wrong without it", "suggestion": "exactly what to provide"}
+  ],
+  "validation": [
+    {"check": "what was checked", "status": "ok|warning|error", "detail": "specific finding"}
+  ]
+}`;
+
+  try {
+    const gwUrl = url.gw();
+    const chatUrl = url.chat() || gwUrl;
+    const r = await fetch(`${chatUrl}/v1/chat/completions`, {
+      method: 'POST', headers: url.hdrs(),
+      body: JSON.stringify({
+        model: 'authority',
+        messages: [{role: 'user', content: prompt}],
+        max_tokens: 1500, temperature: 0.2,
+      })
+    });
+
+    if (!r.ok) throw new Error(`Authority unavailable (HTTP ${r.status}). Start vLLM or connect to RunPod.`);
+
+    const d = await r.json();
+    let content = d.choices?.[0]?.message?.content || '';
+    // Strip think tags
+    content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+    // Parse JSON
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Authority did not return valid JSON. Raw: ' + content.slice(0, 200));
+    const result = JSON.parse(jsonMatch[0]);
+
+    renderSuggestions(result);
+
+  } catch (e) {
+    // Fallback: generate local suggestions without LLM
+    const localResult = generateLocalSuggestions(params, archetypes, catStatus, worldNotes, digestText);
+    renderSuggestions(localResult);
+    panel.querySelector('div')?.insertAdjacentHTML?.('beforebegin',
+      `<div style="font-size:9px;color:var(--w);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Local analysis (authority offline: ${e.message})</div>`
+    );
+  }
+  btn.disabled = false;
+}
+
+function generateLocalSuggestions(params, archetypes, catStatus, worldNotes, digestText) {
+  const suggestions = [];
+  const missing = [];
+  const validation = [];
+
+  // Check context categories
+  if (catStatus.scenario === 'missing') {
+    missing.push({category: 'scenario_description', impact: 'Agents interact in a vacuum. Stimuli are generic and have no domain grounding.', suggestion: 'Describe what you\'re simulating in World Notes or upload a document.'});
+  }
+  if (catStatus.population === 'missing') {
+    missing.push({category: 'population_characteristics', impact: `Archetype distributions (${archetypes.map(a=>a.id+':'+a.pct+'%').join(', ')}) are not grounded in any population data.`, suggestion: 'Upload demographic research or run the World Bank snapshot with a country focus.'});
+  }
+  if (catStatus.outcome === 'missing') {
+    missing.push({category: 'outcome_criteria', impact: 'Pipeline validation has no targets. Everything passes. Impossible to detect if results are plausible.', suggestion: 'Define what would surprise you in the outcome criteria section.'});
+  }
+
+  // Check alpha vs tick unit
+  const tickScale = {hour: 0.3, week: 0.15, month: 0.08, year: 0.04};
+  const expectedAlpha = tickScale[params.tickUnit] || 0.15;
+  if (Math.abs(params.alpha - expectedAlpha) > 0.05) {
+    suggestions.push({param: 'alpha', current: params.alpha, suggested: expectedAlpha, reason: `For ${params.tickUnit}-scale ticks, alpha ~${expectedAlpha} produces realistic pace. Current ${params.alpha} is ${params.alpha > expectedAlpha ? 'too fast' : 'too slow'} for this time scale.`, source: 'time scale heuristic', priority: 'high'});
+  }
+
+  // Check kappa = 0
+  if (params.kappa === 0) {
+    validation.push({check: 'peer coupling', status: 'warning', detail: 'Kappa is 0 — agents are fully independent. In most real populations, people influence each other. Consider kappa 0.05-0.15 for mild conformity.'});
+  }
+
+  // Check archetype sum
+  const archSum = archetypes.reduce((s, a) => s + a.pct, 0);
+  if (archSum !== 100) {
+    validation.push({check: 'archetype distribution', status: 'error', detail: `Archetype percentages sum to ${archSum}%, not 100%. Results will be miscalibrated.`});
+  }
+
+  // Check if digest data exists but archetypes haven't been adjusted
+  if (digestText && !worldNotes) {
+    suggestions.push({param: 'world_notes', current: '(empty)', suggested: 'Write a description based on collected data', reason: 'You have snapshot data but no world notes. The simulation needs a human-written description to connect the data to the scenario.', source: 'collector data', priority: 'medium'});
+  }
+
+  // Check agents vs ticks ratio
+  if (params.agents > params.ticks * 2) {
+    validation.push({check: 'agents vs ticks', status: 'warning', detail: `${params.agents} agents but only ${params.ticks} ticks. Most agents won't have enough time to develop distinct trajectories. Consider more ticks or fewer agents.`});
+  }
+
+  return {suggestions, missing, validation};
+}
+
+function renderSuggestions(result) {
+  const panel = document.getElementById('suggestionsPanel');
+  let html = '';
+
+  // Missing data (most critical — show first)
+  if (result.missing?.length) {
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:8px;color:var(--r);text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">Missing Data</div>';
+    result.missing.forEach(m => {
+      html += `<div class="sug-missing"><strong>${m.category}</strong><br>${m.impact}<br><span style="color:var(--a)">${m.suggestion}</span></div>`;
+    });
+  }
+
+  // Validation warnings
+  if (result.validation?.length) {
+    const issues = result.validation.filter(v => v.status !== 'ok');
+    if (issues.length) {
+      html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:8px;color:var(--w);text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">Consistency Checks</div>';
+      issues.forEach(v => {
+        const cls = v.status === 'error' ? 'sug-missing' : 'sug-warning';
+        html += `<div class="${cls}"><strong>${v.check}</strong> — ${v.detail}</div>`;
+      });
+    }
+  }
+
+  // Parameter suggestions
+  if (result.suggestions?.length) {
+    html += '<div style="font-family:\'JetBrains Mono\',monospace;font-size:8px;color:var(--a);text-transform:uppercase;letter-spacing:1px;margin:8px 0 4px">Suggestions</div>';
+    result.suggestions.forEach((s, i) => {
+      const prio = s.priority || 'medium';
+      html += `<div class="sug-card ${prio}">
+        <div class="sug-header">
+          <span class="sug-param">${s.param}</span>
+          <span class="sug-change">${s.current} → ${s.suggested}</span>
+          ${s.source ? `<span class="sug-source">${s.source}</span>` : ''}
+        </div>
+        <div class="sug-reason">${s.reason}</div>
+        <button class="sug-apply" onclick="applySuggestion('${s.param}','${s.suggested}',this)">Apply</button>
+      </div>`;
+    });
+  }
+
+  if (!html) html = '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;color:var(--a);padding:12px">Configuration looks good. No issues found.</div>';
+
+  panel.innerHTML = html;
+  panel.style.display = '';
+}
+
+function applySuggestion(param, value, btn) {
+  // Map suggestion param names to DOM element IDs
+  const paramMap = {
+    'alpha': 'spAlpha', 'kappa': 'spKappa', 'coupling': 'spKappa',
+    'ticks': 'spTicks', 'agents': 'spAgents', 'threshold': 'spThreshold',
+    'dampening': 'spDampen', 'dampen': 'spDampen', 'k': 'spK',
+    'observer_k': 'spK', 'score_mode': 'spScoreMode', 'mode': 'spScoreMode',
+    'tick_unit': 'spTickUnit',
+  };
+  const elId = paramMap[param.toLowerCase()] || ('sp' + param.charAt(0).toUpperCase() + param.slice(1));
+  const el = document.getElementById(elId);
+  if (el) {
+    el.value = value;
+    updateTimeEstimate();
+    updateSpArchSum();
+    btn.textContent = 'Applied';
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+  } else {
+    btn.textContent = 'Not found';
+  }
+}
 
 // ── TOOLTIP POSITIONING ──
 document.addEventListener('mouseover', function(e) {
