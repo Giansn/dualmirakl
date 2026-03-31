@@ -370,28 +370,35 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .results-btn.primary:hover{box-shadow:0 0 28px rgba(56,200,200,.35)}
 
 /* SPLASH SCREEN */
-.splash{position:fixed;inset:0;z-index:9999;background:var(--bg0);background-image:var(--dot),radial-gradient(ellipse 60% 50% at 50% 50%,rgba(56,200,200,.04) 0%,transparent 70%);background-size:var(--dot-size) var(--dot-size),100% 100%;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:opacity .6s ease,visibility .6s ease}
+.splash{position:fixed;inset:0;z-index:9999;background:#171a1e;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:opacity .8s ease,visibility .8s ease;overflow:hidden}
 .splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
-.splash-logo{width:240px;height:240px;border-radius:28px;overflow:hidden;margin-bottom:36px;animation:splashIn .8s ease;box-shadow:0 0 80px rgba(56,200,200,.1),0 0 160px rgba(56,200,200,.04)}
-.splash-logo img{width:100%;height:100%;object-fit:cover}
-@keyframes splashIn{from{opacity:0;transform:scale(.85) translateY(12px)}to{opacity:1;transform:scale(1) translateY(0)}}
-.splash-title{font-size:28px;font-weight:300;letter-spacing:4px;text-transform:lowercase;color:var(--t0);margin-bottom:10px;animation:splashIn .8s ease .15s both}
-.splash-sub{font-size:13px;color:var(--t2);font-weight:300;max-width:480px;text-align:center;line-height:1.7;animation:splashIn .8s ease .3s both}
-.splash-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.4;margin-top:40px;letter-spacing:1px;animation:splashIn .8s ease .5s both}
-.splash-version{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.25;margin-top:8px;animation:splashIn .8s ease .6s both}
+.splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.splash-bg img{width:110vmax;height:110vmax;object-fit:cover;opacity:.35;filter:blur(0px);animation:splashBgIn 1.5s ease both}
+@keyframes splashBgIn{from{opacity:0;transform:scale(1.15)}to{opacity:.35;transform:scale(1)}}
+.splash-content{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center}
+.splash-logo{width:320px;height:320px;overflow:hidden;margin-bottom:40px;animation:splashIn 1s ease both}
+.splash-logo img{width:100%;height:100%;object-fit:cover;border-radius:0}
+@keyframes splashIn{from{opacity:0;transform:scale(.9) translateY(16px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.splash-title{font-size:36px;font-weight:300;letter-spacing:6px;text-transform:lowercase;color:var(--t0);margin-bottom:12px;animation:splashIn 1s ease .2s both;text-shadow:0 0 40px rgba(56,200,200,.15)}
+.splash-sub{font-size:14px;color:var(--t2);font-weight:300;max-width:520px;text-align:center;line-height:1.8;animation:splashIn 1s ease .4s both}
+.splash-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.3;margin-top:48px;letter-spacing:1.5px;animation:splashIn 1s ease .7s both}
+.splash-version{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.2;margin-top:8px;animation:splashIn 1s ease .8s both}
 
-@media(max-width:768px){.sb{display:none}.bgt{min-width:130px}.welcome-actions{flex-direction:column}.sim-cfg{grid-template-columns:1fr}.splash-logo{width:160px;height:160px}.splash-title{font-size:22px}}
+@media(max-width:768px){.sb{display:none}.bgt{min-width:130px}.welcome-actions{flex-direction:column}.sim-cfg{grid-template-columns:1fr}.splash-logo{width:200px;height:200px}.splash-title{font-size:24px}}
 </style>
 </head>
 <body>
 
 <!-- SPLASH SCREEN -->
 <div class="splash" id="splash" onclick="dismissSplash()">
-  <div class="splash-logo"><img src="/static/mirakl_sigil.svg" alt="mirakl sigil"></div>
-  <div class="splash-title">dualmirakl</div>
-  <div class="splash-sub">Multi-agent simulation platform with calibrated probability prediction, real-time world data integration, and LLM-driven behavioral dynamics</div>
-  <div class="splash-hint">click anywhere to enter</div>
-  <div class="splash-version">v3 &middot; Dirichlet-Multinomial &middot; Conformal Prediction &middot; 8-Provider World Snapshots</div>
+  <div class="splash-bg"><img src="/static/mirakl_sigil.svg" alt=""></div>
+  <div class="splash-content">
+    <div class="splash-logo"><img src="/static/mirakl_sigil.svg" alt="mirakl sigil"></div>
+    <div class="splash-title">dualmirakl</div>
+    <div class="splash-sub">Multi-agent simulation platform with calibrated probability prediction, real-time world data integration, and LLM-driven behavioral dynamics</div>
+    <div class="splash-hint">click anywhere to enter</div>
+    <div class="splash-version">v3 &middot; Dirichlet-Multinomial &middot; Conformal Prediction &middot; 8-Provider World Snapshots</div>
+  </div>
 </div>
 
 <!-- SIDEBAR -->
@@ -432,7 +439,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
     </div>
     <div class="bgt" id="bgt"><span id="bgtLbl">0 / 64k</span><div class="bgt-tr"><div class="bgt-fl" id="bgtFl" style="width:0%"></div></div><span id="bgtTps">&mdash; t/s</span></div>
     <div class="tb-r">
-      <button class="tb-btn act" id="ragBtn" onclick="toggleRAG()">RAG</button>
+      <button class="tb-btn act-q" id="ragBtn" onclick="toggleRAG()">RAG</button>
       <button class="tb-btn act-q" id="cmpBtn" onclick="toggleAutoCompress()">Compress</button>
       <button class="tb-ic" onclick="toggleSettings()">&#9881;</button>
     </div>
@@ -1525,7 +1532,7 @@ function updBudget(used,total,burst=false){
   fl.style.width=pct+'%'; fl.className='bgt-fl'+(burst?' crit':pct>80?' crit':pct>60?' warn':'');
   document.getElementById('bgtLbl').textContent=`${used} / ${(total/1024).toFixed(0)}k${burst?' \u26A1':''}`;
 }
-function toggleRAG(){S.rag=!S.rag;document.getElementById('ragBtn').classList.toggle('act',S.rag);document.getElementById('tglRag').classList.toggle('on',S.rag);}
+function toggleRAG(){S.rag=!S.rag;document.getElementById('ragBtn').classList.toggle('act-q',S.rag);document.getElementById('tglRag').classList.toggle('on',S.rag);}
 function toggleAutoCompress(){S.autoCompress=!S.autoCompress;document.getElementById('cmpBtn').classList.toggle('act-q',S.autoCompress);document.getElementById('tglCmp').classList.toggle('on',S.autoCompress);}
 function toggleStream(el){S.streaming=!S.streaming;el.classList.toggle('act',S.streaming);}
 function toggleSettings(){document.getElementById('sp').classList.toggle('open');document.getElementById('ov').classList.toggle('vis');}
