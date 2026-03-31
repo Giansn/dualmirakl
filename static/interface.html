@@ -369,10 +369,30 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .results-btn.primary{background:var(--a);border-color:var(--a);color:var(--bg0);box-shadow:0 0 18px rgba(56,200,200,.2)}
 .results-btn.primary:hover{box-shadow:0 0 28px rgba(56,200,200,.35)}
 
-@media(max-width:768px){.sb{display:none}.bgt{min-width:130px}.welcome-actions{flex-direction:column}.sim-cfg{grid-template-columns:1fr}}
+/* SPLASH SCREEN */
+.splash{position:fixed;inset:0;z-index:9999;background:var(--bg0);background-image:var(--dot),radial-gradient(ellipse 60% 50% at 50% 50%,rgba(56,200,200,.04) 0%,transparent 70%);background-size:var(--dot-size) var(--dot-size),100% 100%;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:opacity .6s ease,visibility .6s ease}
+.splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
+.splash-logo{width:160px;height:160px;border-radius:20px;overflow:hidden;margin-bottom:32px;animation:splashIn .8s ease;box-shadow:0 0 60px rgba(56,200,200,.08),0 0 120px rgba(56,200,200,.03)}
+.splash-logo img{width:100%;height:100%;object-fit:cover}
+@keyframes splashIn{from{opacity:0;transform:scale(.85) translateY(12px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.splash-title{font-size:28px;font-weight:300;letter-spacing:4px;text-transform:lowercase;color:var(--t0);margin-bottom:10px;animation:splashIn .8s ease .15s both}
+.splash-sub{font-size:13px;color:var(--t2);font-weight:300;max-width:480px;text-align:center;line-height:1.7;animation:splashIn .8s ease .3s both}
+.splash-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.4;margin-top:40px;letter-spacing:1px;animation:splashIn .8s ease .5s both}
+.splash-version{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);opacity:.25;margin-top:8px;animation:splashIn .8s ease .6s both}
+
+@media(max-width:768px){.sb{display:none}.bgt{min-width:130px}.welcome-actions{flex-direction:column}.sim-cfg{grid-template-columns:1fr}.splash-logo{width:120px;height:120px}.splash-title{font-size:22px}}
 </style>
 </head>
 <body>
+
+<!-- SPLASH SCREEN -->
+<div class="splash" id="splash" onclick="dismissSplash()">
+  <div class="splash-logo"><img src="/static/mirakl_sigil.svg" alt="mirakl sigil"></div>
+  <div class="splash-title">dualmirakl</div>
+  <div class="splash-sub">Multi-agent simulation platform with calibrated probability prediction, real-time world data integration, and LLM-driven behavioral dynamics</div>
+  <div class="splash-hint">click anywhere to enter</div>
+  <div class="splash-version">v3 &middot; Dirichlet-Multinomial &middot; Conformal Prediction &middot; 8-Provider World Snapshots</div>
+</div>
 
 <!-- SIDEBAR -->
 <aside class="sb">
@@ -3963,6 +3983,14 @@ document.addEventListener('mouseover', function(e) {
     tt.style.top = (rect.bottom + 8) + 'px';
   }
 });
+
+// ── SPLASH ──
+function dismissSplash() {
+  const el = document.getElementById('splash');
+  if (el) el.classList.add('hidden');
+}
+// Auto-dismiss after 6 seconds
+setTimeout(dismissSplash, 6000);
 
 // ── INIT ──
 renderChatList(); renderMessages(); updEmbedCnt(); updBurst(); loadScenarioPreset();
