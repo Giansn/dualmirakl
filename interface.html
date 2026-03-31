@@ -2728,19 +2728,23 @@ async function fetchSnapshot(topic) {
     for (const [key, val] of Object.entries(COUNTRY_MAP)) {
       if (fl.includes(key)) { countryFilter = ` sourcecountry:"${val}"`; break; }
     }
-    queries = queries.map(q => focus + ' ' + q);
-    queries.unshift(focus);
+    // Focus as standalone first (broadest), then combined with top 2 base queries
+    queries = [focus, ...queries.slice(0, 2).map(q => focus + ' ' + q), ...queries];
   }
 
   let allArticles = [];
 
   try {
-    // ── GDELT DOC API (free, no key, real-time global events) ──
+    // ── GDELT DOC API (free, no key, rate limit: 1 req per 5s) ──
     const langFilter = ' sourcelang:english';
-    for (const q of queries.slice(0, 4)) {
+    const gdeltDelay = ms => new Promise(r => setTimeout(r, ms));
+    for (let qi = 0; qi < Math.min(queries.length, 3); qi++) {
+      const q = queries[qi];
+      if (qi > 0) await gdeltDelay(5500); // GDELT rate limit: 5s between requests
       try {
         const fullQuery = q + langFilter + countryFilter;
-        const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(fullQuery)}&mode=artlist&maxrecords=5&format=json&timespan=14d`;
+        if (statusEl) statusEl.textContent = `${qi+1}/3`;
+        const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(fullQuery)}&mode=artlist&maxrecords=15&format=json&timespan=30d`;
         const r = await fetch(gdeltUrl);
         if (r.ok) {
           const d = await r.json();
@@ -2760,6 +2764,7 @@ async function fetchSnapshot(topic) {
     }
 
     // ── GDELT Tone Digest (compressed sentiment snapshot) ──
+    await gdeltDelay(5500);
     try {
       const toneQuery = (focus || queries[0]) + langFilter + countryFilter;
       const toneUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(toneQuery)}&mode=tonechart&format=json&timespan=30d`;
@@ -2792,6 +2797,7 @@ async function fetchSnapshot(topic) {
     } catch { /* tone fail */ }
 
     // ── GDELT Trend (30-day sentiment trajectory) ──
+    await gdeltDelay(5500);
     try {
       const trendQuery = (focus || queries[0]) + langFilter + countryFilter;
       const trendUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(trendQuery)}&mode=timelinetone&format=json&timespan=30d`;
@@ -2838,7 +2844,7 @@ async function fetchSnapshot(topic) {
     }
 
     if (allArticles.length === 0) {
-      allArticles = [{title: `No results for "${topic}"${focus ? ' + "' + focus + '"' : ''}`, source: '', date: ''}];
+      allArticles = [{title: `No English-language results found. Try broader focus terms or remove the focus filter.`, source: '', date: '', provider: 'none'}];
     }
 
     // Deduplicate by title
@@ -2965,16 +2971,17 @@ async function runSnapshotCollector() {
     // ── 1. GDELT: top headlines per topic (parallel) ──
     progressEl.textContent = '1/5 GDELT headlines...';
     const gdeltTopics = ['social trends','health policy','technology regulation','economic outlook','political developments','climate environment'];
-    const gdeltPromises = gdeltTopics.map(async (q) => {
-      const query = (globalFocus ? globalFocus + ' ' : '') + q + ' sourcelang:english' + (country ? ` sourcecountry:"${country}"` : '');
+    const gdeltDelay = ms => new Promise(r => setTimeout(r, ms));
+    const gdeltArticles = [];
+    for (let gi = 0; gi < gdeltTopics.length; gi++) {
+      if (gi > 0) await gdeltDelay(5500);
+      progressEl.textContent = `1/5 GDELT ${gi+1}/${gdeltTopics.length}...`;
+      const query = (globalFocus ? globalFocus + ' ' : '') + gdeltTopics[gi] + ' sourcelang:english' + (country ? ` sourcecountry:"${country}"` : '');
       try {
-        const r = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&maxrecords=3&format=json&timespan=7d`);
-        if (r.ok) { const d = await r.json(); return d.articles || []; }
+        const r = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=artlist&maxrecords=5&format=json&timespan=30d`);
+        if (r.ok) { const d = await r.json(); if (d.articles) gdeltArticles.push(...d.articles); }
       } catch {}
-      return [];
-    });
-    const gdeltResults = await Promise.all(gdeltPromises);
-    const gdeltArticles = gdeltResults.flat();
+    }
     // Deduplicate
     const seen = new Set();
     const uniqueArticles = gdeltArticles.filter(a => {
@@ -2993,6 +3000,7 @@ async function runSnapshotCollector() {
     }
 
     // ── 2. GDELT: sentiment digest ──
+    await gdeltDelay(5500);
     progressEl.textContent = '2/5 GDELT sentiment...';
     try {
       const sentQuery = (globalFocus || 'world news') + ' sourcelang:english' + (country ? ` sourcecountry:"${country}"` : '');
@@ -3133,6 +3141,101 @@ async function runSnapshotCollector() {
       } catch {}
     }
 
+    // ── 7. Reddit (public subreddits, no auth needed) ──
+    progressEl.textContent = '6/8 Reddit...';
+    const TOPIC_SUBREDDITS = {
+      social: 'sociology', health: 'psychology', tech: 'technology',
+      economy: 'economics', politics: 'geopolitics', environment: 'climate',
+      demographics: 'dataisbeautiful', research: 'science',
+    };
+    try {
+      // Pick subreddit from the first individual focus topic, or fallback
+      const focusTopics = Array.from(document.querySelectorAll('.snapshot-row'))
+        .filter(r => r.classList.contains('loaded') || document.getElementById('focus' + r.dataset.topic.charAt(0).toUpperCase() + r.dataset.topic.slice(1))?.value)
+        .map(r => r.dataset.topic);
+      const subreddit = TOPIC_SUBREDDITS[focusTopics[0]] || (globalFocus ? globalFocus.split(' ')[0] : 'worldnews');
+      const redditUrl = `https://www.reddit.com/r/${subreddit}/hot.json?limit=10&raw_json=1`;
+      const rr = await fetch(redditUrl, {headers: {'User-Agent': 'dualmirakl/1.0'}});
+      if (rr.ok) {
+        const rd = await rr.json();
+        if (rd.data?.children?.length) {
+          const posts = rd.data.children
+            .filter(c => !c.data.stickied)
+            .slice(0, 8)
+            .map(c => ({
+              title: c.data.title,
+              score: c.data.score,
+              comments: c.data.num_comments,
+            }));
+          if (posts.length) {
+            stats.articles += posts.length;
+            stats.providers++;
+            sections.push({
+              label: `Public Discussion (r/${subreddit})`,
+              provider: 'Reddit',
+              bullets: posts.map(p => `[${p.score} pts, ${p.comments} comments] ${p.title}`),
+            });
+          }
+        }
+      }
+    } catch { /* reddit fail */ }
+
+    // ── 8. Hacker News (tech community pulse) ──
+    progressEl.textContent = '7/8 Hacker News...';
+    try {
+      const hnr = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
+      if (hnr.ok) {
+        const hnIds = await hnr.json();
+        const hnItems = await Promise.all(
+          hnIds.slice(0, 8).map(id =>
+            fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r => r.ok ? r.json() : null)
+          )
+        );
+        const hnPosts = hnItems.filter(Boolean).map(i => ({
+          title: i.title || '',
+          score: i.score || 0,
+          comments: i.descendants || 0,
+        }));
+        if (hnPosts.length) {
+          stats.articles += hnPosts.length;
+          stats.providers++;
+          sections.push({
+            label: 'Tech Community Pulse',
+            provider: 'Hacker News',
+            bullets: hnPosts.map(p => `[${p.score} pts] ${p.title}`),
+          });
+        }
+      }
+    } catch { /* hn fail */ }
+
+    // ── 9. arXiv (cutting-edge preprints) ──
+    progressEl.textContent = '8/8 arXiv...';
+    try {
+      const arxivQuery = globalFocus || 'multi-agent simulation';
+      const axr = await fetch(`https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(arxivQuery)}&start=0&max_results=6&sortBy=submittedDate&sortOrder=descending`);
+      if (axr.ok) {
+        const axText = await axr.text();
+        const parser = new DOMParser();
+        const axDoc = parser.parseFromString(axText, 'text/xml');
+        const entries = axDoc.querySelectorAll('entry');
+        if (entries.length) {
+          const papers = Array.from(entries).map(e => {
+            const title = e.querySelector('title')?.textContent?.replace(/\s+/g,' ').trim() || '';
+            const published = e.querySelector('published')?.textContent?.slice(0,10) || '';
+            const summary = e.querySelector('summary')?.textContent?.replace(/\s+/g,' ').trim().slice(0, 120) || '';
+            return {title, published, summary};
+          });
+          stats.papers += papers.length;
+          stats.providers++;
+          sections.push({
+            label: 'Latest Preprints',
+            provider: 'arXiv',
+            bullets: papers.map(p => `${p.title} [${p.published}] — ${p.summary}...`),
+          });
+        }
+      }
+    } catch { /* arxiv fail */ }
+
     // ── Build unified digest ──
     const fullText = sections.map(s =>
       `[${s.label}] (${s.provider})\n` + s.bullets.map((b,i) => `  ${i+1}. ${b}`).join('\n')
@@ -3170,7 +3273,7 @@ async function runSnapshotCollector() {
       `</div>`
     ).join('');
 
-    statsEl.innerHTML = `<span>${stats.providers} providers</span><span>${stats.articles} articles</span><span>${stats.indicators} indicators</span><span>${stats.papers} papers</span><span>${contextText.length} chars</span>`;
+    statsEl.innerHTML = `<span>${stats.providers} providers</span><span>${stats.articles} articles</span><span>${stats.indicators} indicators</span><span>${stats.papers} papers</span><span>${Math.round(contextText.length/1000)}k chars</span>`;
 
     progressEl.textContent = 'done';
     setTimeout(() => { progressEl.textContent = ''; }, 3000);
