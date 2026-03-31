@@ -2,7 +2,7 @@
 # Start authority + swarm + gateway
 # Model configs: models/authority.env  models/swarm.env
 
-PROJ="${DUALMIRAKL_ROOT:-/per.volume/dualmirakl}"
+PROJ="${DUALMIRAKL_ROOT:-/workspace/dualmirakl}"
 cd "$PROJ"
 mkdir -p logs
 

@@ -38,16 +38,17 @@ def crps(forecasts: np.ndarray, observed: float) -> float:
     # E|X - y|
     term1 = float(np.mean(np.abs(forecasts - observed)))
 
-    # E|X - X'| via pairwise absolute differences
+    # 0.5 * E|X - X'| via sorted formula
+    # For sorted X: 0.5*E|X-X'| = 1/(n^2) * sum_i (2i - n + 1) * X_(i)
+    # The sorted formula already includes the 0.5 factor.
     if n == 1:
-        term2 = 0.0
+        spread_term = 0.0
     else:
-        # Efficient O(n log n): for sorted X, E|X-X'| = 2/(n^2) * sum_i (2i - n + 1) * X_(i)
         sorted_f = np.sort(forecasts)
         weights = 2.0 * np.arange(n) - n + 1.0
-        term2 = float(np.sum(weights * sorted_f)) / (n * n)
+        spread_term = float(np.sum(weights * sorted_f)) / (n * n)
 
-    return term1 - 0.5 * term2
+    return term1 - spread_term
 
 
 def brier_score(probabilities: np.ndarray, outcomes: np.ndarray) -> float:

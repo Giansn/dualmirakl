@@ -4,11 +4,11 @@
 # Model config: models/authority.env  (edit that file to swap models)
 # =============================================================================
 set -e
-PROJ="${DUALMIRAKL_ROOT:-/per.volume/dualmirakl}"
+PROJ="${DUALMIRAKL_ROOT:-/workspace/dualmirakl}"
 source "$PROJ/models/authority.env"
 
 export CUDA_VISIBLE_DEVICES="${AUTHORITY_GPU:-0}"
-export HF_HOME="${HF_HOME:-/per.volume/huggingface}"
+export HF_HOME="${HF_HOME:-/workspace/huggingface}"
 AUTHORITY_PORT="${AUTHORITY_PORT:-8000}"
 eval "export $EXTRA_ENV" 2>/dev/null || true
 

@@ -60,8 +60,29 @@ PARTICIPANT_ACTIONS = {
             "required": ["action", "emotion", "narrative"],
         },
     },
+    "withdraw": {
+        "description": "Participant pulls back emotionally but remains present.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "Why the participant is withdrawing.",
+                },
+                "emotion": {
+                    "type": "string",
+                    "description": "Emotional state during withdrawal.",
+                },
+                "narrative": {
+                    "type": "string",
+                    "description": "Free-form first-person narrative.",
+                },
+            },
+            "required": ["reason", "narrative"],
+        },
+    },
     "disengage": {
-        "description": "Participant steps away from the activity.",
+        "description": "Participant steps away from the activity entirely.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -86,8 +107,29 @@ PARTICIPANT_ACTIONS = {
             "required": ["reason", "narrative"],
         },
     },
+    "engage": {
+        "description": "Participant leans in and increases active involvement.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "What the participant does to engage more deeply.",
+                },
+                "emotion": {
+                    "type": "string",
+                    "description": "Emotional state during engagement.",
+                },
+                "narrative": {
+                    "type": "string",
+                    "description": "Free-form first-person narrative.",
+                },
+            },
+            "required": ["action", "narrative"],
+        },
+    },
     "escalate": {
-        "description": "Participant increases engagement beyond previous level.",
+        "description": "Participant increases engagement beyond previous level into intense territory.",
         "parameters": {
             "type": "object",
             "properties": {

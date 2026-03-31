@@ -563,40 +563,39 @@ AGENT_ROLES_DE: dict[str, dict] = {
 
 ENGAGEMENT_ANCHORS: dict[str, list[str]] = {
     "high": [
-        # Preoccupation
+        # Active involvement / enthusiasm
+        "I was completely absorbed in what was happening",
+        "I felt energised and fully invested in the situation",
+        # Emotional intensity
+        "This stirred up strong feelings in me that I could not ignore",
+        "I reacted more intensely than I expected",
+        # Escalating commitment
+        "I wanted to go further and push harder on this",
+        "I kept raising the stakes because I was so drawn in",
+        # Preoccupation / difficulty disengaging
         "I kept thinking about it even when I was doing something else",
-        "It took up more of my attention than I wanted",
-        # Compulsive use
-        "I used it to escape from how I was feeling",
-        "I felt better while I was engaged, so I kept going",
-        # Escalation
-        "I needed more of it than before to get the same effect",
-        "What used to satisfy me no longer felt like enough",
-        # Loss of control
-        "I kept going even though I knew I should stop",
         "I could not pull myself away even when I tried",
-        # Discomfort on stopping
+        # Loss of control / compulsive patterns
+        "I kept going even though I knew I should stop",
         "I felt restless and irritable when I could not engage",
-        # Return after quit attempt
-        "I went back to it even after deciding I would stop",
     ],
     "low": [
         # Deliberate disengagement
-        "I chose to stop and found it straightforward",
-        "I stepped away deliberately and felt comfortable doing so",
-        # Alternative activities
-        "I turned my attention to something else without difficulty",
-        "I found other activities just as satisfying",
+        "I chose to step back and found it easy to do so",
+        "I decided this was not worth my energy right now",
+        # Emotional distance / calm
+        "I felt calm and unaffected by what was happening",
+        "None of this was getting under my skin",
         # Self-regulation
         "I noticed what I was doing and decided to pause",
-        "I made a conscious choice about how much time to spend",
-        # Comfortable disengagement
-        "I did not feel anxious or unsettled when I disengaged",
+        "I made a conscious choice about how much to invest here",
+        # Indifference / minimal engagement
+        "I did not feel any pull to participate further",
         "I engaged briefly and then moved on without any urge to return",
         # Boundary maintenance
-        "I maintained the boundary I had set for myself",
-        # Present in other activities
-        "I was present in other areas of my life without distraction",
+        "I maintained the limit I had set for myself",
+        # Active withdrawal
+        "I actively chose to disengage and redirect my attention",
     ],
 }
 
