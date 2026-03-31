@@ -25,6 +25,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 import numpy as np
 from dataclasses import dataclass, field
@@ -126,7 +127,7 @@ def _try_init_flame(
 
 DEFAULT_EMBED_PATH = os.environ.get(
     "SIM_EMBED_MODEL",
-    os.path.join(os.environ.get("HF_HOME", "/per.volume/huggingface"), "hub", "e5-small-v2"),
+    os.path.join(os.environ.get("HF_HOME", "/workspace/huggingface"), "hub", "e5-small-v2"),
 )
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0  # seconds
@@ -658,7 +659,14 @@ _anchor_high_mask: Optional[np.ndarray] = None
 
 
 def _compute_signal_from_vec(vec) -> tuple[float, float]:
-    """Vectorized cosine similarity against all anchors."""
+    """Vectorized cosine similarity against all anchors.
+
+    SE is propagated from both poles separately via delta method:
+      signal = (high_mean - low_mean + 1) / 2
+      se(signal) = sqrt(se_high^2 + se_low^2) / 2
+    This captures uncertainty in *both* pole estimates rather than
+    pooling all 20 similarities into a single noisy scalar.
+    """
     global _anchor_high_mask
     _load_anchors()
     if _anchor_high_mask is None:
@@ -666,21 +674,29 @@ def _compute_signal_from_vec(vec) -> tuple[float, float]:
     # Vectorized: cosine sims for all anchors at once
     norms = np.linalg.norm(_anchor_vecs, axis=1) * (np.linalg.norm(vec) + 1e-8)
     sims = _anchor_vecs @ vec / norms
-    high_sim = float(np.mean(sims[_anchor_high_mask]))
-    low_sim  = float(np.mean(sims[~_anchor_high_mask]))
+    high_sims = sims[_anchor_high_mask]
+    low_sims = sims[~_anchor_high_mask]
+    high_sim = float(np.mean(high_sims))
+    low_sim  = float(np.mean(low_sims))
     signal = float(np.clip((high_sim - low_sim + 1.0) / 2.0, 0.0, 1.0))
-    se = float(np.std(sims) / math.sqrt(len(sims)))
+    # Per-pole SE, propagated through the signal transform
+    se_high = float(np.std(high_sims) / math.sqrt(len(high_sims)))
+    se_low = float(np.std(low_sims) / math.sqrt(len(low_sims)))
+    se = float(math.sqrt(se_high**2 + se_low**2) / 2.0)
     return signal, se
 
 
 # ── Action-based signal override ─────────────────────────────────────────────
 # Base signal for each structured action type.
+# 5-level system: wider spread + larger modifier range for meaningful variation.
 ACTION_BASE_SIGNALS: dict[str, float] = {
-    "disengage": 0.15,
-    "respond": 0.45,
-    "escalate": 0.75,
+    "disengage": 0.10,
+    "withdraw": 0.25,
+    "respond": 0.50,
+    "engage": 0.70,
+    "escalate": 0.85,
 }
-EMBED_MODIFIER_RANGE = 0.1
+EMBED_MODIFIER_RANGE = 0.20
 
 
 def _compute_signal_with_action(
@@ -978,6 +994,25 @@ class EnvironmentAgent:
         self.history.append({"role": "assistant", "content": response})
         return response
 
+    @staticmethod
+    def _extract_json(raw: str) -> dict:
+        """Extract JSON object from LLM response, handling thinking tags and markdown."""
+        text = raw.strip()
+        # Strip <think>...</think> reasoning blocks (Nemotron, DeepSeek-R1, etc.)
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        # Strip markdown code fences
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+            text = re.sub(r"\n?```\s*$", "", text)
+        # Find first { and use raw_decode to parse exactly one JSON object
+        start = text.find("{")
+        if start == -1:
+            raise json.JSONDecodeError("No JSON object found", text, 0)
+        obj, _ = json.JSONDecoder().raw_decode(text, start)
+        if not isinstance(obj, dict):
+            raise json.JSONDecodeError("Expected JSON object, got " + type(obj).__name__, text, start)
+        return obj
+
     async def batch_decide(
         self, participants: list["ParticipantAgent"], world_state: WorldState,
         max_tokens: int = 256,
@@ -1000,12 +1035,13 @@ class EnvironmentAgent:
 
         prompt = (
             f"Generate a stimulus for each of the following {len(participants)} participants. "
-            f"Respond with a JSON object mapping participant_id \u2192 stimulus string.{constraint_note}\n\n"
+            f"Respond with ONLY a JSON object mapping participant_id to stimulus string. "
+            f"No explanation, no reasoning, just the JSON.{constraint_note}\n\n"
             + "\n".join(participant_summaries)
         )
 
-        # Cap batch output: ~80 tokens per participant stimulus is typical
-        batch_max = min(max_tokens * len(participants), max(256, 80 * len(participants)))
+        # Budget: reasoning models may emit CoT before JSON, so allow headroom
+        batch_max = max(512, 120 * len(participants))
 
         response = await _resilient_agent_turn(
             agent_id="environment",
@@ -1018,11 +1054,7 @@ class EnvironmentAgent:
         self.history.append({"role": "assistant", "content": response})
 
         try:
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
-            stimuli = json.loads(cleaned)
-            # Ensure all values are strings (LLM may return nested objects)
+            stimuli = self._extract_json(response)
             stimuli = {k: str(v) if not isinstance(v, str) else v for k, v in stimuli.items()}
             missing = [p.agent_id for p in participants if p.agent_id not in stimuli]
             if missing:
@@ -1030,6 +1062,7 @@ class EnvironmentAgent:
             return stimuli
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning(f"batch_decide parse failed ({e}), falling back to sequential")
+            logger.debug(f"batch_decide raw response ({len(response)} chars): {response[:300]}")
             stimuli = {}
             for p in participants:
                 stimuli[p.agent_id] = await self.decide(p, world_state, max_tokens=max(64, max_tokens // 2))
@@ -1067,12 +1100,13 @@ class EnvironmentAgent:
         prompt = (
             f"Generate a community-style stimulus for each participant. "
             f"Members of the same cluster share a common context — reference "
-            f"what their neighbors are doing. Respond with a JSON object "
-            f"mapping participant_id → stimulus string.{constraint_note}\n\n"
+            f"what their neighbors are doing. Respond with ONLY a JSON object "
+            f"mapping participant_id to stimulus string. "
+            f"No explanation, no reasoning, just the JSON.{constraint_note}\n\n"
             + "\n".join(cluster_summaries)
         )
 
-        batch_max = min(max_tokens * len(participants), max(256, 80 * len(participants)))
+        batch_max = max(512, 120 * len(participants))
 
         response = await _resilient_agent_turn(
             agent_id="environment_clustered",
@@ -1084,10 +1118,7 @@ class EnvironmentAgent:
         )
 
         try:
-            cleaned = response.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
-            stimuli = json.loads(cleaned)
+            stimuli = self._extract_json(response)
             missing = [p.agent_id for p in participants if p.agent_id not in stimuli]
             if missing:
                 raise ValueError(f"Missing participants in clustered response: {missing}")
@@ -2044,16 +2075,18 @@ async def run_simulation(
     _split_enabled = os.getenv("SIM_GPU_SPLIT", "1") == "1"
     _gpu_backends = ["swarm", "authority"]
 
-    # Pipeline mode v2: 4-worker architecture (stimulus, swarm, score, observer).
+    # Pipeline mode v3: 4-worker architecture + adaptive GPU balancing.
     # Environment on swarm balances total token load across GPUs.
     # The stimulus worker runs ahead via queue backpressure — generates T(n+1)
     # stimuli while score worker (CPU) processes T(n) embeddings.
+    # AdaptiveBalancer reads GPU power via pynvml and shifts participants
+    # between GPUs every tick to equalize load at ~195W per GPU.
     _pipeline = os.getenv("SIM_PIPELINE", "1") == "1" and _split_enabled
     _env_backend = "swarm" if _pipeline else None
     environment = EnvironmentAgent(history_window=history_window, world_context=_combined_context,
                                    backend_override=_env_backend)
     if _pipeline:
-        logger.info("Pipeline v2: environment+observers on authority, stimulus prefetch during Phase C")
+        logger.info("Pipeline v3: adaptive GPU balancing, stimulus prefetch during Phase C")
 
     def _pick_backend(idx):
         if not _split_enabled:
@@ -2594,13 +2627,37 @@ def run_sensitivity_analysis(
     param_names = ["alpha", "K", "threshold", "dampening",
                    "susceptibility", "resilience", "logistic_k"]
 
+    # Pre-compute anchor-based signal profiles from representative responses.
+    # These replace the synthetic sin+noise with signals grounded in the actual
+    # embedding pipeline, covering the full behavioral spectrum.
+    _sa_response_templates = [
+        "I felt calm and handled the situation without difficulty.",        # ~low
+        "I pulled back a little, unsure whether to continue.",             # ~withdraw
+        "I responded to the situation as it came, nothing special.",        # ~neutral
+        "I leaned in and got more involved than I expected.",              # ~engage
+        "I could not stop myself, I kept pushing further and further.",     # ~escalate
+    ]
+    _sa_signals = None
+
+    def _get_sa_signals():
+        nonlocal _sa_signals
+        if _sa_signals is None:
+            _load_anchors()
+            model = _get_embed()
+            vecs = model.encode(_sa_response_templates, show_progress_bar=False)
+            _sa_signals = [_compute_signal_from_vec(v)[0] for v in vecs]
+        return _sa_signals
+
     def objective(x: np.ndarray) -> float:
         alpha, k_float, threshold, dampening, susceptibility, resilience, logistic_k = x
         rng = np.random.RandomState(42)
+        sa_signals = _get_sa_signals()
         scores = []
         score = 0.3
         for t in range(n_ticks):
-            signal = 0.5 + 0.3 * math.sin(t * 0.5) + rng.normal(0, 0.1)
+            # Sample from anchor-grounded signal distribution instead of synthetic sine
+            base_idx = rng.randint(0, len(sa_signals))
+            signal = sa_signals[base_idx] + rng.normal(0, 0.05)
             signal = max(0.0, min(1.0, signal))
             d = dampening if (t % max(1, int(k_float)) == 0) else 1.0
             score = update_score(score, signal, d, alpha,
@@ -2629,6 +2686,124 @@ def run_sensitivity_analysis(
         raise ValueError(f"Unknown SA mode: {mode}. Use 'morris' or 'sobol'.")
 
 
+# ── Intervention threshold calibration ────────────────────────────────────────
+
+def calibrate_intervention_threshold(
+    run_dirs: list[str],
+    labels: Optional[dict[str, bool]] = None,
+    theta_range: tuple[float, float] = (0.60, 0.85),
+    n_steps: int = 26,
+) -> dict:
+    """Sweep intervention threshold and find optimal F1.
+
+    If labels is None, uses a heuristic: interventions triggered when any
+    agent's score > 0.8 for 2+ consecutive ticks are "warranted".
+
+    Args:
+        run_dirs: paths to completed run directories containing observations.json
+        labels: optional dict mapping run_dir -> bool (intervention warranted)
+        theta_range: range of thresholds to sweep
+        n_steps: number of threshold values to test
+
+    Returns:
+        dict with optimal_theta, f1_scores, and best_f1
+    """
+    from pathlib import Path
+
+    # Collect observer_b outputs and ground truth labels
+    samples = []
+    for run_dir in run_dirs:
+        rd = Path(run_dir)
+        obs_path = rd / "observations.json"
+        event_path = rd / "event_stream.json"
+        if not obs_path.exists():
+            logger.warning(f"Skipping {run_dir}: no observations.json")
+            continue
+
+        obs_data = json.loads(obs_path.read_text())
+
+        # Extract observer_b responses from event stream
+        observer_texts = []
+        if event_path.exists():
+            events = json.loads(event_path.read_text())
+            observer_texts = [
+                e.get("content", "") for e in events
+                if e.get("event_type") == "observation"
+                and "observer_b" in e.get("agent_id", "")
+            ]
+
+        # Determine ground truth: was intervention warranted?
+        if labels is not None:
+            warranted = labels.get(run_dir, False)
+        else:
+            # Heuristic: check if any agent had score > 0.8 for 2+ consecutive ticks
+            warranted = False
+            for agent_obs in obs_data if isinstance(obs_data, list) else obs_data.values():
+                if isinstance(agent_obs, dict):
+                    agent_obs = [agent_obs]
+                scores = [o.get("score_after", 0) for o in agent_obs if isinstance(o, dict)]
+                for i in range(1, len(scores)):
+                    if scores[i] > 0.8 and scores[i - 1] > 0.8:
+                        warranted = True
+                        break
+                if warranted:
+                    break
+
+        for text in observer_texts:
+            samples.append({"text": text, "warranted": warranted})
+
+    if not samples:
+        logger.warning("No samples found for calibration. Run pilot simulations first.")
+        return {"optimal_theta": INTERVENTION_THRESHOLD, "f1_scores": {}, "best_f1": 0.0}
+
+    # Compute cosine similarities against intervention codebook
+    model = _get_embed()
+    codebook_phrases = []
+    for phrases in INTERVENTION_CODEBOOK.values():
+        codebook_phrases.extend(phrases)
+    codebook_vecs = model.encode(codebook_phrases, show_progress_bar=False)
+
+    sample_vecs = model.encode([s["text"] for s in samples], show_progress_bar=False)
+    max_sims = []
+    for sv in sample_vecs:
+        norms = np.linalg.norm(codebook_vecs, axis=1) * (np.linalg.norm(sv) + 1e-8)
+        sims = codebook_vecs @ sv / norms
+        max_sims.append(float(np.max(sims)))
+
+    # Sweep thresholds
+    thetas = np.linspace(theta_range[0], theta_range[1], n_steps)
+    f1_scores = {}
+    best_f1, optimal_theta = 0.0, INTERVENTION_THRESHOLD
+
+    for theta in thetas:
+        tp = fp = fn = 0
+        for i, sample in enumerate(samples):
+            predicted = max_sims[i] >= theta
+            actual = sample["warranted"]
+            if predicted and actual:
+                tp += 1
+            elif predicted and not actual:
+                fp += 1
+            elif not predicted and actual:
+                fn += 1
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        f1_scores[float(theta)] = f1
+        if f1 > best_f1:
+            best_f1 = f1
+            optimal_theta = float(theta)
+
+    print(f"\n── Threshold Calibration ──")
+    print(f"  Samples: {len(samples)}")
+    print(f"  Best F1: {best_f1:.3f} at θ={optimal_theta:.3f}")
+    print(f"  Current θ: {INTERVENTION_THRESHOLD:.3f}")
+    if best_f1 > 0:
+        print(f"  Recommendation: set INTERVENTION_THRESHOLD={optimal_theta:.2f}")
+
+    return {"optimal_theta": optimal_theta, "f1_scores": f1_scores, "best_f1": best_f1}
+
+
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
 def _prompt(label: str, default, cast, valid_range: str = "") -> any:
@@ -2652,11 +2827,81 @@ if __name__ == "__main__":
             _argv = _argv[:idx] + _argv[idx + 2:]
 
     print("\n-- multi-agent simulation (v3) --")
-    print("Modes: [s]imulation (default) | [m]orris screening | [b]sobol analysis | [o]ptuna optimization\n")
+    print("Modes: [s]imulation (default) | [p]ipeline | [m]orris screening | [b]sobol analysis | [o]ptuna optimization | [c]alibrate threshold\n")
 
-    mode = input("  Mode [s/m/b/o]: ").strip().lower() or "s"
+    mode = input("  Mode [s/m/b/o/c/p]: ").strip().lower() or "s"
 
-    if mode in ("m", "morris"):
+    if mode in ("p", "pipeline"):
+        from simulation.scenario import ScenarioConfig
+        from simulation.output_pipeline import OutputPipeline
+
+        if not _scenario_path:
+            _scenario_path = input("  Scenario YAML [scenarios/social_dynamics.yaml]: ").strip()
+            _scenario_path = _scenario_path or "scenarios/social_dynamics.yaml"
+
+        _pcfg = ScenarioConfig.load(_scenario_path)
+        _pcfg.validate_scenario(strict=True)
+        print(f"  scenario: {_pcfg.meta.name} ({_scenario_path})")
+
+        _p_n_runs = _prompt("Ensemble runs", 10, int, "3-100")
+        _p_seed = _prompt("Base seed", 42, int, "any int")
+
+        async def _run_pipeline():
+            try:
+                pipeline = OutputPipeline(
+                    scenario_config=_pcfg,
+                    on_stage=lambda name, status: print(f"  [{name}] {status}"),
+                )
+                res = await pipeline.run(n_runs=_p_n_runs, base_seed=_p_seed)
+
+                print(f"\n  Pipeline completed in {res.total_duration_s:.1f}s")
+                for stage in res.stages:
+                    icon = {"completed": "OK", "skipped": "SKIP", "failed": "FAIL"}.get(stage.status, "?")
+                    line = f"    [{icon}] {stage.name} ({stage.duration_s:.1f}s)"
+                    if stage.skip_reason:
+                        line += f" -- {stage.skip_reason}"
+                    if stage.error:
+                        line += f" -- {stage.error}"
+                    print(line)
+
+                if res.validation:
+                    v = res.validation
+                    print(f"\n  Validation: {'PASSED' if v['passed'] else 'FAILED'}")
+                    for name, rc in v.get("range_checks", {}).items():
+                        status = "in range" if rc["in_range"] else "OUT OF RANGE"
+                        print(f"    {name}: {rc['median_forecast']:.4f} "
+                              f"[{rc['plausible_range'][0]}, {rc['plausible_range'][1]}] "
+                              f"-- {status}")
+
+                if res.possibility_report:
+                    from simulation.possibility_report import render_cli
+                    print(render_cli(res.possibility_report))
+
+                print(f"\n  Artifacts: {pipeline.output_dir}")
+            finally:
+                from orchestrator import close_client
+                await close_client()
+
+        asyncio.run(_run_pipeline())
+
+    elif mode in ("c", "calibrate"):
+        data_dir = Path("data")
+        if data_dir.exists():
+            run_dirs = sorted([str(d) for d in data_dir.iterdir() if d.is_dir() and (d / "observations.json").exists()])
+        else:
+            run_dirs = []
+        if not run_dirs:
+            print("  No completed runs found in data/. Run pilot simulations first.")
+        else:
+            print(f"  Found {len(run_dirs)} completed run(s)")
+            result = calibrate_intervention_threshold(run_dirs)
+            if result["best_f1"] > 0:
+                apply = input(f"  Apply θ={result['optimal_theta']:.2f}? [y/N]: ").strip().lower()
+                if apply == "y":
+                    os.environ["INTERVENTION_THRESHOLD"] = str(result["optimal_theta"])
+                    print(f"  Set INTERVENTION_THRESHOLD={result['optimal_theta']:.2f} for this session")
+
+    elif mode in ("m", "morris"):
         run_sensitivity_analysis(mode="morris")
 
     elif mode in ("b", "sobol"):

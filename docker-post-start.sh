@@ -4,7 +4,7 @@
 # Runs after SSH is up on every pod boot (called by RunPod's /start.sh).
 # =============================================================================
 
-PROJ=/per.volume/dualmirakl
+PROJ=/workspace/dualmirakl
 REPO=https://github.com/Giansn/dualmirakl.git
 BRANCH=runpod
 

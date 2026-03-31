@@ -13,7 +13,7 @@
 # =============================================================================
 set -e
 
-HF_HOME="${HF_HOME:-/per.volume/huggingface}"
+HF_HOME="${HF_HOME:-/workspace/huggingface}"
 export HF_HOME
 
 PROJ="$(cd "$(dirname "$0")" && pwd)"
