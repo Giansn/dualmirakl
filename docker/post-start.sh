@@ -32,13 +32,13 @@ if [ ! -d "$PROJ/.git" ]; then
 fi
 
 # ── Create .env if missing ────────────────────────────────────────────────────
-if [ ! -f "$PROJ/.env" ] && [ -f "$PROJ/.env.example" ]; then
-    cp "$PROJ/.env.example" "$PROJ/.env"
-    echo "[post_start] .env created from .env.example"
+if [ ! -f "$PROJ/.env" ] && [ -f "$PROJ/config/.env.example" ]; then
+    cp "$PROJ/config/.env.example" "$PROJ/.env"
+    echo "[post_start] .env created from config/.env.example"
 fi
 
 # ── Launch stack in background ────────────────────────────────────────────────
-chmod +x "$PROJ/autostart.sh"
-nohup bash "$PROJ/autostart.sh" &
-echo "[post_start] dualmirakl autostart launched (PID $!)"
+chmod +x "$PROJ/scripts/"*.sh
+nohup bash "$PROJ/scripts/bootstrap.sh" &
+echo "[post_start] dualmirakl bootstrap launched (PID $!)"
 echo "[post_start] Monitor: tail -f $PROJ/logs/autostart.log"

@@ -24,9 +24,9 @@ echo ""
 
 echo "--- [MODEL FILES] ---"
 # Authority slot
-AUTH_MODEL=$(grep '^MODEL=' /workspace/dualmirakl/models/authority.env 2>/dev/null | cut -d= -f2 | tr -d '"')
+AUTH_MODEL=$(grep '^MODEL=' /workspace/dualmirakl/config/authority.env 2>/dev/null | cut -d= -f2 | tr -d '"')
 if [ -z "$AUTH_MODEL" ]; then
-  echo "  ⚠️  authority : MODEL not set in models/authority.env"
+  echo "  ⚠️  authority : MODEL not set in config/authority.env"
 elif [ -f "$AUTH_MODEL/config.json" ]; then
   echo "  ✅ authority : $(basename $AUTH_MODEL)"
 else

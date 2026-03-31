@@ -1,7 +1,7 @@
 # Environment
 .env
 *.env
-!models/*.env
+!config/*.env
 
 # Logs
 logs/

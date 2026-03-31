@@ -2,12 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## RunPod Quick Start (generic pod, no custom Docker)
+
+```bash
+bash scripts/setup.sh             # install deps, download models, create .env
+bash scripts/start_all.sh         # start authority(:8000) + swarm(:8001) + gateway(:9000)
+```
+
 ## Commands
 
 ```bash
-bash start_all.sh                                                # start authority(:8000) + swarm(:8001) + gateway(:9000)
-bash stop_all.sh                                                 # kill all vLLM processes
-bash pull_models.sh                                              # download models to $HF_HOME
+bash scripts/start_all.sh                                       # start authority(:8000) + swarm(:8001) + gateway(:9000)
+bash scripts/stop_all.sh                                         # kill all vLLM processes
+bash scripts/pull_models.sh                                      # download models to $HF_HOME
 python -m simulation.sim_loop                                    # run simulation (interactive CLI, legacy mode)
 python -m simulation.sim_loop --scenario scenarios/social_dynamics.yaml  # scenario-driven
 python -m simulation.scenario validate scenarios/foo.yaml        # dry-run validation (zero GPU)
@@ -17,7 +24,7 @@ python -m pytest tests/test_action_schema.py::TestSchemaStructure -v     # singl
 python -m pytest tests/test_safety.py::TestObserverMode::test_analyse_blocks_intervention -v  # single test
 python simulation/dynamics.py                                    # dynamics analysis demo (A-H)
 python examples/walkthrough.py                                   # 9-step interactive tutorial
-bash audit_env.sh                                                # environment + model health check
+bash scripts/audit_env.sh                                        # environment + model health check
 ```
 
 ## Architecture
@@ -235,7 +242,7 @@ GitHub Actions (`.github/workflows/docker-build.yml`): builds and pushes Docker 
 
 ## Deployment
 
-RunPod: `giansn/dualmirakl:runpod-cu128`. Docker Compose: `docker compose up -d`. Entrypoint modes: all|authority|swarm|gateway|sim|shell. See DOCKER.md for Blackwell GPU (sm_120) CUDA 12.9 requirements.
+RunPod: `giansn/dualmirakl:runpod-cu128`. Docker Compose: `docker compose -f docker/docker-compose.yml up -d`. Entrypoint modes: all|authority|swarm|gateway|sim|shell. See docs/DOCKER.md for Blackwell GPU (sm_120) CUDA 12.9 requirements.
 
 ## Rules
 

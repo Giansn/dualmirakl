@@ -16,7 +16,7 @@ set -e
 HF_HOME="${HF_HOME:-/workspace/huggingface}"
 export HF_HOME
 
-PROJ="$(cd "$(dirname "$0")" && pwd)"
+PROJ="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── Model definitions ────────────────────────────────────────────────────────
 
@@ -24,14 +24,14 @@ EMBED_REPO="intfloat/e5-small-v2"
 EMBED_LOCAL="$HF_HOME/hub/e5-small-v2"
 
 # Read authority/swarm models from their .env files if available
-if [ -f "$PROJ/models/authority.env" ]; then
-    source "$PROJ/models/authority.env"
+if [ -f "$PROJ/config/authority.env" ]; then
+    source "$PROJ/config/authority.env"
     AUTHORITY_REPO="${AUTHORITY_HF_REPO:-}"
     AUTHORITY_LOCAL="$MODEL"
 fi
 
-if [ -f "$PROJ/models/swarm.env" ]; then
-    source "$PROJ/models/swarm.env"
+if [ -f "$PROJ/config/swarm.env" ]; then
+    source "$PROJ/config/swarm.env"
     SWARM_REPO="${SWARM_HF_REPO:-nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4}"
     SWARM_LOCAL="$MODEL"
 fi

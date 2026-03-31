@@ -13,14 +13,14 @@ RunPod Pod
 
 | Slot | Current Model | Path | GPU | Port |
 |------|--------------|------|-----|------|
-| authority | *(not set)* | set in `models/authority.env` | 0 | 8000 |
+| authority | *(not set)* | set in `config/authority.env` | 0 | 8000 |
 | swarm | nemotron-nano-30b (NVFP4) | `hub/nemotron-nano-30b` | 1 | 8001 |
 | embedding | e5-small-v2 | `hub/e5-small-v2` | CPU | — |
 
 ## Swapping a Model
 
-1. Edit `models/<slot>.env` — update `MODEL` path and `QUANT_FLAGS`
-2. Run `bash start_<slot>.sh` — everything else picks up automatically
+1. Edit `config/<slot>.env` — update `MODEL` path and `QUANT_FLAGS`
+2. Run `bash scripts/start_<slot>.sh` — everything else picks up automatically
 
 No other files need changing. The served model name is always `authority` or `swarm`.
 

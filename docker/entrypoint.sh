@@ -22,13 +22,13 @@ cd "$PROJ"
 
 case "$MODE" in
     authority)
-        exec bash start_authority.sh
+        exec bash scripts/start_authority.sh
         ;;
     swarm)
-        exec bash start_swarm.sh
+        exec bash scripts/start_swarm.sh
         ;;
     gateway)
-        exec bash start_gateway.sh
+        exec bash scripts/start_gateway.sh
         ;;
     sim)
         exec python -m simulation.sim_loop
@@ -37,12 +37,12 @@ case "$MODE" in
         exec bash
         ;;
     all)
-        exec bash start_all.sh
+        exec bash scripts/start_all.sh
         ;;
     *)
         # Default: keep container alive with SSH accessible.
-        # Start services manually: bash start_all.sh
-        echo "[dualmirakl] Ready. Run 'bash start_all.sh' to start services."
+        # Start services manually: bash scripts/start_all.sh
+        echo "[dualmirakl] Ready. Run 'bash scripts/start_all.sh' to start services."
         exec sleep infinity
         ;;
 esac

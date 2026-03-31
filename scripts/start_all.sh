@@ -1,6 +1,6 @@
 #!/bin/bash
 # Start authority + swarm + gateway
-# Model configs: models/authority.env  models/swarm.env
+# Model configs: config/authority.env  config/swarm.env
 
 PROJ="${DUALMIRAKL_ROOT:-/workspace/dualmirakl}"
 cd "$PROJ"
@@ -19,7 +19,7 @@ fi
 
 for PORT in $AUTHORITY_PORT $SWARM_PORT $GATEWAY_PORT; do
   if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
-    echo "[ERROR] Port ${PORT} already in use. Run: bash stop_all.sh"
+    echo "[ERROR] Port ${PORT} already in use. Run: bash scripts/stop_all.sh"
     exit 1
   fi
 done
@@ -27,7 +27,7 @@ done
 # --- Authority (GPU 0, port 8000) ---
 echo "[dualmirakl] Starting authority on port $AUTHORITY_PORT..."
 mv logs/authority.log logs/authority.last 2>/dev/null || true
-bash start_authority.sh > logs/authority.log 2>&1 &
+bash scripts/start_authority.sh > logs/authority.log 2>&1 &
 AUTH_PID=$!
 echo "  PID: $AUTH_PID"
 
@@ -49,7 +49,7 @@ fi
 # --- Swarm (GPU 1, port 8001) ---
 echo "[dualmirakl] Starting swarm on port $SWARM_PORT..."
 mv logs/swarm.log logs/swarm.last 2>/dev/null || true
-bash start_swarm.sh > logs/swarm.log 2>&1 &
+bash scripts/start_swarm.sh > logs/swarm.log 2>&1 &
 SWARM_PID=$!
 echo "  PID: $SWARM_PID"
 
@@ -71,7 +71,7 @@ fi
 # --- Gateway (port 9000) ---
 echo "[dualmirakl] Starting gateway on port $GATEWAY_PORT..."
 mv logs/gateway.log logs/gateway.last 2>/dev/null || true
-bash start_gateway.sh > logs/gateway.log 2>&1 &
+bash scripts/start_gateway.sh > logs/gateway.log 2>&1 &
 GW_PID=$!
 echo "  PID: $GW_PID"
 
@@ -92,5 +92,5 @@ else
 fi
 
 echo "Logs: logs/authority.log  logs/swarm.log  logs/gateway.log"
-echo "Stop: bash stop_all.sh"
+echo "Stop: bash scripts/stop_all.sh"
 echo "$AUTH_PID $SWARM_PID $GW_PID" > logs/pids.txt

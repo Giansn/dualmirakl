@@ -20,10 +20,11 @@ Deploys on RunPod (2x RTX PRO 4500 Blackwell, 32 GB VRAM each). Orchestrator use
 ## Quick Start
 
 ```bash
-bash start_all.sh                                          # start all services
+bash scripts/setup.sh                                      # first-time setup (deps, models, .env)
+bash scripts/start_all.sh                                  # start all services
 python -m simulation.sim_loop --scenario scenarios/social_dynamics.yaml  # run
 python -m simulation.scenario validate scenarios/foo.yaml  # validate (no GPU)
-python -m pytest tests/ -v                                 # 508 tests
+python -m pytest tests/ -v                                 # 696 tests
 ```
 
 ## Scenario System
@@ -144,11 +145,11 @@ Entrypoint modes: `all|authority|swarm|gateway|sim|shell`. Requires CUDA 12.9 fo
 
 | Slot | Model | GPU | Port |
 |------|-------|-----|------|
-| authority | *(set in `models/authority.env`)* | 0 | 8000 |
+| authority | *(set in `config/authority.env`)* | 0 | 8000 |
 | swarm | nemotron-nano-30b (NVFP4) | 1 | 8001 |
 | embedding | e5-small-v2 | CPU | — |
 
-Swap a model: edit `models/<slot>.env`. Nothing else changes.
+Swap a model: edit `config/<slot>.env`. Nothing else changes.
 
 ## Dependencies
 

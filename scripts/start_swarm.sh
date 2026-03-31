@@ -1,29 +1,29 @@
 #!/bin/bash
 # =============================================================================
-# Authority — reasoning / synthesis / analyst agents — GPU 0, port 8000
-# Model config: models/authority.env  (edit that file to swap models)
+# Swarm — generative / persona / organizing agents — GPU 1, port 8001
+# Model config: config/swarm.env  (edit that file to swap models)
 # =============================================================================
 set -e
 PROJ="${DUALMIRAKL_ROOT:-/workspace/dualmirakl}"
-source "$PROJ/models/authority.env"
+source "$PROJ/config/swarm.env"
 
-export CUDA_VISIBLE_DEVICES="${AUTHORITY_GPU:-0}"
+export CUDA_VISIBLE_DEVICES="${SWARM_GPU:-1}"
 export HF_HOME="${HF_HOME:-/workspace/huggingface}"
-AUTHORITY_PORT="${AUTHORITY_PORT:-8000}"
+SWARM_PORT="${SWARM_PORT:-8001}"
 eval "export $EXTRA_ENV" 2>/dev/null || true
 
 if [ -z "$MODEL" ]; then
-  echo "[authority] ERROR: MODEL is not set in models/authority.env"
+  echo "[swarm] ERROR: MODEL is not set in config/swarm.env"
   exit 1
 fi
 
-echo "[authority] Model:   $(basename $MODEL)"
-echo "[authority] Context: $MAX_MODEL_LEN tokens | Seqs: $MAX_NUM_SEQS"
+echo "[swarm] Model:   $(basename $MODEL)"
+echo "[swarm] Context: $MAX_MODEL_LEN tokens | Seqs: $MAX_NUM_SEQS"
 
 exec python -m vllm.entrypoints.openai.api_server \
   --model "$MODEL" \
-  --served-model-name authority \
-  --port "$AUTHORITY_PORT" \
+  --served-model-name swarm \
+  --port "$SWARM_PORT" \
   --host 0.0.0.0 \
   --gpu-memory-utilization 0.90 \
   --max-model-len "$MAX_MODEL_LEN" \

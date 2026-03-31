@@ -380,13 +380,13 @@ def step_5():
     print("""\
   Before running a simulation, check that everything is up:
 
-    bash start_all.sh
+    bash scripts/start_all.sh
 
   Or individually:
 
-    bash start_authority.sh   # GPU 0
-    bash start_swarm.sh       # GPU 1
-    bash start_gateway.sh     # CPU -- embeddings + proxy
+    bash scripts/start_authority.sh   # GPU 0
+    bash scripts/start_swarm.sh       # GPU 1
+    bash scripts/start_gateway.sh     # CPU -- embeddings + proxy
 
   The gateway exposes a preflight endpoint:
 
@@ -414,7 +414,7 @@ def step_5():
             return all(v == "up" for v in status.values())
         except Exception as e:
             print(f"  Could not reach orchestrator: {e}")
-            print("  Make sure vLLM servers are running (bash start_all.sh)")
+            print("  Make sure vLLM servers are running (bash scripts/start_all.sh)")
             return False
 
     all_up = asyncio.run(_check())

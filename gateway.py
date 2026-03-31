@@ -71,7 +71,7 @@ async def models():
 
 @app.get("/gpu", response_class=HTMLResponse)
 async def gpu_monitor():
-    html_file = _proj_dir / "gpu_monitor.html"
+    html_file = _proj_dir / "static" / "gpu_monitor.html"
     html = html_file.read_text(encoding="utf-8")
     return HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
@@ -108,7 +108,7 @@ async def gpu_telemetry():
 
 @app.get("/", response_class=HTMLResponse)
 async def ui():
-    html_file = _proj_dir / "interface.html"
+    html_file = _proj_dir / "static" / "interface.html"
     html = html_file.read_text(encoding="utf-8")
     # Inject live health status server-side (browser can't reach localhost through proxies)
     s = await health()

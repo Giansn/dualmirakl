@@ -7,7 +7,7 @@
 
 **Function** — Structured reasoning, analysis, synthesis. Directs the swarm slot on what information is needed and how it should be structured. Receives filtered, ranked context from the swarm. Produces output and initiates the next retrieval cycle.
 
-**Config** — `models/authority.env`
+**Config** — `config/authority.env`
 
 ---
 
@@ -16,7 +16,7 @@
 
 **Function** — High-throughput generation. Intermediary between raw information and the authority slot. Chunks and labels incoming documents. Filters and reranks retrieval results before forwarding. Manages file organisation.
 
-**Config** — `models/swarm.env`
+**Config** — `config/swarm.env`
 
 ---
 
