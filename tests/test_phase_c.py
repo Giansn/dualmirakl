@@ -424,7 +424,6 @@ class TestEnsembleScoreLogs:
         assert r.all_score_logs == []
 
 
-<<<<<<< HEAD
 class TestThreeLevelDecomposition:
     """Tests for decompose_variance_three_level."""
 
