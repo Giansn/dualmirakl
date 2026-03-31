@@ -69,7 +69,8 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .pa{color:var(--t2);padding:0 1px;font-size:8px;opacity:.4}
 
 /* MESSAGES */
-.mc{flex:1;overflow-y:auto;padding:24px 0}
+.mc{flex:1;overflow-y:hidden;padding:24px 0}
+.mc.has-messages{overflow-y:auto}
 .mi{max-width:720px;margin:0 auto;padding:0 24px}
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;animation:fi .5s ease;overflow:hidden}
 @keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -381,7 +382,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .splash.transitioning .splash-content{opacity:0;transition:opacity .3s}
 .splash.transitioning .splash-bg img{transition:all 1.2s cubic-bezier(.4,0,.2,1);border-radius:0}
 .splash.hidden{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .4s ease .8s,visibility 0s 1.2s}
-.trail-particle{position:fixed;border-radius:50%;background:#38c8c8;pointer-events:none;z-index:9998}
+.trail-particle{position:fixed;border-radius:50%;background:#38c8c8;pointer-events:none;z-index:10000}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg img{width:95vmin;height:95vmin;object-fit:contain;opacity:.5;animation:splashBgIn 2.5s ease both}
@@ -1495,8 +1496,10 @@ function renderMessages() {
   if(!mi) return;
   let ws=document.getElementById('ws');
   const chat=getChat();
-  if(!chat||!chat.messages.length){mi.innerHTML='';if(!ws){ws=document.createElement('div');ws.id='ws';ws.className='welcome';}mi.appendChild(ws);ws.style.display='';if(cn)mi.appendChild(cn);if(ty)mi.appendChild(ty);return;}
+  const mc=document.getElementById('mc');
+  if(!chat||!chat.messages.length){mi.innerHTML='';if(!ws){ws=document.createElement('div');ws.id='ws';ws.className='welcome';}mi.appendChild(ws);ws.style.display='';if(cn)mi.appendChild(cn);if(ty)mi.appendChild(ty);if(mc)mc.classList.remove('has-messages');return;}
   if(ws) ws.style.display='none';
+  if(mc) mc.classList.add('has-messages');
   const c=cfg(), winSt=Math.max(0,chat.messages.length-c.win); let html='';
 
   if(chat.memory&&chat.memoryUpTo>0) html+=`
