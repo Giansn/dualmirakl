@@ -231,9 +231,13 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .mode-tab.active{color:var(--a);border-bottom-color:var(--a);text-shadow:0 0 12px rgba(56,200,200,.3)}
 
 /* HEALTH BAR */
-.health-bar{display:flex;gap:6px;margin-bottom:14px}
-.health-chip{display:flex;align-items:center;gap:5px;padding:4px 10px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rax);font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--t2);flex:1;justify-content:center}
+.health-bar{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px}
+.health-chip{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rax);font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--t2);flex:1;justify-content:center;cursor:pointer;transition:all .15s;min-width:0}
+.health-chip:hover{border-color:var(--a);color:var(--t1)}
+.health-chip.expanded{border-color:var(--a);background:var(--bg1)}
 .health-chip .dot{width:6px;height:6px}
+.health-detail{display:none;margin-top:6px;padding:8px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);line-height:1.7}
+.health-detail.vis{display:block}
 
 /* WELCOME CARDS */
 .welcome-actions{display:flex;gap:12px;margin-top:24px;width:100%;max-width:480px}
@@ -377,8 +381,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
 .splash.transitioning .splash-content{opacity:0;transition:opacity .3s}
 .splash.transitioning .splash-bg img{transition:all 1.2s cubic-bezier(.4,0,.2,1);border-radius:0}
 .splash.hidden{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .4s ease .8s,visibility 0s 1.2s}
-.trail-particle{position:fixed;border-radius:50%;background:#38c8c8;pointer-events:none;z-index:9998;opacity:0;animation:trailFade 2s ease-out forwards}
-@keyframes trailFade{0%{opacity:.4;transform:scale(1)}100%{opacity:0;transform:scale(0) translate(var(--drift-x),var(--drift-y))}}
+.trail-particle{position:fixed;border-radius:50%;background:#38c8c8;pointer-events:none;z-index:9998}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
 .splash-bg img{width:95vmin;height:95vmin;object-fit:contain;opacity:.5;animation:splashBgIn 2.5s ease both}
@@ -414,10 +417,13 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
       <span class="logo-tx">dualmirakl</span>
     </div>
     <div class="health-bar">
-      <div class="health-chip" id="hcAuth"><span class="dot chk" id="stAuth"></span><span>Auth</span></div>
-      <div class="health-chip" id="hcSwarm"><span class="dot chk" id="stSwarm"></span><span>Swarm</span></div>
-      <div class="health-chip" id="hcEmbed"><span class="dot chk" id="stEmbed"></span><span>Embed</span></div>
+      <div class="health-chip" id="hcAuth" onclick="toggleHealthDetail('auth')"><span class="dot chk" id="stAuth"></span><span>Auth</span></div>
+      <div class="health-chip" id="hcSwarm" onclick="toggleHealthDetail('swarm')"><span class="dot chk" id="stSwarm"></span><span>Swarm</span></div>
+      <div class="health-chip" id="hcEmbed" onclick="toggleHealthDetail('embed')"><span class="dot chk" id="stEmbed"></span><span>Embed</span></div>
+      <div class="health-chip" id="hcFlame" onclick="toggleHealthDetail('flame')"><span class="dot off" id="stFlame"></span><span>FLAME</span></div>
+      <div class="health-chip" id="hcMonitor" onclick="toggleHealthDetail('monitor')"><span class="dot off" id="stMonitor"></span><span>GPU</span></div>
     </div>
+    <div class="health-detail" id="healthDetail"></div>
     <button class="nc-btn" onclick="newChat()"><span>+</span> New Chat</button>
   </div>
   <div class="srch">
@@ -1607,11 +1613,16 @@ if (_dz) {
 
 // ── HEALTH POLLING ──
 
+S._healthData = {};
+S._gpuData = {};
+S._activeHealthPanel = null;
+
 async function pollHealth() {
   try {
     const gwUrl = url.gw();
     const r = await fetch(`${gwUrl}/health`);
     const d = await r.json();
+    S._healthData = d;
     // Sidebar dots
     const map = {'e5-small-v2':'Embed','authority':'Auth','swarm':'Swarm'};
     for (const [svc, status] of Object.entries(d)) {
@@ -1619,11 +1630,114 @@ async function pollHealth() {
       if (!name) continue;
       const dot = document.getElementById('st'+name);
       if (dot) dot.className = 'dot '+(status==='up'?'on':'off');
-      // System tab dots
       const sysDot = document.getElementById('sys'+name);
       if (sysDot) sysDot.className = 'dot '+(status==='up'?'on':'off');
     }
+    // FLAME status
+    try {
+      const fr = await fetch(`${gwUrl}/simulation/flame`);
+      if (fr.ok) {
+        const fd = await fr.json();
+        S._healthData.flame = fd;
+        const flameDot = document.getElementById('stFlame');
+        if (flameDot) flameDot.className = 'dot '+(fd.enabled?'on':'off');
+      }
+    } catch { document.getElementById('stFlame').className = 'dot off'; }
+    // GPU monitor status
+    try {
+      const gr = await fetch(`${gwUrl}/gpu/telemetry`);
+      if (gr.ok) {
+        const gd = await gr.json();
+        S._gpuData = gd;
+        const monDot = document.getElementById('stMonitor');
+        if (monDot) monDot.className = 'dot '+((gd.gpus && gd.gpus.length)?'on':'off');
+      }
+    } catch { document.getElementById('stMonitor').className = 'dot off'; }
+    // Refresh detail panel if open
+    if (S._activeHealthPanel) renderHealthDetail(S._activeHealthPanel);
   } catch { /* gateway offline */ }
+}
+
+function toggleHealthDetail(panel) {
+  const el = document.getElementById('healthDetail');
+  if (S._activeHealthPanel === panel) {
+    el.classList.remove('vis');
+    S._activeHealthPanel = null;
+    document.querySelectorAll('.health-chip').forEach(c => c.classList.remove('expanded'));
+    return;
+  }
+  S._activeHealthPanel = panel;
+  document.querySelectorAll('.health-chip').forEach(c => c.classList.remove('expanded'));
+  const chip = document.getElementById('hc'+panel.charAt(0).toUpperCase()+panel.slice(1));
+  if (chip) chip.classList.add('expanded');
+  el.classList.add('vis');
+  renderHealthDetail(panel);
+}
+
+function renderHealthDetail(panel) {
+  const el = document.getElementById('healthDetail');
+  const h = S._healthData;
+  const g = S._gpuData;
+  let html = '';
+
+  if (panel === 'auth') {
+    const up = h.authority === 'up';
+    html = `<div style="color:${up?'var(--a)':'var(--r)'}">authority :8000 — ${up?'online':'offline'}</div>`;
+    if (up) {
+      html += `<div>slot: environment + observers</div>`;
+      html += `<div>GPU: 0 (${g.gpus?.[0]?.name||'unknown'})</div>`;
+      if (g.gpus?.[0]) html += `<div>power: ${g.gpus[0].power_draw||0}W | mem: ${g.gpus[0].memory_used||0}/${g.gpus[0].memory_total||0} MB | util: ${g.gpus[0].utilization||0}%</div>`;
+    } else {
+      html += `<div style="opacity:.5">start vLLM on GPU 0 or connect to RunPod</div>`;
+    }
+  } else if (panel === 'swarm') {
+    const up = h.swarm === 'up';
+    html = `<div style="color:${up?'var(--a)':'var(--r)'}">swarm :8001 — ${up?'online':'offline'}</div>`;
+    if (up) {
+      html += `<div>slot: participants</div>`;
+      html += `<div>GPU: 1 (${g.gpus?.[1]?.name||'unknown'})</div>`;
+      if (g.gpus?.[1]) html += `<div>power: ${g.gpus[1].power_draw||0}W | mem: ${g.gpus[1].memory_used||0}/${g.gpus[1].memory_total||0} MB | util: ${g.gpus[1].utilization||0}%</div>`;
+    } else {
+      html += `<div style="opacity:.5">start vLLM on GPU 1 or connect to RunPod</div>`;
+    }
+  } else if (panel === 'embed') {
+    const up = h['e5-small-v2'] === 'up';
+    html = `<div style="color:${up?'var(--a)':'var(--r)'}">e5-small-v2 :9000 — ${up?'online':'offline'}</div>`;
+    html += `<div>model: intfloat/e5-small-v2 (384-dim)</div>`;
+    html += `<div>device: CPU | latency: ~2-5ms/call</div>`;
+    html += `<div>chunks stored: ${S.embeds?.length||0}</div>`;
+  } else if (panel === 'flame') {
+    const fd = h.flame || {};
+    const on = fd.enabled;
+    html = `<div style="color:${on?'var(--a)':'var(--t2)'}">FLAME GPU 2 — ${on?'enabled':'disabled'}</div>`;
+    if (on) {
+      html += `<div>population: ${fd.population_size||'?'} agents</div>`;
+      html += `<div>kappa: ${fd.kappa||'?'} | influencer_weight: ${fd.influencer_weight||'?'}</div>`;
+      html += `<div>sub_steps: ${fd.sub_steps||'?'}</div>`;
+      if (g.gpus?.[2]) html += `<div>GPU 2: ${g.gpus[2].name||''} | power: ${g.gpus[2].power_draw||0}W | mem: ${g.gpus[2].memory_used||0}/${g.gpus[2].memory_total||0} MB</div>`;
+    } else {
+      html += `<div style="opacity:.5">set FLAME_ENABLED=1 or flame.enabled: true in scenario YAML</div>`;
+    }
+  } else if (panel === 'monitor') {
+    if (g.gpus && g.gpus.length) {
+      html = `<div style="margin-bottom:4px">${g.gpus.length} GPU(s) detected</div>`;
+      g.gpus.forEach((gpu, i) => {
+        const memPct = gpu.memory_total ? Math.round(gpu.memory_used/gpu.memory_total*100) : 0;
+        const pwrPct = Math.round((gpu.power_draw||0)/300*100);
+        html += `<div style="margin:4px 0;padding:4px 0;${i<g.gpus.length-1?'border-bottom:1px solid var(--bd)':''}">`;
+        html += `<div><span style="color:var(--a)">GPU ${i}</span> ${gpu.name||''}</div>`;
+        html += `<div>power: ${gpu.power_draw||0}W <span style="display:inline-block;width:60px;height:3px;background:var(--bd);border-radius:1px;vertical-align:middle;overflow:hidden"><span style="display:block;height:100%;width:${pwrPct}%;background:var(--a)"></span></span></div>`;
+        html += `<div>memory: ${gpu.memory_used||0}/${gpu.memory_total||0} MB (${memPct}%) <span style="display:inline-block;width:60px;height:3px;background:var(--bd);border-radius:1px;vertical-align:middle;overflow:hidden"><span style="display:block;height:100%;width:${memPct}%;background:${memPct>90?'var(--r)':memPct>70?'var(--w)':'var(--a)'}"></span></span></div>`;
+        html += `<div>utilization: ${gpu.utilization||0}%${gpu.temp?' | temp: '+gpu.temp+'°C':''}</div>`;
+        html += `</div>`;
+      });
+    } else {
+      html = `<div style="opacity:.5">no GPUs detected (local mode)</div>`;
+      html += `<div style="opacity:.4;margin-top:4px">GPU telemetry requires nvidia-smi (Linux/RunPod only)</div>`;
+    }
+  }
+
+  el.innerHTML = html;
 }
 
 async function pollGpuTelemetry() {
@@ -4058,8 +4172,8 @@ function dismissSplash() {
     });
   });
 
-  // Trail particles along straight line
-  spawnTrailParticles(fromCx, fromCy, toCx, toCy);
+  // Burst from welcome sigil center, magnetize to sidebar logo
+  spawnBurstParticles(fromCx, fromCy, toCx, toCy);
 
   // Phase 3: fade splash after sigil lands
   setTimeout(() => {
@@ -4067,40 +4181,57 @@ function dismissSplash() {
   }, 1200);
 }
 
-function spawnTrailParticles(x1, y1, x2, y2) {
-  const n = 35;
+function spawnBurstParticles(fromX, fromY, toX, toY) {
+  // Sidebar logo position for magnetize target
+  const logo = document.querySelector('.logo-ic');
+  const logoRect = logo ? logo.getBoundingClientRect() : null;
+  const magX = logoRect ? logoRect.left + logoRect.width / 2 : toX;
+  const magY = logoRect ? logoRect.top + logoRect.height / 2 : toY;
+
+  const n = 40;
   const goldenAngle = 137.508 * (Math.PI / 180);
+  const totalDuration = 2200; // ms for full animation
 
   for (let i = 0; i < n; i++) {
-    const t = i / n; // 0 to 1 along path
-    const delay = t * 600; // stagger along path
+    const p = document.createElement('div');
+    p.className = 'trail-particle';
+    const size = 1.5 + (1 - i / n) * 2;
+    p.style.cssText = `left:${fromX}px;top:${fromY}px;width:${size}px;height:${size}px;opacity:.5;box-shadow:0 0 ${size*3}px rgba(56,200,200,.3);transition:left ${totalDuration}ms cubic-bezier(.2,.6,.3,1),top ${totalDuration}ms cubic-bezier(.2,.6,.3,1),opacity ${totalDuration}ms ease`;
+    document.body.appendChild(p);
 
+    // Phase 1: burst outward (golden angle spiral)
+    const angle = i * goldenAngle;
+    const burstDist = 60 + Math.sqrt(i / n) * 120;
+    const burstX = fromX + Math.cos(angle) * burstDist;
+    const burstY = fromY + Math.sin(angle) * burstDist;
+
+    // Burst outward immediately
+    requestAnimationFrame(() => {
+      p.style.left = burstX + 'px';
+      p.style.top = burstY + 'px';
+      p.style.transition = `left 400ms cubic-bezier(.1,.8,.3,1),top 400ms cubic-bezier(.1,.8,.3,1),opacity 400ms`;
+      p.style.opacity = '0.6';
+    });
+
+    // Phase 2: magnetize toward sidebar logo (staggered, slow start fast finish)
+    const magnetDelay = 350 + i * 15;
     setTimeout(() => {
-      const p = document.createElement('div');
-      p.className = 'trail-particle';
+      p.style.transition = `left 900ms cubic-bezier(.4,.0,.7,1),top 900ms cubic-bezier(.4,.0,.7,1),opacity 900ms ease-in`;
+      p.style.left = magX + 'px';
+      p.style.top = magY + 'px';
+      p.style.opacity = '0';
+    }, magnetDelay);
 
-      // Position along the bezier curve from splash center to welcome center
-      // Slight arc upward for visual interest
-      const arcHeight = -80;
-      const px = x1 + (x2 - x1) * t;
-      const py = y1 + (y2 - y1) * t + arcHeight * Math.sin(t * Math.PI);
-
-      // Drift away from path using golden angle for structure
-      const angle = i * goldenAngle;
-      const driftDist = 20 + Math.random() * 40;
-      const driftX = Math.cos(angle) * driftDist;
-      const driftY = Math.sin(angle) * driftDist;
-
-      const size = 1.5 + (1 - t) * 2; // larger at start, smaller at end
-      p.style.cssText = `left:${px}px;top:${py}px;width:${size}px;height:${size}px;--drift-x:${driftX}px;--drift-y:${driftY}px;animation-delay:${Math.random()*0.3}s;box-shadow:0 0 ${size*3}px rgba(56,200,200,.3)`;
-      document.body.appendChild(p);
-      setTimeout(() => p.remove(), 2500);
-    }, delay);
+    // Cleanup
+    setTimeout(() => p.remove(), magnetDelay + 1200);
   }
 }
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') dismissSplash();
+  const splash = document.getElementById('splash');
+  if (splash && !splash.classList.contains('hidden') && !splash.classList.contains('transitioning')) {
+    dismissSplash();
+  }
 });
 
 // ── INIT ──
