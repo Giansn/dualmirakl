@@ -96,6 +96,13 @@ class GPUHarmony:
         self._flame_engine = flame_engine
         self._flame_bridge = flame_bridge
 
+        # Trajectory forecaster (predictive observer context)
+        try:
+            from simulation.forecaster import TrajectoryForecaster
+            self._forecaster = TrajectoryForecaster(horizon=4, min_history=6)
+        except Exception:
+            self._forecaster = None
+
         # Pipeline queue (maxsize=4 allows 4-tick lookahead — GPU 0 runs ahead)
         self._stim_q: asyncio.Queue = asyncio.Queue(maxsize=4)
 
@@ -334,6 +341,10 @@ class GPUHarmony:
                 if self.bandit is not None and p.agent_id in getattr(self.bandit, 'agents', {}):
                     self.bandit.update(p.agent_id, "", signal)
 
+                # Feed forecaster with new score
+                if self._forecaster:
+                    self._forecaster.update(p.agent_id, tick, p.behavioral_score)
+
             # All responses scored — Phase F: FLAME population step (GPU 2)
             # Fire-and-forget: FLAME runs on GPU 2 while next tick starts on GPU 0+1
             if self._flame_engine and self._flame_bridge:
@@ -341,6 +352,10 @@ class GPUHarmony:
                     self._run_flame(tick, [p.behavioral_score for p in participants]),
                     name=f"flame_t{tick}",
                 )
+
+            # Inject forecast context for observer
+            if self._forecaster:
+                ws.forecast_context = self._forecaster.get_context_for_observer(tick)
 
             # Observer: fire-and-forget on K-ticks, immediate signal otherwise
             if is_observer_tick:

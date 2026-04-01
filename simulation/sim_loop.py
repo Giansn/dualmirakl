@@ -1325,11 +1325,32 @@ class ObserverAgent:
         stats = world_state.compute_score_statistics(tick)
         stats_note = _format_stats(stats)
 
+        # Forecast context (if available from TrajectoryForecaster)
+        forecast_note = ""
+        fc = getattr(world_state, 'forecast_context', None)
+        if fc and fc.get('agents'):
+            lines = []
+            for aid, info in fc['agents'].items():
+                parts = [f"{aid}: {info['trend']}(slope={info['slope']})"]
+                if info.get('predicted_end') is not None:
+                    parts.append(f"predicted={info['predicted_end']}")
+                if info.get('threshold_crossings'):
+                    for th, ticks in info['threshold_crossings'].items():
+                        parts.append(f"crosses {th} in ~{ticks} ticks")
+                if info.get('recent_changepoint') is not None:
+                    parts.append(f"regime shift at tick {info['recent_changepoint']}")
+                lines.append(" | ".join(parts))
+            forecast_note = "\n\nTrajectory forecasts (next 4 ticks):\n" + "\n".join(lines)
+            warnings = fc.get('warnings', [])
+            if warnings:
+                forecast_note += "\nWARNINGS: " + "; ".join(warnings)
+
         prompt = (
             f"[Tick {tick}] Observation window (last {world_state.k} ticks):\n"
             f"{window}\n"
             f"{stats_note}\n\n"
-            f"Active interventions: {active}\n\n"
+            f"Active interventions: {active}\n"
+            f"{forecast_note}\n\n"
             f"Analyse participant behaviour and population dynamics. "
             f"Describe what you see \u2014 do NOT recommend any interventions."
         )
