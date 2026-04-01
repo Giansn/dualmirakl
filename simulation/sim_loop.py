@@ -991,6 +991,7 @@ class EnvironmentAgent:
             history=self.history[-self.history_window:],
             max_tokens=max_tokens,
         )
+        self.history.append({"role": "user", "content": prompt})
         self.history.append({"role": "assistant", "content": response})
         return response
 
@@ -1051,6 +1052,7 @@ class EnvironmentAgent:
             history=self.history[-self.history_window:],
             max_tokens=batch_max,
         )
+        self.history.append({"role": "user", "content": prompt})
         self.history.append({"role": "assistant", "content": response})
 
         try:
@@ -1288,6 +1290,7 @@ class ParticipantAgent:
 
         self.last_stimulus = stimulus
         self.last_response = response
+        self.history.append({"role": "user", "content": prompt})
         self.history.append({"role": "assistant", "content": response})
         return response
 
@@ -1401,6 +1404,7 @@ class ObserverAgent:
                 "role": "observer_a", "violations": violations,
             })
 
+        self.history.append({"role": "user", "content": prompt})
         self.history.append({"role": "assistant", "content": response})
         self.analyses.append(response)
         return response
@@ -1442,6 +1446,7 @@ class ObserverAgent:
             max_tokens=self.max_tokens,
         )
         logger.debug(f"[{self.agent_id} INTERVENTION] {response[:120]}...")
+        self.history.append({"role": "user", "content": prompt})
         self.history.append({"role": "assistant", "content": response})
         self.analyses.append(response)
 

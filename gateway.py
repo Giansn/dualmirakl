@@ -1,6 +1,8 @@
 import os
 import asyncio
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -563,14 +565,70 @@ async def sim_preflight():
     return await preflight_check()
 
 
+# ── FLAME GPU 2 live state ──────────────────────────────────────────────────
+_flame_ctx = None  # FlameContext or None
+
 @app.get("/simulation/flame")
 async def sim_flame_status():
     """
     FLAME GPU 2 status — reports engine, W&B, and Optuna availability.
-    Always returns (never fails), even when FLAME is disabled.
+    Includes live engine state when activated.
     """
     from simulation.flame_setup import flame_status
-    return flame_status()
+    status = flame_status()
+    status["active"] = _flame_ctx is not None and _flame_ctx.active
+    return status
+
+
+@app.post("/simulation/flame/activate")
+async def sim_flame_activate(req: Request):
+    """Boot FLAME engine on GPU 2 with config from request body or env defaults."""
+    global _flame_ctx
+    if _flame_ctx is not None and _flame_ctx.active:
+        return {"active": True, "message": "FLAME already running"}
+
+    body = await req.json() if req.headers.get("content-length", "0") != "0" else {}
+
+    from simulation.sim_loop import _flame_config_from_env, _try_init_flame
+    overrides = {}
+    if body.get("population_size"):
+        overrides["n_population"] = int(body["population_size"])
+    if body.get("space_size"):
+        overrides["space_size"] = float(body["space_size"])
+    if body.get("interaction_radius"):
+        overrides["interaction_radius"] = float(body["interaction_radius"])
+    if body.get("mobility"):
+        overrides["mobility"] = float(body["mobility"])
+
+    fcfg = _flame_config_from_env(overrides)
+    n_participants = int(os.getenv("SIM_N_PARTICIPANTS", "4"))
+
+    engine, bridge = _try_init_flame(fcfg, n_participants)
+    if engine is None:
+        return {"active": False, "error": "FLAME init failed — check pyflamegpu is installed and GPU 2 is available"}
+
+    from simulation.flame_setup import FlameContext
+    _flame_ctx = FlameContext(engine=engine, bridge=bridge)
+    os.environ["FLAME_ENABLED"] = "1"
+
+    return {
+        "active": True,
+        "population": fcfg.get("n_population"),
+        "gpu": fcfg.get("gpu_id", 2),
+    }
+
+
+@app.post("/simulation/flame/deactivate")
+async def sim_flame_deactivate():
+    """Shut down FLAME engine and free GPU 2 memory."""
+    global _flame_ctx
+    if _flame_ctx is None or not _flame_ctx.active:
+        return {"active": False, "message": "FLAME not running"}
+
+    _flame_ctx.shutdown()
+    _flame_ctx = None
+    os.environ["FLAME_ENABLED"] = "0"
+    return {"active": False}
 
 
 @app.get("/simulation/detect")

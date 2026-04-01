@@ -48,9 +48,9 @@ bash scripts/start_swarm.sh > logs/swarm.log 2>&1 &
 SWARM_PID=$!
 echo "  swarm PID: $SWARM_PID"
 
-# Poll both simultaneously
+# Poll both simultaneously (300s — Nemotron needs ~4 min for model load + CUDA graphs)
 AUTH_READY=0; SWARM_READY=0
-for i in $(seq 1 60); do
+for i in $(seq 1 100); do
   if [ $AUTH_READY -eq 0 ]; then
     if curl -sf http://localhost:${AUTHORITY_PORT}/v1/completions \
         -H "Content-Type: application/json" \
@@ -72,12 +72,12 @@ for i in $(seq 1 60); do
 done
 
 if [ $AUTH_READY -eq 0 ]; then
-  echo "[ERROR] Authority did not become ready. Check logs/authority.log"
-  kill $AUTH_PID $SWARM_PID 2>/dev/null; exit 1
+  echo "[WARN] Authority did not become ready within timeout. Check logs/authority.log"
+  echo "  It may still be loading — monitor with: tail -f logs/authority.log"
 fi
 if [ $SWARM_READY -eq 0 ]; then
-  echo "[ERROR] Swarm did not become ready. Check logs/swarm.log"
-  kill $AUTH_PID $SWARM_PID 2>/dev/null; exit 1
+  echo "[WARN] Swarm did not become ready within timeout. Check logs/swarm.log"
+  echo "  It may still be loading — monitor with: tail -f logs/swarm.log"
 fi
 
 # --- Gateway (port 9000) ---

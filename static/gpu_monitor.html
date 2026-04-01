@@ -64,7 +64,7 @@ body{background:var(--bg0);color:var(--t0);font-family:'Outfit',sans-serif;overf
   <span class="sep">|</span>
   <span class="sub">GPU & System Monitor</span>
   <div class="status" id="statusDot"></div>
-  <span class="freq" id="freqLabel">3 Hz</span>
+  <span class="freq" id="freqLabel">60 fps</span>
 </div>
 
 <div class="container">
@@ -109,22 +109,30 @@ body{background:var(--bg0);color:var(--t0);font-family:'Outfit',sans-serif;overf
 <script>
 const API = window.location.origin;
 const ROLES = ['authority','swarm','flame'];
-const POLL_MS = 333; // 3 Hz
-const HISTORY_LEN = 180; // 60s at 3Hz
+const POLL_MS = 1000; // 1 Hz data fetch
+const HISTORY_LEN = 60; // 60s at 1Hz
 
-// Per-GPU history
+// Per-GPU state: current (last poll), target (newest poll), interpolated
+const gpuState = {};
+const cpuState = { current: null, target: null };
 const history = {};
 
 function barColor(pct) { return pct > 90 ? 'var(--r)' : pct > 70 ? 'var(--w)' : 'var(--a)'; }
+function lerp(a, b, t) { return a + (b - a) * t; }
 
 let gpuCardsBuilt = false;
 let timelineBuilt = false;
+let lastPollTime = 0;
 
 function buildGpuCards(gpus) {
   const container = document.getElementById('gpuCards');
   container.innerHTML = gpus.map((g, i) => {
     const role = ROLES[i] || '';
     const badge = role ? `<span class="role-badge">${role}</span>` : '';
+    gpuState[i] = {
+      current: { util: 0, memUsed: 0, memTotal: g.memory_total || 1, power: 0, temp: 0 },
+      target:  { util: 0, memUsed: 0, memTotal: g.memory_total || 1, power: 0, temp: 0 },
+    };
     return `<div class="card" id="gpuCard${i}">
       <div class="card-header">
         <span class="card-title"><span class="idx">GPU ${i}</span> ${(g.name||'').replace('NVIDIA ','').trim()} ${badge}</span>
@@ -150,7 +158,7 @@ function buildGpuCards(gpus) {
 function buildTimeline(gpus) {
   const container = document.getElementById('timelineCards');
   container.innerHTML = gpus.map((g, i) => {
-    history[i] = { util: [], vram: [] };
+    history[i] = { util: [] };
     const role = ROLES[i] || '';
     return `<div class="card">
       <div class="chart-label">GPU ${i} ${role ? '(' + role + ')' : ''} — utilization</div>
@@ -160,41 +168,97 @@ function buildTimeline(gpus) {
   timelineBuilt = true;
 }
 
-function updateMetrics(data) {
-  if (!data.gpus || !data.gpus.length) return;
-
+// Store new poll targets (called at 1 Hz)
+function setTargets(data) {
+  if (!data.gpus) return;
   data.gpus.forEach((g, i) => {
-    const util = g.utilization || 0;
-    const memPct = g.memory_total ? Math.round(g.memory_used / g.memory_total * 100) : 0;
-    const pwrPct = Math.min(100, Math.round((g.power_draw || 0) / 350 * 100));
-    const temp = g.temp || 0;
+    if (!gpuState[i]) return;
+    const s = gpuState[i];
+    // Snap current to wherever interpolation got to
+    s.current.util = s._interp ? s._interp.util : s.current.util;
+    s.current.memUsed = s._interp ? s._interp.memUsed : s.current.memUsed;
+    s.current.power = s._interp ? s._interp.power : s.current.power;
+    s.current.temp = s._interp ? s._interp.temp : s.current.temp;
+    // Set new targets
+    s.target.util = g.utilization || 0;
+    s.target.memUsed = g.memory_used || 0;
+    s.target.memTotal = g.memory_total || 1;
+    s.target.power = g.power_draw || 0;
+    s.target.temp = g.temp || 0;
+    s._interp = { ...s.current };
+    // Push to history (1 sample per second)
+    if (history[i]) {
+      history[i].util.push(s.target.util);
+      if (history[i].util.length > HISTORY_LEN) history[i].util.shift();
+    }
+  });
+  if (data.cpu) {
+    cpuState.current = cpuState._interp || cpuState.current || { percent: 0, memUsed: 0, memTotal: 1 };
+    cpuState.target = { percent: data.cpu.percent, memUsed: data.cpu.memory_used, memTotal: data.cpu.memory_total };
+    cpuState._interp = { ...cpuState.current };
+  }
+  lastPollTime = performance.now();
+}
+
+// 60 fps render loop
+function renderFrame() {
+  const t = Math.min(1, (performance.now() - lastPollTime) / POLL_MS);
+  const ease = t * t * (3 - 2 * t); // smoothstep
+
+  // Interpolate GPU metrics
+  for (const i in gpuState) {
+    const s = gpuState[i];
+    if (!s._interp) continue;
+    const util = lerp(s.current.util, s.target.util, ease);
+    const memUsed = lerp(s.current.memUsed, s.target.memUsed, ease);
+    const power = lerp(s.current.power, s.target.power, ease);
+    const temp = lerp(s.current.temp, s.target.temp, ease);
+    s._interp = { util, memUsed, power, temp };
+
+    const memPct = s.target.memTotal ? (memUsed / s.target.memTotal * 100) : 0;
+    const pwrPct = Math.min(100, power / 350 * 100);
     const tempColor = temp > 80 ? 'var(--r)' : temp > 65 ? 'var(--w)' : 'var(--t2)';
 
     const utilEl = document.getElementById(`gpuUtil${i}`);
-    if (utilEl) utilEl.textContent = util + '%';
+    if (utilEl) utilEl.textContent = Math.round(util) + '%';
     const utilBar = document.getElementById(`gpuUtilBar${i}`);
-    if (utilBar) { utilBar.style.width = util + '%'; utilBar.style.background = barColor(util); }
+    if (utilBar) { utilBar.style.width = util.toFixed(1) + '%'; utilBar.style.background = barColor(util); }
 
     const vramEl = document.getElementById(`gpuVram${i}`);
-    if (vramEl) vramEl.textContent = `${(g.memory_used||0).toLocaleString()} / ${(g.memory_total||0).toLocaleString()} MB (${memPct}%)`;
+    if (vramEl) vramEl.textContent = `${Math.round(memUsed).toLocaleString()} / ${(s.target.memTotal||0).toLocaleString()} MB (${Math.round(memPct)}%)`;
     const vramBar = document.getElementById(`gpuVramBar${i}`);
-    if (vramBar) { vramBar.style.width = memPct + '%'; vramBar.style.background = barColor(memPct); }
+    if (vramBar) { vramBar.style.width = memPct.toFixed(1) + '%'; vramBar.style.background = barColor(memPct); }
 
     const pwrEl = document.getElementById(`gpuPower${i}`);
-    if (pwrEl) pwrEl.textContent = `${g.power_draw||0}W`;
+    if (pwrEl) pwrEl.textContent = power.toFixed(1) + 'W';
     const pwrBar = document.getElementById(`gpuPowerBar${i}`);
-    if (pwrBar) { pwrBar.style.width = pwrPct + '%'; pwrBar.style.background = barColor(pwrPct); }
+    if (pwrBar) { pwrBar.style.width = pwrPct.toFixed(1) + '%'; pwrBar.style.background = barColor(pwrPct); }
 
     const tempEl = document.getElementById(`gpuTemp${i}`);
-    if (tempEl) { tempEl.textContent = temp + '°C'; tempEl.style.color = tempColor; }
+    if (tempEl) { tempEl.textContent = Math.round(temp) + '°C'; tempEl.style.color = tempColor; }
+  }
 
-    // History
-    if (history[i]) {
-      history[i].util.push(util);
-      if (history[i].util.length > HISTORY_LEN) history[i].util.shift();
-      drawChart(i);
-    }
-  });
+  // Interpolate CPU
+  if (cpuState.target && cpuState.current && cpuState._interp) {
+    const cpuPct = lerp(cpuState.current.percent, cpuState.target.percent, ease);
+    const ramUsed = lerp(cpuState.current.memUsed, cpuState.target.memUsed, ease);
+    const ramTotal = cpuState.target.memTotal;
+    const ramPct = ramTotal ? (ramUsed / ramTotal * 100) : 0;
+
+    const pctEl = document.getElementById('monCpuPct');
+    const pctBar = document.getElementById('monCpuBar');
+    const ramLabel = document.getElementById('monRamLabel');
+    const ramBar = document.getElementById('monRamBar');
+    if (pctEl) pctEl.textContent = cpuPct.toFixed(1) + '%';
+    if (pctBar) { pctBar.style.width = cpuPct.toFixed(1) + '%'; pctBar.style.background = barColor(cpuPct); }
+    if (ramLabel) ramLabel.textContent = `${Math.round(ramUsed).toLocaleString()} / ${ramTotal.toLocaleString()} MB (${Math.round(ramPct)}%)`;
+    if (ramBar) { ramBar.style.width = ramPct.toFixed(1) + '%'; ramBar.style.background = barColor(ramPct); }
+  }
+
+  // Redraw timeline charts
+  for (const i in history) drawChart(parseInt(i));
+
+  requestAnimationFrame(renderFrame);
 }
 
 function drawChart(gpuIdx) {
@@ -219,22 +283,26 @@ function drawChart(gpuIdx) {
 
   if (data.length < 2) return;
 
+  // Interpolated head: append current interp value for smooth leading edge
+  const interp = gpuState[gpuIdx] && gpuState[gpuIdx]._interp;
+  const plotData = interp ? [...data.slice(0, -1), interp.util] : data;
+
   // Fill
   ctx.beginPath();
   ctx.moveTo(0, h);
-  data.forEach((v, i) => {
+  plotData.forEach((v, i) => {
     const x = (i / (HISTORY_LEN - 1)) * w;
     const y = h - (v / 100) * h;
     ctx.lineTo(x, y);
   });
-  ctx.lineTo(((data.length - 1) / (HISTORY_LEN - 1)) * w, h);
+  ctx.lineTo(((plotData.length - 1) / (HISTORY_LEN - 1)) * w, h);
   ctx.closePath();
   ctx.fillStyle = 'rgba(56,200,200,.08)';
   ctx.fill();
 
   // Line
   ctx.beginPath();
-  data.forEach((v, i) => {
+  plotData.forEach((v, i) => {
     const x = (i / (HISTORY_LEN - 1)) * w;
     const y = h - (v / 100) * h;
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
@@ -242,21 +310,6 @@ function drawChart(gpuIdx) {
   ctx.strokeStyle = 'var(--a)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
-}
-
-function updateCpu(cpu) {
-  if (!cpu) return;
-  const pctEl = document.getElementById('monCpuPct');
-  const pctBar = document.getElementById('monCpuBar');
-  const ramLabel = document.getElementById('monRamLabel');
-  const ramBar = document.getElementById('monRamBar');
-
-  const memPct = cpu.memory_total ? Math.round(cpu.memory_used / cpu.memory_total * 100) : 0;
-
-  if (pctEl) pctEl.textContent = cpu.percent + '%';
-  if (pctBar) { pctBar.style.width = cpu.percent + '%'; pctBar.style.background = barColor(cpu.percent); }
-  if (ramLabel) ramLabel.textContent = `${(cpu.memory_used||0).toLocaleString()} / ${(cpu.memory_total||0).toLocaleString()} MB (${memPct}%)`;
-  if (ramBar) { ramBar.style.width = memPct + '%'; ramBar.style.background = barColor(memPct); }
 }
 
 async function pollServices() {
@@ -290,19 +343,19 @@ async function poll() {
     if (d.gpus && d.gpus.length) {
       if (!gpuCardsBuilt) buildGpuCards(d.gpus);
       if (!timelineBuilt) buildTimeline(d.gpus);
-      updateMetrics(d);
+      setTargets(d);
     }
-    if (d.cpu) updateCpu(d.cpu);
   } catch {
     document.getElementById('statusDot').className = 'status';
   }
 }
 
-// Start polling
+// Start: 1 Hz data poll + 60 fps render
 setInterval(poll, POLL_MS);
 setInterval(pollServices, 5000);
 setTimeout(poll, 100);
 setTimeout(pollServices, 500);
+requestAnimationFrame(renderFrame);
 </script>
 </body>
 </html>

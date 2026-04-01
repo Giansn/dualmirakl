@@ -879,6 +879,11 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
           <span style="color:var(--a)">Authority-managed at runtime:</span> learning rate, peer coupling, dampening, influencer weight, and noise amplitude are adjusted by the Authority observer based on live population patterns. These are not set manually.
         </div>
 
+        <!-- Activate / Deactivate -->
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="sim-start" id="flameActivateBtn" onclick="toggleFlame()" style="flex:1">Activate FLAME</button>
+        </div>
+
         <!-- Live stats (shown during simulation) -->
         <div id="flameLiveStats" style="display:none;margin-top:16px">
           <div class="ss-t">Live Population</div>
@@ -1489,7 +1494,12 @@ async function buildCtx(chat,query) {
   }
 
   const apiMsgs=[{role:'system',content:sys}];
-  for(const m of winM) apiMsgs.push({role:m.role,content:m.content});
+  for(const m of winM) {
+    const last=apiMsgs[apiMsgs.length-1];
+    if(last && last.role===m.role) { last.content+='\n'+m.content; }
+    else if(last && last.role==='system' && m.role==='assistant') { apiMsgs.push({role:'user',content:'(continue)'}); apiMsgs.push({role:m.role,content:m.content}); }
+    else { apiMsgs.push({role:m.role,content:m.content}); }
+  }
 
   const inp=toks-c.maxTok; updBudget(inp,flex,burst);
   if(burst) for(const m of winM) embedStore(m.content,chat.id,m.role);
@@ -1737,8 +1747,15 @@ async function pollHealth() {
       if (fr.ok) {
         const fd = await fr.json();
         S._healthData.flame = fd;
+        S.flameActive = fd.active || false;
         const flameDot = document.getElementById('stFlame');
-        if (flameDot) flameDot.className = 'dot '+(fd.flame_enabled?'on':'off');
+        if (flameDot) flameDot.className = 'dot '+(S.flameActive?'on':'off');
+        const flBtn = document.getElementById('flameActivateBtn');
+        if (flBtn) flBtn.textContent = S.flameActive ? 'Deactivate FLAME' : 'Activate FLAME';
+        const flTxt = document.getElementById('flameStatusText');
+        if (flTxt) flTxt.textContent = S.flameActive ? 'active' : 'disabled';
+        const flDot = document.getElementById('flameStatusDot');
+        if (flDot) flDot.className = 'dot '+(S.flameActive?'on':'off');
         const sysFlDot = document.getElementById('sysFlame');
         if (sysFlDot) sysFlDot.className = 'dot '+(fd.flame_enabled?'on':'off');
         const sysFlDesc = document.getElementById('sysFlameDesc');
@@ -3031,6 +3048,74 @@ function updateFlameComputed() {
 // Attach live-update listeners to FLAME inputs
 const flMobEl = document.getElementById('flMobility');
 if (flMobEl) flMobEl.addEventListener('input', updateFlameComputed);
+
+// ── FLAME ACTIVATE / DEACTIVATE ──
+S.flameActive = false;
+
+async function toggleFlame() {
+  const btn = document.getElementById('flameActivateBtn');
+  const dot = document.getElementById('flameStatusDot');
+  const txt = document.getElementById('flameStatusText');
+  btn.disabled = true;
+
+  if (S.flameActive) {
+    txt.textContent = 'shutting down...';
+    try {
+      const r = await fetch(`${url.gw()}/simulation/flame/deactivate`, {method:'POST'});
+      const d = await r.json();
+      S.flameActive = d.active || false;
+    } catch(e) { txt.textContent = 'error: ' + e.message; }
+  } else {
+    txt.textContent = 'activating...';
+    dot.className = 'dot'; dot.style.background = 'var(--w)';
+    try {
+      const body = {
+        population_size: parseInt(document.getElementById('flPopulation').value) || 10000000,
+        space_size: parseInt(document.getElementById('flSpace').value) || 100000,
+        interaction_radius: parseInt(document.getElementById('flRadius').value) || 500,
+        mobility: parseFloat(document.getElementById('flMobility').value) || 0.1,
+      };
+      const r = await fetch(`${url.gw()}/simulation/flame/activate`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body),
+      });
+      const d = await r.json();
+      S.flameActive = d.active || false;
+      if (d.error) { txt.textContent = d.error; dot.className = 'dot off'; btn.disabled = false; return; }
+    } catch(e) { txt.textContent = 'error: ' + e.message; dot.className = 'dot off'; btn.disabled = false; return; }
+  }
+
+  if (S.flameActive) {
+    btn.textContent = 'Deactivate FLAME';
+    dot.className = 'dot on'; dot.style.background = '';
+    txt.textContent = 'active';
+  } else {
+    btn.textContent = 'Activate FLAME';
+    dot.className = 'dot off'; dot.style.background = '';
+    txt.textContent = 'disabled';
+  }
+  btn.disabled = false;
+}
+
+// Sync FLAME status on page load and from health polling
+async function syncFlameStatus() {
+  try {
+    const r = await fetch(`${url.gw()}/simulation/flame`);
+    const d = await r.json();
+    S.flameActive = d.active || false;
+    const btn = document.getElementById('flameActivateBtn');
+    const dot = document.getElementById('flameStatusDot');
+    const txt = document.getElementById('flameStatusText');
+    if (S.flameActive) {
+      btn.textContent = 'Deactivate FLAME'; dot.className = 'dot on'; txt.textContent = 'active';
+    } else {
+      btn.textContent = 'Activate FLAME'; dot.className = 'dot off'; txt.textContent = 'disabled';
+    }
+    // Also update sidebar health chip
+    const hcDot = document.getElementById('stFlame');
+    if (hcDot) hcDot.className = 'dot ' + (S.flameActive ? 'on' : 'off');
+  } catch {}
+}
+setTimeout(syncFlameStatus, 1000);
 
 // ── WORLD TAB ──
 
