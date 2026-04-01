@@ -7,7 +7,7 @@
     "name": "Gianson",
     "email": "gianson@pm.me",
     "description": "Independent researcher building open simulation infrastructure for multi-agent systems on GPU clusters.",
-    "webpageUrl": "https://github.com/Giansn"
+    "webpageUrl": { "url": "https://github.com/Giansn" }
   },
   "projects": [
     {
