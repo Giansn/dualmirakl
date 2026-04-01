@@ -555,6 +555,26 @@ _sim_live = {
 }
 
 
+@app.get("/simulation/scenarios")
+async def sim_scenarios():
+    """List available scenario YAML files with metadata."""
+    import yaml
+    scenarios_dir = _proj_dir / "scenarios"
+    results = []
+    if scenarios_dir.is_dir():
+        for p in sorted(scenarios_dir.glob("*.yaml")):
+            entry = {"name": p.stem, "path": p.relative_to(_proj_dir).as_posix()}
+            try:
+                with open(p) as f:
+                    data = yaml.safe_load(f)
+                if isinstance(data, dict) and "meta" in data:
+                    entry["meta"] = data["meta"]
+            except Exception:
+                pass
+            results.append(entry)
+    return results
+
+
 @app.get("/simulation/preflight")
 async def sim_preflight():
     """
