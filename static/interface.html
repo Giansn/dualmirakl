@@ -505,6 +505,7 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
       <div style="display:flex;gap:2px;margin-bottom:12px">
         <button class="mode-tab active" id="simSubSpecs" onclick="switchSimSub('specs')">Specs</button>
         <button class="mode-tab" id="simSubWorld" onclick="switchSimSub('world')">World</button>
+        <button class="mode-tab" id="simSubFlame" onclick="switchSimSub('flame')">FLAME</button>
       </div>
 
       <!-- SPECS TAB (existing config) -->
@@ -817,6 +818,79 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
         </div>
       </div><!-- /simWorldPanel -->
 
+      <!-- FLAME TAB -->
+      <div id="simFlamePanel" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <span style="font-size:14px;font-weight:400;color:var(--t1);letter-spacing:.5px">FLAME GPU 2</span>
+          <span style="font-size:10px;color:var(--t2);font-family:'JetBrains Mono',monospace">population dynamics</span>
+          <span class="dot off" id="flameStatusDot" style="margin-left:auto"></span>
+          <span style="font-size:9px;color:var(--t2);font-family:'JetBrains Mono',monospace" id="flameStatusText">disabled</span>
+        </div>
+
+        <div class="sim-cfg" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="sg">
+            <label>Population Size <span class="info-tip">i<span class="tip-text">Total number of simulated agents. These amplify the dynamics of your LLM participants into a large-scale population. Each agent has its own susceptibility, resilience, and position. More agents = higher resolution but more GPU compute per step.</span></span></label>
+            <div class="rr">
+              <input type="range" id="flPopSlider" min="0" max="11" step="1" value="7" oninput="setFlPop(this.value)">
+              <span class="rv" id="flPopLabel" style="min-width:48px">10M</span>
+            </div>
+            <input type="number" id="flPopulation" value="10000000" min="1000" max="500000000" step="1000" oninput="syncFlPopFromInput()" style="width:100%;margin-top:4px;padding:5px 9px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t2);font-family:'JetBrains Mono',monospace;font-size:9px;outline:none">
+            <div class="sn">agents on GPU — clusters emerge naturally around influencer positions</div>
+          </div>
+          <div class="sg">
+            <label>Space Size <span class="info-tip">i<span class="tip-text">Size of the world in meters. Agents are spread across a square area of this width. 100,000 = a 100km x 100km region. Larger space = lower density = fewer neighbor reads per agent = faster computation. Agents cluster regardless of initial spread.</span></span></label>
+            <div class="rr">
+              <input type="range" id="flSpaceSlider" min="0" max="9" step="1" value="6" oninput="setFlSpace(this.value)">
+              <span class="rv" id="flSpaceLabel" style="min-width:48px">100km</span>
+            </div>
+            <input type="number" id="flSpace" value="100000" min="100" max="1000000" step="100" oninput="syncFlSpaceFromInput()" style="width:100%;margin-top:4px;padding:5px 9px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t2);font-family:'JetBrains Mono',monospace;font-size:9px;outline:none">
+            <div class="sn">meters — total world dimensions (square)</div>
+          </div>
+          <div class="sg">
+            <label>Interaction Radius <span class="info-tip">i<span class="tip-text">How far each agent can hear, in meters. Agents within this distance exchange signals and influence each other. 500m = neighborhood-scale reach. Larger radius = more neighbors per agent = richer dynamics but more compute. The number of neighbor reads scales with radius squared.</span></span></label>
+            <div class="rr">
+              <input type="range" id="flRadiusSlider" min="0" max="9" step="1" value="5" oninput="setFlRadius(this.value)">
+              <span class="rv" id="flRadiusLabel" style="min-width:48px">500m</span>
+            </div>
+            <input type="number" id="flRadius" value="500" min="1" max="10000" step="1" oninput="syncFlRadiusFromInput()" style="width:100%;margin-top:4px;padding:5px 9px;background:var(--bg0);border:1px solid var(--bd);border-radius:var(--rax);color:var(--t2);font-family:'JetBrains Mono',monospace;font-size:9px;outline:none">
+            <div class="sn">meters — agents within this distance interact</div>
+          </div>
+          <div class="sg">
+            <label>Mobility <span class="info-tip">i<span class="tip-text">How fast agents move, as a fraction of their reach per step. 0.1 means an agent crosses 10% of its interaction radius each step. Higher values = faster clustering around influencers, lower = more stable neighborhoods with slower drift. Scales automatically with interaction radius.</span></span></label>
+            <div class="rr">
+              <input type="range" id="flMobility" min="0.01" max="1.0" step="0.01" value="0.1" oninput="document.getElementById('flMobilityV').textContent=this.value">
+              <span class="rv" id="flMobilityV">0.1</span>
+            </div>
+            <div class="sn">fraction of reach per step — 0.1 = 10% of radius</div>
+          </div>
+        </div>
+
+        <!-- Computed stats -->
+        <div style="margin-top:12px;padding:10px 12px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);line-height:1.8" id="flameComputed">
+          <span style="color:var(--t1)">density:</span> <span id="flDensity">1.0</span>/100m&sup2;
+          &nbsp;&middot;&nbsp;
+          <span style="color:var(--t1)">neighbors:</span> ~<span id="flNeighbors">7,854</span>/agent
+          &nbsp;&middot;&nbsp;
+          <span style="color:var(--t1)">move:</span> <span id="flMoveSpeed">50</span>m/step
+        </div>
+
+        <!-- Authority note -->
+        <div style="margin-top:16px;padding:10px 14px;background:rgba(56,200,200,.04);border:1px solid rgba(56,200,200,.12);border-radius:var(--rad);font-size:10px;color:var(--t2);line-height:1.8">
+          <span style="color:var(--a)">Authority-managed at runtime:</span> learning rate, peer coupling, dampening, influencer weight, and noise amplitude are adjusted by the Authority observer based on live population patterns. These are not set manually.
+        </div>
+
+        <!-- Live stats (shown during simulation) -->
+        <div id="flameLiveStats" style="display:none;margin-top:16px">
+          <div class="ss-t">Live Population</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-family:'JetBrains Mono',monospace;font-size:10px">
+            <div style="text-align:center"><div style="color:var(--t2);font-size:8px;text-transform:uppercase;margin-bottom:4px">Count</div><div style="color:var(--t0)" id="flLiveCount">—</div></div>
+            <div style="text-align:center"><div style="color:var(--t2);font-size:8px;text-transform:uppercase;margin-bottom:4px">Mean</div><div style="color:var(--t0)" id="flLiveMean">—</div></div>
+            <div style="text-align:center"><div style="color:var(--t2);font-size:8px;text-transform:uppercase;margin-bottom:4px">Std</div><div style="color:var(--t0)" id="flLiveStd">—</div></div>
+            <div style="text-align:center"><div style="color:var(--t2);font-size:8px;text-transform:uppercase;margin-bottom:4px">Clusters</div><div style="color:var(--t0)" id="flLiveClusters">—</div></div>
+          </div>
+        </div>
+      </div><!-- /simFlamePanel -->
+
       <!-- PROGRESS: SINGLE RUN -->
       <div id="simSingleProgress" style="display:none">
         <div class="sim-progress" id="simProgressWrap">
@@ -892,14 +966,23 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
           <div class="arch-r"><div class="arch-n nc"><span class="dot off" id="sysAuth" style="margin-right:4px"></span>Authority :8000</div><span class="arch-ar">&rarr;</span><div class="arch-d" id="sysAuthModel">environment + observers</div></div>
           <div class="arch-r"><div class="arch-n nq"><span class="dot off" id="sysSwarm" style="margin-right:4px"></span>Swarm :8001</div><span class="arch-ar">&rarr;</span><div class="arch-d" id="sysSwarmModel">participants</div></div>
           <div class="arch-r"><div class="arch-n ne"><span class="dot off" id="sysEmbed" style="margin-right:4px"></span>e5-small-v2 :9000</div><span class="arch-ar">&rarr;</span><div class="arch-d">embed + cosine search + top-k</div></div>
+          <div class="arch-r"><div class="arch-n" style="border-color:var(--w)"><span class="dot off" id="sysFlame" style="margin-right:4px"></span>FLAME :GPU2</div><span class="arch-ar">&rarr;</span><div class="arch-d" id="sysFlameDesc">population dynamics (disabled)</div></div>
         </div>
       </div>
 
       <!-- GPU TELEMETRY -->
       <div class="arch" style="max-width:100%;margin-bottom:16px">
-        <div class="arch-t">gpu telemetry</div>
-        <div id="sysGpuStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);line-height:2">
-          <span style="color:var(--t2);opacity:.5">polling...</span>
+        <div class="arch-t" style="display:flex;align-items:center">gpu telemetry<button class="mac" style="margin-left:auto" onclick="window.open('/gpu','_blank')">open in new tab</button></div>
+        <div id="sysGpuStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">
+          <span style="opacity:.5">polling...</span>
+        </div>
+      </div>
+
+      <!-- CPU / SYSTEM -->
+      <div class="arch" style="max-width:100%;margin-bottom:16px">
+        <div class="arch-t">system</div>
+        <div id="sysCpuStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">
+          <span style="opacity:.5">polling...</span>
         </div>
       </div>
 
@@ -1643,7 +1726,13 @@ async function pollHealth() {
         const fd = await fr.json();
         S._healthData.flame = fd;
         const flameDot = document.getElementById('stFlame');
-        if (flameDot) flameDot.className = 'dot '+(fd.enabled?'on':'off');
+        if (flameDot) flameDot.className = 'dot '+(fd.flame_enabled?'on':'off');
+        const sysFlDot = document.getElementById('sysFlame');
+        if (sysFlDot) sysFlDot.className = 'dot '+(fd.flame_enabled?'on':'off');
+        const sysFlDesc = document.getElementById('sysFlameDesc');
+        if (sysFlDesc) sysFlDesc.textContent = fd.flame_enabled
+          ? `population dynamics (${(fd.flame_n_population||0).toLocaleString()} agents)`
+          : 'population dynamics (disabled)';
       }
     } catch { document.getElementById('stFlame').className = 'dot off'; }
     // GPU monitor status
@@ -1743,37 +1832,76 @@ function renderHealthDetail(panel) {
   el.innerHTML = html;
 }
 
+const GPU_ROLES = ['authority','swarm','flame'];
+function gpuBarColor(pct) { return pct > 90 ? 'var(--r)' : pct > 70 ? 'var(--w)' : 'var(--a)'; }
+
 async function pollGpuTelemetry() {
-  const el = document.getElementById('sysGpuStats');
-  if (!el) return;
+  const gpuEl = document.getElementById('sysGpuStats');
+  const cpuEl = document.getElementById('sysCpuStats');
   try {
-    const gwUrl = url.gw();
-    const r = await fetch(`${gwUrl}/gpu/telemetry`);
+    const r = await fetch(`${url.gw()}/gpu/telemetry`);
     if (!r.ok) throw new Error('unavailable');
     const d = await r.json();
-    if (d.gpus && d.gpus.length) {
-      el.innerHTML = d.gpus.map((g,i) => {
+
+    // GPU cards
+    if (gpuEl && d.gpus && d.gpus.length) {
+      gpuEl.innerHTML = d.gpus.map((g,i) => {
         const memPct = g.memory_total ? Math.round(g.memory_used/g.memory_total*100) : 0;
-        const pwrBar = Math.round((g.power_draw||0)/300*100);
-        return `<div style="margin-bottom:6px">
-          <span style="color:var(--a)">GPU ${i}</span> ${g.name||''}
-          <span style="margin-left:8px">${g.power_draw||0}W</span>
-          <span style="margin-left:8px">${g.memory_used||0}/${g.memory_total||0} MB (${memPct}%)</span>
-          <span style="margin-left:8px">util ${g.utilization||0}%</span>
+        const util = g.utilization||0;
+        const role = GPU_ROLES[i] || '';
+        const roleBadge = role ? `<span style="font-size:8px;padding:1px 5px;border:1px solid var(--bd);border-radius:2px;color:var(--t2);margin-left:6px">${role}</span>` : '';
+        const tempColor = (g.temp||0) > 80 ? 'var(--r)' : (g.temp||0) > 65 ? 'var(--w)' : 'var(--t2)';
+        return `<div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span><span style="color:var(--a)">GPU ${i}</span> ${(g.name||'').replace('NVIDIA ','').trim()}${roleBadge}</span>
+            <span style="color:${tempColor}">${g.temp||0}°C</span>
+          </div>
+          <div style="background:var(--bg0);height:6px;border-radius:3px;overflow:hidden;margin-bottom:3px">
+            <div style="width:${util}%;height:100%;background:${gpuBarColor(util)};border-radius:3px;transition:width .3s"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--t2);margin-bottom:6px">
+            <span>util ${util}%</span><span>${g.power_draw||0}W</span>
+          </div>
+          <div style="background:var(--bg0);height:6px;border-radius:3px;overflow:hidden;margin-bottom:3px">
+            <div style="width:${memPct}%;height:100%;background:${gpuBarColor(memPct)};border-radius:3px;transition:width .3s"></div>
+          </div>
+          <div style="font-size:9px;color:var(--t2)">vram ${(g.memory_used||0).toLocaleString()} / ${(g.memory_total||0).toLocaleString()} MB (${memPct}%)</div>
         </div>`;
       }).join('');
-    } else {
-      el.innerHTML = '<span style="opacity:.5">no GPUs detected (local mode)</span>';
+    } else if (gpuEl) {
+      gpuEl.innerHTML = '<span style="opacity:.5">no GPUs detected (local mode)</span>';
+    }
+
+    // CPU / System stats
+    if (cpuEl && d.cpu) {
+      const c = d.cpu;
+      const memPct = c.memory_total ? Math.round(c.memory_used/c.memory_total*100) : 0;
+      cpuEl.innerHTML = `<div style="margin-bottom:6px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="color:var(--a)">CPU</span><span>${c.percent||0}%</span>
+        </div>
+        <div style="background:var(--bg0);height:6px;border-radius:3px;overflow:hidden;margin-bottom:3px">
+          <div style="width:${c.percent||0}%;height:100%;background:${gpuBarColor(c.percent||0)};border-radius:3px;transition:width .3s"></div>
+        </div>
+        <div style="font-size:9px;color:var(--t2);margin-bottom:8px">usage ${c.percent||0}%</div>
+        <div style="background:var(--bg0);height:6px;border-radius:3px;overflow:hidden;margin-bottom:3px">
+          <div style="width:${memPct}%;height:100%;background:${gpuBarColor(memPct)};border-radius:3px;transition:width .3s"></div>
+        </div>
+        <div style="font-size:9px;color:var(--t2)">ram ${(c.memory_used||0).toLocaleString()} / ${(c.memory_total||0).toLocaleString()} MB (${memPct}%)</div>
+      </div>`;
+    } else if (cpuEl) {
+      cpuEl.innerHTML = '<span style="opacity:.5">cpu metrics unavailable</span>';
     }
   } catch {
-    el.innerHTML = '<span style="opacity:.5">no GPUs detected (local mode)</span>';
+    if (gpuEl) gpuEl.innerHTML = '<span style="opacity:.5">no GPUs detected (local mode)</span>';
+    if (cpuEl) cpuEl.innerHTML = '<span style="opacity:.5">cpu metrics unavailable</span>';
   }
 }
 
 setInterval(pollHealth, 5000);
-setInterval(pollGpuTelemetry, 10000);
+setInterval(pollGpuTelemetry, 333);
 setTimeout(pollHealth, 500);
-setTimeout(pollGpuTelemetry, 1500);
+setTimeout(pollGpuTelemetry, 800);
 
 
 // ── SIMULATION ──
@@ -1845,7 +1973,15 @@ async function startSimulation() {
     const gwUrl = url.gw();
     const r = await fetch(`${gwUrl}/simulation/start`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({scenario: document.getElementById('simScenario').value})
+      body: JSON.stringify({
+        scenario: document.getElementById('simScenario').value,
+        flame_config: {
+          population_size: parseInt(document.getElementById('flPopulation').value) || 10000000,
+          space_size: parseInt(document.getElementById('flSpace').value) || 100000,
+          interaction_radius: parseInt(document.getElementById('flRadius').value) || 500,
+          mobility: parseFloat(document.getElementById('flMobility').value) || 0.1,
+        }
+      })
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     badge.textContent = 'running';
@@ -1881,6 +2017,15 @@ async function pollSimStatus() {
     if (tickEl) tickEl.textContent = `${tick} / ${nTicks}`;
     renderSimScores(d.scores);
     renderSimEvents(d.events);
+
+    // FLAME live stats
+    if (d.flame) {
+      document.getElementById('flameLiveStats').style.display = '';
+      document.getElementById('flLiveCount').textContent = (d.flame.count || 0).toLocaleString();
+      document.getElementById('flLiveMean').textContent = (d.flame.mean || 0).toFixed(3);
+      document.getElementById('flLiveStd').textContent = (d.flame.std || 0).toFixed(3);
+      document.getElementById('flLiveClusters').textContent = d.flame.clusters || '—';
+    }
 
     if (d.status === 'running') {
       badge.textContent = `tick ${tick}/${nTicks}`;
@@ -2671,10 +2816,103 @@ outcome_criteria:
 function switchSimSub(tab) {
   document.getElementById('simSpecsPanel').style.display = tab === 'specs' ? '' : 'none';
   document.getElementById('simWorldPanel').style.display = tab === 'world' ? '' : 'none';
+  document.getElementById('simFlamePanel').style.display = tab === 'flame' ? '' : 'none';
   document.getElementById('simSubSpecs').className = 'mode-tab' + (tab === 'specs' ? ' active' : '');
   document.getElementById('simSubWorld').className = 'mode-tab' + (tab === 'world' ? ' active' : '');
+  document.getElementById('simSubFlame').className = 'mode-tab' + (tab === 'flame' ? ' active' : '');
   if (tab === 'world') refreshWorldStats();
+  if (tab === 'flame') updateFlameComputed();
 }
+
+// Population slider: discrete steps with human-readable labels
+const FL_POP_STEPS = [1000, 5000, 10000, 50000, 100000, 500000, 1000000, 10000000, 25000000, 50000000, 100000000, 500000000];
+function flPopFormat(n) {
+  if (n >= 1000000) return (n / 1000000) + 'M';
+  if (n >= 1000) return (n / 1000) + 'K';
+  return n.toString();
+}
+function setFlPop(idx) {
+  const val = FL_POP_STEPS[parseInt(idx)] || 10000000;
+  document.getElementById('flPopulation').value = val;
+  document.getElementById('flPopLabel').textContent = flPopFormat(val);
+  updateFlameComputed();
+}
+function syncFlPopFromInput() {
+  const val = parseInt(document.getElementById('flPopulation').value) || 10000000;
+  // Find closest slider step
+  let closest = 0;
+  for (let i = 0; i < FL_POP_STEPS.length; i++) {
+    if (Math.abs(FL_POP_STEPS[i] - val) < Math.abs(FL_POP_STEPS[closest] - val)) closest = i;
+  }
+  document.getElementById('flPopSlider').value = closest;
+  document.getElementById('flPopLabel').textContent = flPopFormat(val);
+  updateFlameComputed();
+}
+
+// Space slider: discrete steps with human-readable labels
+const FL_SPACE_STEPS = [100, 500, 1000, 5000, 10000, 50000, 100000, 250000, 500000, 1000000];
+function flSpaceFormat(n) {
+  if (n >= 1000) return (n / 1000) + 'km';
+  return n + 'm';
+}
+function setFlSpace(idx) {
+  const val = FL_SPACE_STEPS[parseInt(idx)] || 100000;
+  document.getElementById('flSpace').value = val;
+  document.getElementById('flSpaceLabel').textContent = flSpaceFormat(val);
+  updateFlameComputed();
+}
+function syncFlSpaceFromInput() {
+  const val = parseInt(document.getElementById('flSpace').value) || 100000;
+  let closest = 0;
+  for (let i = 0; i < FL_SPACE_STEPS.length; i++) {
+    if (Math.abs(FL_SPACE_STEPS[i] - val) < Math.abs(FL_SPACE_STEPS[closest] - val)) closest = i;
+  }
+  document.getElementById('flSpaceSlider').value = closest;
+  document.getElementById('flSpaceLabel').textContent = flSpaceFormat(val);
+  updateFlameComputed();
+}
+
+// Radius slider: discrete steps with human-readable labels
+const FL_RADIUS_STEPS = [2, 5, 10, 50, 100, 500, 1000, 2000, 5000, 10000];
+function flRadiusFormat(n) {
+  if (n >= 1000) return (n / 1000) + 'km';
+  return n + 'm';
+}
+function setFlRadius(idx) {
+  const val = FL_RADIUS_STEPS[parseInt(idx)] || 500;
+  document.getElementById('flRadius').value = val;
+  document.getElementById('flRadiusLabel').textContent = flRadiusFormat(val);
+  updateFlameComputed();
+}
+function syncFlRadiusFromInput() {
+  const val = parseInt(document.getElementById('flRadius').value) || 500;
+  let closest = 0;
+  for (let i = 0; i < FL_RADIUS_STEPS.length; i++) {
+    if (Math.abs(FL_RADIUS_STEPS[i] - val) < Math.abs(FL_RADIUS_STEPS[closest] - val)) closest = i;
+  }
+  document.getElementById('flRadiusSlider').value = closest;
+  document.getElementById('flRadiusLabel').textContent = flRadiusFormat(val);
+  updateFlameComputed();
+}
+
+function updateFlameComputed() {
+  const pop = parseInt(document.getElementById('flPopulation').value) || 10000000;
+  const space = parseInt(document.getElementById('flSpace').value) || 100000;
+  const radius = parseInt(document.getElementById('flRadius').value) || 500;
+  const mobility = parseFloat(document.getElementById('flMobility').value) || 0.1;
+  const area = space * space;
+  const density = (pop / area) * 10000; // per 100m²
+  const reachArea = Math.PI * radius * radius;
+  const neighbors = Math.round(pop * (reachArea / area));
+  const moveSpeed = Math.round(mobility * radius);
+  document.getElementById('flDensity').textContent = density < 1 ? density.toFixed(2) : Math.round(density).toLocaleString();
+  document.getElementById('flNeighbors').textContent = neighbors.toLocaleString();
+  document.getElementById('flMoveSpeed').textContent = moveSpeed.toLocaleString();
+}
+
+// Attach live-update listeners to FLAME inputs
+const flMobEl = document.getElementById('flMobility');
+if (flMobEl) flMobEl.addEventListener('input', updateFlameComputed);
 
 // ── WORLD TAB ──
 

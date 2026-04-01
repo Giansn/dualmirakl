@@ -74,10 +74,10 @@ def _flame_config_from_env(overrides: Optional[dict] = None) -> dict:
     """Build FLAME config from env vars + optional overrides."""
     _e = os.environ.get
     cfg = {
-        "n_population": int(_e("FLAME_N_POPULATION", "10000")),
+        "n_population": int(_e("FLAME_N_POPULATION", "10000000")),
         "n_influencers": int(_e("SIM_N_PARTICIPANTS", "4")),
-        "space_size": 100.0,
-        "interaction_radius": float(_e("FLAME_INTERACTION_RADIUS", "10.0")),
+        "space_size": float(_e("FLAME_SPACE_SIZE", "100000")),
+        "interaction_radius": float(_e("FLAME_INTERACTION_RADIUS", "500")),
         "alpha": float(_e("SIM_ALPHA", "0.15")),
         "kappa": float(_e("FLAME_KAPPA", "0.1")),
         "dampening": 1.0,
@@ -85,7 +85,7 @@ def _flame_config_from_env(overrides: Optional[dict] = None) -> dict:
         "score_mode": _e("SIM_SCORE_MODE", "ema"),
         "logistic_k": float(_e("SIM_LOGISTIC_K", "6.0")),
         "drift_sigma": float(_e("FLAME_DRIFT_SIGMA", "0.01")),
-        "move_speed": 0.5,
+        "mobility": float(_e("FLAME_MOBILITY", "0.1")),
         "sub_steps": int(_e("FLAME_SUB_STEPS", "10")),
         "gpu_id": int(_e("FLAME_GPU", "2")),
         "seed": int(_e("SIM_SEED", "42")),

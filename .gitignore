@@ -44,3 +44,4 @@ Thumbs.db
 # Secrets — never commit
 *.key
 *.pem
+lightning_logs/

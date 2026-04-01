@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GPU Harmony — Full Pipeline</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg0:#13141a;--bg1:#181a21;--bg2:#1f2129;--bg3:#282a33;--bd:#32343e;--t0:#e8e6e2;--t1:#aaa8a2;--t2:#888680;--t3:#555;--a:#38c8c8;--q:#5aadad;--e:#a898b8;--w:#c4ae80;--r:#c09090;--flame:#e8a040;--g:#70c080;--idle:#1a1b22}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg0);color:var(--t0);font-family:'Outfit',sans-serif;padding:28px 32px;min-height:100vh}
+
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.top h1{font-size:16px;font-weight:400;color:var(--t1);letter-spacing:.5px}
+.top h1 span{color:var(--a);font-weight:500}
+.version-toggle{display:flex;gap:2px;background:var(--bg2);border-radius:4px;padding:2px;border:1px solid var(--bd)}
+.ver-btn{padding:5px 14px;font-family:'JetBrains Mono',monospace;font-size:10px;border:none;border-radius:3px;cursor:pointer;color:var(--t2);background:transparent;transition:all .15s}
+.ver-btn.active{background:var(--a);color:var(--bg0)}
+.ver-btn:hover:not(.active){color:var(--t0)}
+
+/* Legend */
+.legend{display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.leg-item{display:flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2)}
+.leg-swatch{width:10px;height:10px;border-radius:2px}
+
+/* Timeline container */
+.timeline-wrap{position:relative;overflow-x:auto;margin-bottom:28px;border:1px solid var(--bd);border-radius:6px;background:var(--bg1)}
+
+/* Swim lanes */
+.swim-lanes{display:flex;flex-direction:column;min-width:1400px}
+.lane{display:flex;align-items:stretch;border-bottom:1px solid rgba(50,52,62,.4);min-height:56px}
+.lane:last-child{border-bottom:none}
+.lane-label{width:90px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;border-right:1px solid var(--bd);background:var(--bg2);padding:6px 4px}
+.lane-label .hw{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500}
+.lane-label .role{font-size:8px;color:var(--t2);margin-top:2px;text-align:center;line-height:1.3}
+.lane-body{flex:1;display:flex;align-items:center;padding:6px 4px;position:relative;gap:2px}
+
+/* Blocks inside lanes */
+.block{height:40px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:500;position:relative;overflow:hidden;flex-shrink:0;transition:opacity .3s}
+.block .sub{font-size:7px;font-weight:400;opacity:.7;margin-top:1px;display:block}
+.block-inner{display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1;text-align:center;line-height:1.3}
+
+/* Idle gaps */
+.gap{height:40px;background:repeating-linear-gradient(90deg,transparent 0,transparent 3px,rgba(255,255,255,.02) 3px,rgba(255,255,255,.02) 6px);border-radius:2px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:7px;color:var(--t3)}
+
+/* Tick markers */
+.tick-markers{display:flex;padding-left:90px;min-width:1400px}
+.tick-mark{display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);border-left:1px dashed rgba(50,52,62,.6);padding:6px 0;text-align:center;position:relative}
+.tick-mark::before{content:'';position:absolute;top:0;left:0;width:1px;height:500px;background:rgba(50,52,62,.3);pointer-events:none}
+
+/* Animated scan line */
+.scanline{position:absolute;top:0;width:2px;height:100%;background:var(--a);opacity:.6;z-index:10;box-shadow:0 0 8px var(--a);display:none}
+.scanning .scanline{display:block;animation:scan 8s linear infinite}
+@keyframes scan{0%{left:90px}100%{left:100%}}
+
+/* Data flow arrows */
+.flow-arrow{position:absolute;z-index:5;pointer-events:none}
+
+/* Stats bar */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.stat-card{background:var(--bg1);border:1px solid var(--bd);border-radius:4px;padding:14px 16px}
+.stat-card .label{font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.stat-card .value{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:500}
+.stat-card .delta{font-size:9px;margin-top:4px}
+.stat-card .delta.up{color:var(--g)}
+.stat-card .delta.down{color:var(--r)}
+
+/* Info panels */
+.panels{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px}
+.panel{background:var(--bg1);border:1px solid var(--bd);border-radius:4px;padding:14px 16px}
+.panel h4{font-size:9px;font-weight:400;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+.panel p{font-size:10px;color:var(--t1);line-height:1.7}
+.panel code{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--a);background:var(--bg2);padding:1px 4px;border-radius:2px}
+
+/* Stream indicator */
+.stream-dots{display:inline-flex;gap:2px;margin-left:4px}
+.stream-dots span{width:3px;height:3px;border-radius:50%;background:var(--a);animation:pulse .8s ease-in-out infinite}
+.stream-dots span:nth-child(2){animation-delay:.15s}
+.stream-dots span:nth-child(3){animation-delay:.3s}
+@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+
+/* Responsive */
+@media(max-width:900px){
+  .stats{grid-template-columns:1fr 1fr}
+  .panels{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>GPU Harmony <span id="verLabel">v4</span> &mdash; Full Pipeline</h1>
+  <div class="version-toggle">
+    <button class="ver-btn active" onclick="showVersion('v4')" id="btnV4">v4 current</button>
+    <button class="ver-btn" onclick="showVersion('v5')" id="btnV5">v5 streaming</button>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="leg-item"><div class="leg-swatch" style="background:var(--a)"></div>stimulus gen</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:var(--q)"></div>participant responses</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:var(--e)"></div>embed + score</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:var(--r)"></div>observer (fire&forget)</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:var(--flame)"></div>FLAME population</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:var(--w)"></div>balancer</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:var(--g)"></div>speculative prefetch</div>
+  <div class="leg-item"><div class="leg-swatch" style="background:var(--idle)"></div>idle</div>
+</div>
+
+<!-- Utilization stats -->
+<div class="stats" id="statsBar">
+  <div class="stat-card">
+    <div class="label">GPU 0 &middot; authority</div>
+    <div class="value" style="color:var(--a)" id="statGpu0">~55%</div>
+    <div class="delta" id="deltaGpu0"></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">GPU 1 &middot; swarm</div>
+    <div class="value" style="color:var(--q)" id="statGpu1">~50%</div>
+    <div class="delta" id="deltaGpu1"></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">GPU 2 &middot; FLAME</div>
+    <div class="value" style="color:var(--flame)" id="statGpu2">~1%</div>
+    <div class="delta" id="deltaGpu2"></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">CPU &middot; gateway</div>
+    <div class="value" style="color:var(--e)" id="statCpu">~20%</div>
+    <div class="delta" id="deltaCpu"></div>
+  </div>
+</div>
+
+<!-- V4 Timeline -->
+<div class="timeline-wrap" id="timelineV4">
+  <div class="swim-lanes">
+    <!-- Tick markers -->
+    <div class="lane" style="min-height:28px;background:var(--bg2)">
+      <div class="lane-label" style="min-height:28px"><span class="hw" style="font-size:8px;color:var(--t2)">TIME &rarr;</span></div>
+      <div class="lane-body" style="padding:0;gap:0">
+        <div class="tick-mark" style="width:326px">TICK 1</div>
+        <div class="tick-mark" style="width:326px">TICK 2</div>
+        <div class="tick-mark" style="width:326px">TICK 3</div>
+        <div class="tick-mark" style="width:326px">TICK 4 (observer)</div>
+      </div>
+    </div>
+
+    <!-- GPU 0: Authority -->
+    <div class="lane">
+      <div class="lane-label">
+        <span class="hw" style="color:var(--a)">GPU 0</span>
+        <span class="role">authority</span>
+      </div>
+      <div class="lane-body">
+        <!-- Tick 1 -->
+        <div class="block" style="width:60px;background:rgba(56,200,200,.2);border:1px solid var(--a)"><div class="block-inner"><span style="color:var(--a)">A</span><span class="sub">stimuli</span></div></div>
+        <div class="block" style="width:90px;background:rgba(90,173,173,.15);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="gap" style="width:160px">idle ~45%</div>
+        <!-- Tick 2 -->
+        <div class="block" style="width:60px;background:rgba(56,200,200,.2);border:1px solid var(--a)"><div class="block-inner"><span style="color:var(--a)">A</span><span class="sub">stimuli</span></div></div>
+        <div class="block" style="width:90px;background:rgba(90,173,173,.15);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="gap" style="width:160px">idle ~45%</div>
+        <!-- Tick 3 -->
+        <div class="block" style="width:60px;background:rgba(56,200,200,.2);border:1px solid var(--a)"><div class="block-inner"><span style="color:var(--a)">A</span><span class="sub">stimuli</span></div></div>
+        <div class="block" style="width:90px;background:rgba(90,173,173,.15);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="gap" style="width:160px">idle ~45%</div>
+        <!-- Tick 4 (observer tick) -->
+        <div class="block" style="width:60px;background:rgba(56,200,200,.2);border:1px solid var(--a)"><div class="block-inner"><span style="color:var(--a)">A</span><span class="sub">stimuli</span></div></div>
+        <div class="block" style="width:90px;background:rgba(90,173,173,.15);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="block" style="width:80px;background:rgba(192,144,144,.15);border:1px solid var(--r)"><div class="block-inner"><span style="color:var(--r)">D</span><span class="sub">observer</span></div></div>
+        <div class="gap" style="width:80px">idle</div>
+      </div>
+    </div>
+
+    <!-- GPU 1: Swarm -->
+    <div class="lane">
+      <div class="lane-label">
+        <span class="hw" style="color:var(--q)">GPU 1</span>
+        <span class="role">swarm</span>
+      </div>
+      <div class="lane-body">
+        <!-- Tick 1 -->
+        <div class="gap" style="width:60px">wait</div>
+        <div class="block" style="width:90px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="gap" style="width:160px">idle ~50%</div>
+        <!-- Tick 2 -->
+        <div class="gap" style="width:60px">wait</div>
+        <div class="block" style="width:90px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="gap" style="width:160px">idle ~50%</div>
+        <!-- Tick 3 -->
+        <div class="gap" style="width:60px">wait</div>
+        <div class="block" style="width:90px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="gap" style="width:160px">idle ~50%</div>
+        <!-- Tick 4 -->
+        <div class="gap" style="width:60px">wait</div>
+        <div class="block" style="width:90px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="gap" style="width:160px">idle ~50%</div>
+      </div>
+    </div>
+
+    <!-- GPU 2: FLAME -->
+    <div class="lane">
+      <div class="lane-label">
+        <span class="hw" style="color:var(--flame)">GPU 2</span>
+        <span class="role">FLAME</span>
+      </div>
+      <div class="lane-body">
+        <!-- Tick 1 -->
+        <div class="gap" style="width:148px">wait for scores</div>
+        <div class="block" style="width:20px;background:rgba(232,160,64,.25);border:1px solid var(--flame)"><div class="block-inner"><span style="color:var(--flame)" style="font-size:7px">F</span></div></div>
+        <div class="gap" style="width:142px">idle ~99%</div>
+        <!-- Tick 2 -->
+        <div class="gap" style="width:148px">wait</div>
+        <div class="block" style="width:20px;background:rgba(232,160,64,.25);border:1px solid var(--flame)"><div class="block-inner"><span style="color:var(--flame)" style="font-size:7px">F</span></div></div>
+        <div class="gap" style="width:142px">idle</div>
+        <!-- Tick 3 -->
+        <div class="gap" style="width:148px">wait</div>
+        <div class="block" style="width:20px;background:rgba(232,160,64,.25);border:1px solid var(--flame)"><div class="block-inner"><span style="color:var(--flame)" style="font-size:7px">F</span></div></div>
+        <div class="gap" style="width:142px">idle</div>
+        <!-- Tick 4 -->
+        <div class="gap" style="width:148px">wait</div>
+        <div class="block" style="width:20px;background:rgba(232,160,64,.25);border:1px solid var(--flame)"><div class="block-inner"><span style="color:var(--flame)" style="font-size:7px">F</span></div></div>
+        <div class="gap" style="width:142px">idle</div>
+      </div>
+    </div>
+
+    <!-- CPU -->
+    <div class="lane">
+      <div class="lane-label">
+        <span class="hw" style="color:var(--e)">CPU</span>
+        <span class="role">gateway</span>
+      </div>
+      <div class="lane-body">
+        <!-- Tick 1 -->
+        <div class="gap" style="width:148px">wait for responses</div>
+        <div class="block" style="width:50px;background:rgba(168,152,184,.2);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e)">C</span><span class="sub">embed+score</span></div></div>
+        <div class="block" style="width:30px;background:rgba(196,174,128,.2);border:1px solid var(--w)"><div class="block-inner"><span style="color:var(--w);font-size:8px">BAL</span></div></div>
+        <div class="gap" style="width:82px">idle</div>
+        <!-- Tick 2 -->
+        <div class="gap" style="width:148px">wait</div>
+        <div class="block" style="width:50px;background:rgba(168,152,184,.2);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e)">C</span><span class="sub">embed+score</span></div></div>
+        <div class="block" style="width:30px;background:rgba(196,174,128,.2);border:1px solid var(--w)"><div class="block-inner"><span style="color:var(--w);font-size:8px">BAL</span></div></div>
+        <div class="gap" style="width:82px">idle</div>
+        <!-- Tick 3+4 similar -->
+        <div class="gap" style="width:148px">wait</div>
+        <div class="block" style="width:50px;background:rgba(168,152,184,.2);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e)">C</span><span class="sub">embed+score</span></div></div>
+        <div class="block" style="width:30px;background:rgba(196,174,128,.2);border:1px solid var(--w)"><div class="block-inner"><span style="color:var(--w);font-size:8px">BAL</span></div></div>
+        <div class="gap" style="width:82px">idle</div>
+        <div class="gap" style="width:148px">wait</div>
+        <div class="block" style="width:50px;background:rgba(168,152,184,.2);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e)">C</span><span class="sub">embed+score</span></div></div>
+        <div class="block" style="width:30px;background:rgba(196,174,128,.2);border:1px solid var(--w)"><div class="block-inner"><span style="color:var(--w);font-size:8px">BAL</span></div></div>
+        <div class="gap" style="width:82px">idle</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- V5 Timeline (streaming) -->
+<div class="timeline-wrap" id="timelineV5" style="display:none">
+  <div class="swim-lanes">
+    <!-- Tick markers -->
+    <div class="lane" style="min-height:28px;background:var(--bg2)">
+      <div class="lane-label" style="min-height:28px"><span class="hw" style="font-size:8px;color:var(--t2)">TIME &rarr;</span></div>
+      <div class="lane-body" style="padding:0;gap:0">
+        <div class="tick-mark" style="width:326px">TICK 1</div>
+        <div class="tick-mark" style="width:326px">TICK 2</div>
+        <div class="tick-mark" style="width:326px">TICK 3</div>
+        <div class="tick-mark" style="width:326px">TICK 4 (observer)</div>
+      </div>
+    </div>
+
+    <!-- GPU 0: Authority — streaming -->
+    <div class="lane">
+      <div class="lane-label">
+        <span class="hw" style="color:var(--a)">GPU 0</span>
+        <span class="role">authority</span>
+      </div>
+      <div class="lane-body">
+        <!-- Tick 1 -->
+        <div class="block" style="width:55px;background:rgba(56,200,200,.2);border:1px solid var(--a)"><div class="block-inner"><span style="color:var(--a)">A</span><span class="sub">stimuli</span></div></div>
+        <div class="block" style="width:110px;background:rgba(90,173,173,.15);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="block" style="width:100px;background:rgba(112,192,128,.12);border:1px solid var(--g)"><div class="block-inner"><span style="color:var(--g)">A'</span><span class="sub">speculative</span></div></div>
+        <div class="gap" style="width:50px"></div>
+        <!-- Tick 2 -->
+        <div class="block" style="width:30px;background:rgba(56,200,200,.25);border:1px solid var(--a)"><div class="block-inner"><span style="color:var(--a);font-size:7px">A<sub>hit</sub></span></div></div>
+        <div class="block" style="width:110px;background:rgba(90,173,173,.15);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="block" style="width:100px;background:rgba(112,192,128,.12);border:1px solid var(--g)"><div class="block-inner"><span style="color:var(--g)">A'</span><span class="sub">speculative</span></div></div>
+        <div class="gap" style="width:75px"></div>
+        <!-- Tick 3 -->
+        <div class="block" style="width:30px;background:rgba(56,200,200,.25);border:1px solid var(--a)"><div class="block-inner"><span style="color:var(--a);font-size:7px">A<sub>hit</sub></span></div></div>
+        <div class="block" style="width:110px;background:rgba(90,173,173,.15);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="block" style="width:100px;background:rgba(112,192,128,.12);border:1px solid var(--g)"><div class="block-inner"><span style="color:var(--g)">A'</span><span class="sub">speculative</span></div></div>
+        <div class="gap" style="width:75px"></div>
+        <!-- Tick 4 (observer) -->
+        <div class="block" style="width:30px;background:rgba(56,200,200,.25);border:1px solid var(--a)"><div class="block-inner"><span style="color:var(--a);font-size:7px">A<sub>hit</sub></span></div></div>
+        <div class="block" style="width:110px;background:rgba(90,173,173,.15);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q)">B</span><span class="sub">N/2 resp</span></div></div>
+        <div class="block" style="width:80px;background:rgba(192,144,144,.18);border:1px solid var(--r)"><div class="block-inner"><span style="color:var(--r)">D</span><span class="sub">observer</span></div></div>
+        <div class="block" style="width:70px;background:rgba(112,192,128,.12);border:1px solid var(--g)"><div class="block-inner"><span style="color:var(--g)">A'</span><span class="sub">spec</span></div></div>
+      </div>
+    </div>
+
+    <!-- GPU 1: Swarm — stream-and-score, no gap -->
+    <div class="lane">
+      <div class="lane-label">
+        <span class="hw" style="color:var(--q)">GPU 1</span>
+        <span class="role">swarm</span>
+      </div>
+      <div class="lane-body">
+        <!-- Tick 1: responses stream overlapping -->
+        <div class="gap" style="width:20px"></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.3);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r1</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r2</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r3</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r4</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.3);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r5</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r6</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r7</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r8</span></div></div>
+        <div class="gap" style="width:10px"></div>
+        <!-- Tick 2 -->
+        <div class="block" style="width:28px;background:rgba(90,173,173,.3);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r1</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r2</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r3</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r4</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.3);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r5</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r6</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r7</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r8</span></div></div>
+        <div class="gap" style="width:10px"></div>
+        <!-- Tick 3 -->
+        <div class="block" style="width:28px;background:rgba(90,173,173,.3);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r1</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r2</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r3</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r4</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.3);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r5</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r6</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r7</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r8</span></div></div>
+        <div class="gap" style="width:10px"></div>
+        <!-- Tick 4 -->
+        <div class="block" style="width:28px;background:rgba(90,173,173,.3);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r1</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r2</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r3</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r4</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.3);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r5</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r6</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.2);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r7</span></div></div>
+        <div class="block" style="width:28px;background:rgba(90,173,173,.25);border:1px solid var(--q)"><div class="block-inner"><span style="color:var(--q);font-size:7px">r8</span></div></div>
+      </div>
+    </div>
+
+    <!-- GPU 2: FLAME — continuous -->
+    <div class="lane">
+      <div class="lane-label">
+        <span class="hw" style="color:var(--flame)">GPU 2</span>
+        <span class="role">FLAME</span>
+      </div>
+      <div class="lane-body">
+        <div class="block" style="width:1294px;background:linear-gradient(90deg,rgba(232,160,64,.15),rgba(232,160,64,.25),rgba(232,160,64,.15),rgba(232,160,64,.25),rgba(232,160,64,.15),rgba(232,160,64,.25),rgba(232,160,64,.15),rgba(232,160,64,.25));border:1px solid var(--flame);position:relative">
+          <div class="block-inner" style="flex-direction:row;gap:6px">
+            <span style="color:var(--flame);font-size:10px">CONTINUOUS FLAME LOOP</span>
+            <div class="stream-dots"><span style="background:var(--flame)"></span><span style="background:var(--flame)"></span><span style="background:var(--flame)"></span></div>
+          </div>
+          <!-- Score injection markers -->
+          <div style="position:absolute;top:0;height:100%;left:24%;width:1px;background:var(--e);opacity:.4"></div>
+          <div style="position:absolute;top:0;height:100%;left:49%;width:1px;background:var(--e);opacity:.4"></div>
+          <div style="position:absolute;top:0;height:100%;left:74%;width:1px;background:var(--e);opacity:.4"></div>
+          <div style="position:absolute;top:-1px;left:23.5%;font-size:6px;color:var(--e);font-family:'JetBrains Mono',monospace">scores&darr;</div>
+          <div style="position:absolute;top:-1px;left:48.5%;font-size:6px;color:var(--e);font-family:'JetBrains Mono',monospace">scores&darr;</div>
+          <div style="position:absolute;top:-1px;left:73.5%;font-size:6px;color:var(--e);font-family:'JetBrains Mono',monospace">scores&darr;</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CPU — stream-and-score interleaved -->
+    <div class="lane">
+      <div class="lane-label">
+        <span class="hw" style="color:var(--e)">CPU</span>
+        <span class="role">gateway</span>
+      </div>
+      <div class="lane-body">
+        <!-- Tick 1: score as each response arrives -->
+        <div class="gap" style="width:28px"></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s1</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s2</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s3</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s4</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s5</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s6</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s7</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s8</span></div></div>
+        <div class="block" style="width:22px;background:rgba(196,174,128,.2);border:1px solid var(--w)"><div class="block-inner"><span style="color:var(--w);font-size:6px">BAL</span></div></div>
+        <div class="gap" style="width:14px"></div>
+        <!-- Tick 2 -->
+        <div class="gap" style="width:8px"></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s1</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s2</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s3</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s4</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s5</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s6</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s7</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s8</span></div></div>
+        <div class="block" style="width:22px;background:rgba(196,174,128,.2);border:1px solid var(--w)"><div class="block-inner"><span style="color:var(--w);font-size:6px">BAL</span></div></div>
+        <div class="gap" style="width:39px"></div>
+        <!-- Tick 3 -->
+        <div class="gap" style="width:8px"></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s1</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s2</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s3</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s4</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s5</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s6</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s7</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s8</span></div></div>
+        <div class="block" style="width:22px;background:rgba(196,174,128,.2);border:1px solid var(--w)"><div class="block-inner"><span style="color:var(--w);font-size:6px">BAL</span></div></div>
+        <div class="gap" style="width:39px"></div>
+        <!-- Tick 4 -->
+        <div class="gap" style="width:8px"></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s1</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s2</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s3</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s4</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s5</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s6</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.3);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s7</span></div></div>
+        <div class="block" style="width:16px;background:rgba(168,152,184,.25);border:1px solid var(--e)"><div class="block-inner"><span style="color:var(--e);font-size:6px">s8</span></div></div>
+        <div class="block" style="width:22px;background:rgba(196,174,128,.2);border:1px solid var(--w)"><div class="block-inner"><span style="color:var(--w);font-size:6px">BAL</span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Info panels -->
+<div class="panels" id="panelsV4">
+  <div class="panel">
+    <h4>v4 problem: sequential phases</h4>
+    <p>Each tick runs A&rarr;B&rarr;C&rarr;F&rarr;D in order.<br>
+    GPU 0 waits while GPU 1 responds.<br>
+    GPU 1 waits while CPU scores.<br>
+    GPU 2 runs a <code>1ms</code> FLAME burst then sleeps.<br>
+    <strong style="color:var(--r)">Result: ~55% peak, ~35% average utilization.</strong></p>
+  </div>
+  <div class="panel">
+    <h4>the biggest gap: batch-then-score</h4>
+    <p>v4 collects <em>all</em> N responses, then scores them all at once. CPU sits idle during the entire response phase. Both GPUs sit idle during the entire scoring phase. This is where ~40% of the cycle is wasted.</p>
+  </div>
+  <div class="panel">
+    <h4>FLAME: burst vs continuous</h4>
+    <p>v4 runs FLAME once per tick &mdash; a single <code>step()</code> call that takes <code>&lt;1ms</code> on GPU 2. The GPU is allocated but doing nothing for 99% of the time. It could be running a continuous population loop instead.</p>
+  </div>
+</div>
+
+<div class="panels" id="panelsV5" style="display:none">
+  <div class="panel">
+    <h4>stream-and-score (opportunity 1)</h4>
+    <p>Each agent's response is embedded and scored <em>the moment it arrives</em> via <code>asyncio.as_completed</code>. CPU works in parallel with GPUs. No more batch-then-wait.
+    <br><strong style="color:var(--a)">GPU 1: 50%&rarr;80%</strong> &middot; <strong style="color:var(--e)">CPU: 20%&rarr;55%</strong></p>
+  </div>
+  <div class="panel">
+    <h4>speculative stimuli (opportunity 2)</h4>
+    <p>While GPU 1 generates responses, GPU 0 pre-generates next tick's stimuli using the <em>current</em> scores. If scores don't change much (common), the cache hits and tick N+1 starts instantly. If they diverge, re-generate with <code>A<sub>hit</sub></code> (fast delta).
+    <br><strong style="color:var(--a)">GPU 0: 55%&rarr;75%</strong></p>
+  </div>
+  <div class="panel">
+    <h4>continuous FLAME (opportunity 3)</h4>
+    <p>GPU 2 runs a perpetual <code>while True: step()</code> loop. LLM scores are injected into influencer agents <em>asynchronously</em> whenever they arrive (vertical lines). Population evolves thousands of steps between ticks instead of one.
+    <br><strong style="color:var(--flame)">GPU 2: 1%&rarr;90%</strong></p>
+  </div>
+</div>
+
+<!-- Key differences summary -->
+<div class="panels" id="summaryV5" style="display:none">
+  <div class="panel" style="grid-column:1/-1;border-color:var(--a)">
+    <h4 style="color:var(--a)">v4 &rarr; v5: what changes</h4>
+    <p style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+      <span><code>gather()</code> &rarr; <code>as_completed()</code><br><span style="font-size:9px;color:var(--t2)">Score each response immediately instead of waiting for all N</span></span>
+      <span><code>stim_q.get()</code> &rarr; <code>speculative cache</code><br><span style="font-size:9px;color:var(--t2)">Pre-generate stimuli during response phase, validate after scoring</span></span>
+      <span><code>flame.step(1)</code> &rarr; <code>flame.run_continuous()</code><br><span style="font-size:9px;color:var(--t2)">Perpetual population loop with async score injection</span></span>
+    </p>
+  </div>
+</div>
+
+<script>
+function showVersion(ver) {
+  const isV5 = ver === 'v5';
+  document.getElementById('timelineV4').style.display = isV5 ? 'none' : '';
+  document.getElementById('timelineV5').style.display = isV5 ? '' : 'none';
+  document.getElementById('panelsV4').style.display = isV5 ? 'none' : '';
+  document.getElementById('panelsV5').style.display = isV5 ? '' : 'none';
+  document.getElementById('summaryV5').style.display = isV5 ? '' : 'none';
+  document.getElementById('btnV4').classList.toggle('active', !isV5);
+  document.getElementById('btnV5').classList.toggle('active', isV5);
+  document.getElementById('verLabel').textContent = ver;
+
+  // Update stats
+  if (isV5) {
+    document.getElementById('statGpu0').textContent = '~75%';
+    document.getElementById('statGpu1').textContent = '~80%';
+    document.getElementById('statGpu2').textContent = '~90%';
+    document.getElementById('statCpu').textContent = '~55%';
+    document.getElementById('deltaGpu0').className = 'delta up';
+    document.getElementById('deltaGpu0').textContent = '+20% from v4';
+    document.getElementById('deltaGpu1').className = 'delta up';
+    document.getElementById('deltaGpu1').textContent = '+30% from v4';
+    document.getElementById('deltaGpu2').className = 'delta up';
+    document.getElementById('deltaGpu2').textContent = '+89% from v4';
+    document.getElementById('deltaCpu').className = 'delta up';
+    document.getElementById('deltaCpu').textContent = '+35% from v4';
+  } else {
+    document.getElementById('statGpu0').textContent = '~55%';
+    document.getElementById('statGpu1').textContent = '~50%';
+    document.getElementById('statGpu2').textContent = '~1%';
+    document.getElementById('statCpu').textContent = '~20%';
+    document.getElementById('deltaGpu0').className = 'delta';
+    document.getElementById('deltaGpu0').textContent = '';
+    document.getElementById('deltaGpu1').className = 'delta';
+    document.getElementById('deltaGpu1').textContent = '';
+    document.getElementById('deltaGpu2').className = 'delta down';
+    document.getElementById('deltaGpu2').textContent = '99% idle — burst only';
+    document.getElementById('deltaCpu').className = 'delta';
+    document.getElementById('deltaCpu').textContent = '';
+  }
+}
+
+// Init
+showVersion('v4');
+</script>
+</body>
+</html>

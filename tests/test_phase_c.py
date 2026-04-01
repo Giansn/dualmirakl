@@ -138,6 +138,7 @@ class TestDupacovaReduction:
 
 # ── GP emulator tests ────────────────────────────────────────────────────────
 
+@pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 class TestGPEmulator:
 
     def test_fit_predict_1d(self):
@@ -220,6 +221,7 @@ class TestGPEmulator:
 
 # ── History matcher + emulator tests ─────────────────────────────────────────
 
+@pytest.mark.filterwarnings("ignore::sklearn.exceptions.ConvergenceWarning")
 class TestHistoryMatcherEmulator:
 
     @staticmethod

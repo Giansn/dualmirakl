@@ -2,294 +2,307 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>dualmirakl GPU Telemetry</title>
+<title>dualmirakl — GPU & System Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+:root{--bg0:#13141a;--bg1:#181a21;--bg2:#1f2129;--bg3:#282a33;--bd:#32343e;--t0:#e8e6e2;--t1:#aaa8a2;--t2:#888680;--a:#38c8c8;--w:#c4ae80;--r:#c09090;--rad:4px}
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0a0e17;color:#c8d6e5;font-family:'Courier New',monospace;overflow-x:hidden}
-.header{padding:16px 24px;border-bottom:1px solid #1a2332;display:flex;align-items:center;gap:16px}
-.header h1{font-size:16px;color:#00d4aa;font-weight:400}
-.header .freq{font-size:12px;color:#5a6a7a;margin-left:auto}
-.header .status{width:8px;height:8px;border-radius:50%;background:#ff4757;animation:pulse 1.5s infinite}
-.header .status.live{background:#00d4aa}
+body{background:var(--bg0);color:var(--t0);font-family:'Outfit',sans-serif;overflow-x:hidden}
+
+.header{padding:20px 32px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:12px}
+.header h1{font-size:15px;font-weight:400;color:var(--t1);letter-spacing:1px}
+.header .logo{width:24px;height:24px;border-radius:4px;overflow:hidden}
+.header .logo img{width:100%;height:100%}
+.header .sep{color:var(--bd)}
+.header .sub{font-size:12px;color:var(--t2);font-weight:300}
+.header .status{width:8px;height:8px;border-radius:50%;background:var(--r);margin-left:auto;animation:pulse 1.5s infinite}
+.header .status.live{background:var(--a)}
+.header .freq{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);margin-left:8px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 24px}
-.gpu-card{background:#111827;border:1px solid #1a2332;border-radius:8px;padding:16px}
-.gpu-card h2{font-size:13px;color:#5a6a7a;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.gpu-card h2 .idx{color:#00d4aa;font-size:16px;font-weight:700}
-.gpu-card h2 .role{color:#ffa502;font-size:11px;padding:2px 6px;background:#2d1f00;border-radius:3px}
-.metrics{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:16px}
-.metric{text-align:center}
-.metric .val{font-size:28px;font-weight:700;line-height:1}
-.metric .val.hot{color:#ff6b6b}
-.metric .val.warm{color:#ffa502}
-.metric .val.cool{color:#00d4aa}
-.metric .lbl{font-size:10px;color:#5a6a7a;margin-top:4px}
-.chart-wrap{position:relative;height:120px;background:#0d1117;border-radius:4px;overflow:hidden;border:1px solid #1a2332}
-.chart-wrap canvas{width:100%;height:100%}
-.chart-label{position:absolute;top:4px;left:8px;font-size:10px;color:#3a4a5a}
-.chart-max{position:absolute;top:4px;right:8px;font-size:10px;color:#3a4a5a}
-.full-width{grid-column:1/-1}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:0 24px 16px}
-.timeline-card{background:#111827;border:1px solid #1a2332;border-radius:8px;padding:16px}
-.timeline-card h3{font-size:12px;color:#5a6a7a;margin-bottom:8px}
-.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:11px}
-.bar-row .name{width:80px;text-align:right;color:#5a6a7a}
-.bar-bg{flex:1;height:14px;background:#0d1117;border-radius:2px;overflow:hidden;position:relative}
-.bar-fill{height:100%;border-radius:2px;transition:width .3s}
-.bar-row .pct{width:40px;font-size:11px}
-.events{background:#111827;border:1px solid #1a2332;border-radius:8px;padding:16px;margin:0 24px 16px}
-.events h3{font-size:12px;color:#5a6a7a;margin-bottom:8px}
-.event-log{height:100px;overflow-y:auto;font-size:11px;line-height:1.6}
-.event-log div{border-bottom:1px solid #0d1117;padding:2px 0}
-.event-log .ts{color:#3a4a5a}
-.event-log .gpu0{color:#00d4aa}
-.event-log .gpu1{color:#ffa502}
+
+.container{max-width:1200px;margin:0 auto;padding:24px 32px}
+
+.section-title{font-size:9px;font-weight:400;text-transform:uppercase;letter-spacing:1.5px;color:var(--t2);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.section-title::after{content:'';flex:1;height:1px;background:var(--bd)}
+
+.gpu-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:28px}
+
+.card{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--rad);padding:16px;transition:border-color .2s}
+.card:hover{border-color:var(--t2)}
+
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.card-title{font-size:12px;font-weight:400;color:var(--t1);display:flex;align-items:center;gap:8px}
+.card-title .idx{color:var(--a);font-family:'JetBrains Mono',monospace;font-weight:500}
+.role-badge{font-family:'JetBrains Mono',monospace;font-size:8px;padding:2px 6px;border:1px solid var(--bd);border-radius:2px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px}
+.card-temp{font-family:'JetBrains Mono',monospace;font-size:11px}
+
+.metric{margin-bottom:12px}
+.metric-row{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2);margin-bottom:4px}
+.metric-val{color:var(--t0)}
+.bar-bg{background:var(--bg0);height:6px;border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;transition:width .3s}
+
+.chart-wrap{margin-top:14px;border-top:1px solid var(--bd);padding-top:12px}
+.chart-wrap canvas{width:100%;height:48px;display:block}
+.chart-label{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+
+.sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px}
+
+.services{margin-bottom:28px}
+.svc-row{display:flex;align-items:center;gap:10px;padding:6px 0;font-family:'JetBrains Mono',monospace;font-size:11px}
+.svc-dot{width:6px;height:6px;border-radius:50%;background:var(--r);flex-shrink:0}
+.svc-dot.on{background:var(--a)}
+.svc-name{color:var(--t1);min-width:140px}
+.svc-desc{color:var(--t2);font-size:10px}
 </style>
 </head>
 <body>
+
 <div class="header">
-  <h1>dualmirakl GPU Telemetry</h1>
+  <div class="logo"><img src="/static/logo.svg" alt="mirakl"></div>
+  <h1>dualmirakl</h1>
+  <span class="sep">|</span>
+  <span class="sub">GPU & System Monitor</span>
   <div class="status" id="statusDot"></div>
-  <span class="freq" id="freqLabel">Connecting...</span>
+  <span class="freq" id="freqLabel">3 Hz</span>
 </div>
 
-<div class="grid" id="gpuCards"></div>
+<div class="container">
 
-<div class="row">
-  <div class="timeline-card">
-    <h3>VRAM Allocation</h3>
-    <div id="vramBars"></div>
+  <!-- GPU CARDS -->
+  <div class="section-title">gpu telemetry</div>
+  <div class="gpu-grid" id="gpuCards">
+    <div class="card" style="opacity:.5"><div style="font-size:11px;color:var(--t2)">waiting for telemetry...</div></div>
   </div>
-  <div class="timeline-card">
-    <h3>Power Budget</h3>
-    <div id="powerBars"></div>
-  </div>
-</div>
 
-<div class="events">
-  <h3>Event Log</h3>
-  <div class="event-log" id="eventLog"></div>
+  <!-- SYSTEM -->
+  <div class="section-title">system</div>
+  <div class="sys-grid">
+    <div class="card" id="cpuCard">
+      <div class="card-header"><span class="card-title"><span class="idx">CPU</span></span></div>
+      <div class="metric">
+        <div class="metric-row"><span>usage</span><span class="metric-val" id="monCpuPct">—</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="monCpuBar" style="width:0%;background:var(--a)"></div></div>
+      </div>
+      <div class="metric">
+        <div class="metric-row"><span>ram</span><span class="metric-val" id="monRamLabel">—</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="monRamBar" style="width:0%;background:var(--a)"></div></div>
+      </div>
+    </div>
+    <div class="card" id="servicesCard">
+      <div class="card-header"><span class="card-title">Services</span></div>
+      <div id="monServices">
+        <div class="svc-row"><div class="svc-dot" id="monSvcAuth"></div><span class="svc-name">Authority :8000</span><span class="svc-desc">environment + observers</span></div>
+        <div class="svc-row"><div class="svc-dot" id="monSvcSwarm"></div><span class="svc-name">Swarm :8001</span><span class="svc-desc">participants</span></div>
+        <div class="svc-row"><div class="svc-dot" id="monSvcEmbed"></div><span class="svc-name">e5-small-v2 :9000</span><span class="svc-desc">embedding + search</span></div>
+        <div class="svc-row"><div class="svc-dot" id="monSvcFlame"></div><span class="svc-name">FLAME :GPU2</span><span class="svc-desc" id="monFlameDesc">population dynamics</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIMELINE -->
+  <div class="section-title">utilization history (60s)</div>
+  <div id="timelineCards" class="gpu-grid"></div>
+
 </div>
 
 <script>
-const API = window.location.origin + '/gpu/telemetry';
-const HISTORY = 120; // data points in charts
-const POLL_MS = 500; // 2 Hz sampling
+const API = window.location.origin;
+const ROLES = ['authority','swarm','flame'];
+const POLL_MS = 333; // 3 Hz
+const HISTORY_LEN = 180; // 60s at 3Hz
 
-// State per GPU
-const gpus = {};
+// Per-GPU history
+const history = {};
 
-function initGPU(g) {
-  if (gpus[g.index]) return;
-  gpus[g.index] = {
-    util: new Float32Array(HISTORY),
-    mem_pct: new Float32Array(HISTORY),
-    power: new Float32Array(HISTORY),
-    temp: new Float32Array(HISTORY),
-    ptr: 0,
-    full: false,
-  };
-}
+function barColor(pct) { return pct > 90 ? 'var(--r)' : pct > 70 ? 'var(--w)' : 'var(--a)'; }
 
-function pushVal(arr, state, val) {
-  arr[state.ptr] = val;
-}
+let gpuCardsBuilt = false;
+let timelineBuilt = false;
 
-function getVals(arr, state) {
-  const len = state.full ? HISTORY : state.ptr;
-  const out = new Float32Array(len);
-  if (state.full) {
-    const start = state.ptr;
-    for (let i = 0; i < HISTORY; i++) out[i] = arr[(start + i) % HISTORY];
-  } else {
-    for (let i = 0; i < len; i++) out[i] = arr[i];
-  }
-  return out;
-}
-
-function drawChart(canvas, datasets, maxY) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-
-  // Grid lines
-  ctx.strokeStyle = '#1a2332';
-  ctx.lineWidth = 1;
-  for (let y = 0; y <= 4; y++) {
-    const py = H - (y / 4) * H;
-    ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
-  }
-
-  for (const {data, color, fill} of datasets) {
-    if (data.length < 2) continue;
-    const step = W / (HISTORY - 1);
-    const offset = HISTORY - data.length;
-
-    // Fill
-    if (fill) {
-      ctx.beginPath();
-      ctx.moveTo(offset * step, H);
-      for (let i = 0; i < data.length; i++) {
-        ctx.lineTo((offset + i) * step, H - (data[i] / maxY) * H);
-      }
-      ctx.lineTo((offset + data.length - 1) * step, H);
-      ctx.closePath();
-      ctx.fillStyle = fill;
-      ctx.fill();
-    }
-
-    // Line
-    ctx.beginPath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    for (let i = 0; i < data.length; i++) {
-      const x = (offset + i) * step;
-      const y = H - (data[i] / maxY) * H;
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-  }
-}
-
-function valClass(v) { return v > 80 ? 'hot' : v > 40 ? 'warm' : 'cool'; }
-
-function buildCards(data) {
-  const el = document.getElementById('gpuCards');
-  if (el.children.length > 0) return;
-
-  const roles = {0: 'authority', 1: 'swarm'};
-  // Note: RunPod flips GPU numbering. nvidia-smi 0=authority, 1=swarm
-  for (const g of data.gpus) {
-    const role = roles[g.index] || '?';
-    const card = document.createElement('div');
-    card.className = 'gpu-card';
-    card.id = `gpu${g.index}`;
-    card.innerHTML = `
-      <h2><span class="idx">${g.index}</span> ${g.name} <span class="role">${role}</span></h2>
-      <div class="metrics">
-        <div class="metric"><div class="val cool" id="util${g.index}">0%</div><div class="lbl">Utilization</div></div>
-        <div class="metric"><div class="val cool" id="temp${g.index}">0C</div><div class="lbl">Temp</div></div>
-        <div class="metric"><div class="val cool" id="pwr${g.index}">0W</div><div class="lbl">Power</div></div>
-        <div class="metric"><div class="val cool" id="mem${g.index}">0%</div><div class="lbl">VRAM</div></div>
+function buildGpuCards(gpus) {
+  const container = document.getElementById('gpuCards');
+  container.innerHTML = gpus.map((g, i) => {
+    const role = ROLES[i] || '';
+    const badge = role ? `<span class="role-badge">${role}</span>` : '';
+    return `<div class="card" id="gpuCard${i}">
+      <div class="card-header">
+        <span class="card-title"><span class="idx">GPU ${i}</span> ${(g.name||'').replace('NVIDIA ','').trim()} ${badge}</span>
+        <span class="card-temp" id="gpuTemp${i}">—</span>
       </div>
-      <div class="chart-wrap">
-        <span class="chart-label">Util % / Power W</span>
-        <span class="chart-max" id="chartMax${g.index}">100%</span>
-        <canvas id="canvas${g.index}" width="600" height="120"></canvas>
-      </div>`;
-    el.appendChild(card);
-  }
+      <div class="metric">
+        <div class="metric-row"><span>utilization</span><span class="metric-val" id="gpuUtil${i}">0%</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="gpuUtilBar${i}" style="width:0%"></div></div>
+      </div>
+      <div class="metric">
+        <div class="metric-row"><span>vram</span><span class="metric-val" id="gpuVram${i}">—</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="gpuVramBar${i}" style="width:0%"></div></div>
+      </div>
+      <div class="metric">
+        <div class="metric-row"><span>power</span><span class="metric-val" id="gpuPower${i}">—</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="gpuPowerBar${i}" style="width:0%"></div></div>
+      </div>
+    </div>`;
+  }).join('');
+  gpuCardsBuilt = true;
+}
+
+function buildTimeline(gpus) {
+  const container = document.getElementById('timelineCards');
+  container.innerHTML = gpus.map((g, i) => {
+    history[i] = { util: [], vram: [] };
+    const role = ROLES[i] || '';
+    return `<div class="card">
+      <div class="chart-label">GPU ${i} ${role ? '(' + role + ')' : ''} — utilization</div>
+      <div class="chart-wrap"><canvas id="chart${i}" width="340" height="48"></canvas></div>
+    </div>`;
+  }).join('');
+  timelineBuilt = true;
 }
 
 function updateMetrics(data) {
-  for (const g of data.gpus) {
-    initGPU(g);
-    const s = gpus[g.index];
+  if (!data.gpus || !data.gpus.length) return;
 
-    pushVal(s.util, s, g.utilization);
-    pushVal(s.mem_pct, s, g.mem_used / g.mem_total * 100);
-    pushVal(s.power, s, g.power);
-    pushVal(s.temp, s, g.temp);
+  data.gpus.forEach((g, i) => {
+    const util = g.utilization || 0;
+    const memPct = g.memory_total ? Math.round(g.memory_used / g.memory_total * 100) : 0;
+    const pwrPct = Math.min(100, Math.round((g.power_draw || 0) / 350 * 100));
+    const temp = g.temp || 0;
+    const tempColor = temp > 80 ? 'var(--r)' : temp > 65 ? 'var(--w)' : 'var(--t2)';
 
-    // Advance pointer
-    s.ptr = (s.ptr + 1) % HISTORY;
-    if (s.ptr === 0) s.full = true;
+    const utilEl = document.getElementById(`gpuUtil${i}`);
+    if (utilEl) utilEl.textContent = util + '%';
+    const utilBar = document.getElementById(`gpuUtilBar${i}`);
+    if (utilBar) { utilBar.style.width = util + '%'; utilBar.style.background = barColor(util); }
 
-    // Numbers
-    const uEl = document.getElementById(`util${g.index}`);
-    if (uEl) { uEl.textContent = g.utilization + '%'; uEl.className = 'val ' + valClass(g.utilization); }
-    const tEl = document.getElementById(`temp${g.index}`);
-    if (tEl) { tEl.textContent = g.temp + 'C'; tEl.className = 'val ' + valClass(g.temp); }
-    const pEl = document.getElementById(`pwr${g.index}`);
-    if (pEl) { pEl.textContent = g.power + 'W'; pEl.className = 'val ' + valClass(g.power / 2); }
-    const mEl = document.getElementById(`mem${g.index}`);
-    if (mEl) { const mp = (g.mem_used/g.mem_total*100).toFixed(0); mEl.textContent = mp+'%'; mEl.className = 'val ' + valClass(parseFloat(mp)); }
+    const vramEl = document.getElementById(`gpuVram${i}`);
+    if (vramEl) vramEl.textContent = `${(g.memory_used||0).toLocaleString()} / ${(g.memory_total||0).toLocaleString()} MB (${memPct}%)`;
+    const vramBar = document.getElementById(`gpuVramBar${i}`);
+    if (vramBar) { vramBar.style.width = memPct + '%'; vramBar.style.background = barColor(memPct); }
 
-    // Chart
-    const canvas = document.getElementById(`canvas${g.index}`);
-    if (canvas) {
-      const utilData = getVals(s.util, s);
-      const pwrData = getVals(s.power, s);
-      const pwrNorm = new Float32Array(pwrData.length);
-      for (let i = 0; i < pwrData.length; i++) pwrNorm[i] = pwrData[i] / 200 * 100;
-      drawChart(canvas, [
-        {data: utilData, color: g.index === 0 ? '#00d4aa' : '#ffa502', fill: g.index === 0 ? 'rgba(0,212,170,0.1)' : 'rgba(255,165,2,0.1)'},
-        {data: pwrNorm, color: '#ff6b6b44', fill: false},
-      ], 100);
+    const pwrEl = document.getElementById(`gpuPower${i}`);
+    if (pwrEl) pwrEl.textContent = `${g.power_draw||0}W`;
+    const pwrBar = document.getElementById(`gpuPowerBar${i}`);
+    if (pwrBar) { pwrBar.style.width = pwrPct + '%'; pwrBar.style.background = barColor(pwrPct); }
+
+    const tempEl = document.getElementById(`gpuTemp${i}`);
+    if (tempEl) { tempEl.textContent = temp + '°C'; tempEl.style.color = tempColor; }
+
+    // History
+    if (history[i]) {
+      history[i].util.push(util);
+      if (history[i].util.length > HISTORY_LEN) history[i].util.shift();
+      drawChart(i);
     }
-  }
-
-  // VRAM bars
-  const vramEl = document.getElementById('vramBars');
-  if (vramEl) {
-    vramEl.innerHTML = data.gpus.map(g => {
-      const pct = (g.mem_used / g.mem_total * 100).toFixed(1);
-      const color = g.index === 0 ? '#00d4aa' : '#ffa502';
-      return `<div class="bar-row">
-        <span class="name">GPU ${g.index}</span>
-        <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
-        <span class="pct">${(g.mem_used/1024).toFixed(1)}G</span>
-      </div>`;
-    }).join('');
-  }
-
-  // Power bars
-  const pwrEl = document.getElementById('powerBars');
-  if (pwrEl) {
-    pwrEl.innerHTML = data.gpus.map(g => {
-      const pct = (g.power / 200 * 100).toFixed(1);
-      const color = g.power > 150 ? '#ff6b6b' : g.power > 80 ? '#ffa502' : '#00d4aa';
-      return `<div class="bar-row">
-        <span class="name">GPU ${g.index}</span>
-        <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>
-        <span class="pct">${g.power.toFixed(0)}W</span>
-      </div>`;
-    }).join('');
-  }
+  });
 }
 
-let lastEvent = '';
-function logEvent(data) {
-  const el = document.getElementById('eventLog');
-  for (const g of data.gpus) {
-    const key = `${g.index}-${g.utilization > 50 ? 'active' : 'idle'}`;
-    if (g.utilization > 80 && !lastEvent.includes(`gpu${g.index}-active`)) {
-      const ts = new Date().toLocaleTimeString();
-      const cls = g.index === 0 ? 'gpu0' : 'gpu1';
-      el.innerHTML = `<div><span class="ts">${ts}</span> <span class="${cls}">GPU ${g.index}</span> ${g.utilization}% ${g.power.toFixed(0)}W</div>` + el.innerHTML;
-      if (el.children.length > 50) el.removeChild(el.lastChild);
-    }
-    lastEvent = lastEvent.replace(new RegExp(`gpu${g.index}-\\w+`), '') + ` gpu${g.index}-${g.utilization > 50 ? 'active' : 'idle'}`;
-  }
+function drawChart(gpuIdx) {
+  const canvas = document.getElementById(`chart${gpuIdx}`);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  const data = history[gpuIdx].util;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(50,52,62,.5)';
+  ctx.lineWidth = 0.5;
+  [0.25, 0.5, 0.75].forEach(frac => {
+    ctx.beginPath();
+    ctx.moveTo(0, h * frac);
+    ctx.lineTo(w, h * frac);
+    ctx.stroke();
+  });
+
+  if (data.length < 2) return;
+
+  // Fill
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  data.forEach((v, i) => {
+    const x = (i / (HISTORY_LEN - 1)) * w;
+    const y = h - (v / 100) * h;
+    ctx.lineTo(x, y);
+  });
+  ctx.lineTo(((data.length - 1) / (HISTORY_LEN - 1)) * w, h);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(56,200,200,.08)';
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = (i / (HISTORY_LEN - 1)) * w;
+    const y = h - (v / 100) * h;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = 'var(--a)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 }
 
-let pollCount = 0;
-let pollStart = Date.now();
+function updateCpu(cpu) {
+  if (!cpu) return;
+  const pctEl = document.getElementById('monCpuPct');
+  const pctBar = document.getElementById('monCpuBar');
+  const ramLabel = document.getElementById('monRamLabel');
+  const ramBar = document.getElementById('monRamBar');
+
+  const memPct = cpu.memory_total ? Math.round(cpu.memory_used / cpu.memory_total * 100) : 0;
+
+  if (pctEl) pctEl.textContent = cpu.percent + '%';
+  if (pctBar) { pctBar.style.width = cpu.percent + '%'; pctBar.style.background = barColor(cpu.percent); }
+  if (ramLabel) ramLabel.textContent = `${(cpu.memory_used||0).toLocaleString()} / ${(cpu.memory_total||0).toLocaleString()} MB (${memPct}%)`;
+  if (ramBar) { ramBar.style.width = memPct + '%'; ramBar.style.background = barColor(memPct); }
+}
+
+async function pollServices() {
+  try {
+    const [hr, fr] = await Promise.all([
+      fetch(`${API}/health`).then(r => r.json()).catch(() => ({})),
+      fetch(`${API}/simulation/flame`).then(r => r.json()).catch(() => ({})),
+    ]);
+    const map = { authority: 'monSvcAuth', swarm: 'monSvcSwarm', 'e5-small-v2': 'monSvcEmbed' };
+    for (const [key, id] of Object.entries(map)) {
+      const dot = document.getElementById(id);
+      if (dot) dot.className = 'svc-dot ' + (hr[key] === 'up' ? 'on' : '');
+    }
+    const flameDot = document.getElementById('monSvcFlame');
+    if (flameDot) flameDot.className = 'svc-dot ' + (fr.flame_enabled ? 'on' : '');
+    const flameDesc = document.getElementById('monFlameDesc');
+    if (flameDesc) flameDesc.textContent = fr.flame_enabled
+      ? `${(fr.flame_n_population||0).toLocaleString()} agents`
+      : 'disabled';
+  } catch {}
+}
 
 async function poll() {
   try {
-    const r = await fetch(API);
-    if (!r.ok) throw new Error(r.status);
-    const data = await r.json();
-
-    buildCards(data);
-    updateMetrics(data);
-    logEvent(data);
-
-    pollCount++;
-    const elapsed = (Date.now() - pollStart) / 1000;
-    const hz = (pollCount / elapsed).toFixed(1);
+    const r = await fetch(`${API}/gpu/telemetry`);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
 
     document.getElementById('statusDot').className = 'status live';
-    document.getElementById('freqLabel').textContent = `${hz} Hz | ${HISTORY * POLL_MS / 1000}s window`;
-  } catch (e) {
+
+    if (d.gpus && d.gpus.length) {
+      if (!gpuCardsBuilt) buildGpuCards(d.gpus);
+      if (!timelineBuilt) buildTimeline(d.gpus);
+      updateMetrics(d);
+    }
+    if (d.cpu) updateCpu(d.cpu);
+  } catch {
     document.getElementById('statusDot').className = 'status';
-    document.getElementById('freqLabel').textContent = `Error: ${e.message}`;
   }
 }
 
+// Start polling
 setInterval(poll, POLL_MS);
-poll();
+setInterval(pollServices, 5000);
+setTimeout(poll, 100);
+setTimeout(pollServices, 500);
 </script>
 </body>
 </html>

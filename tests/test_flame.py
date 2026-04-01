@@ -132,19 +132,18 @@ class TestCouplingFeedback:
 
     def test_polarization_calculation(self):
         bridge = self._make_bridge_with_stats()
-        # Simulate a polarized population: lots at extremes
+        # Simulate a polarized population: high std = bimodal spread
         class MockEngine:
             def get_population_stats(self):
                 return {
                     "mean_score": 0.5,
                     "std_score": 0.3,
                     "count": 100,
-                    "histogram": [30, 5, 5, 5, 5, 5, 5, 5, 5, 30],
                 }
         feedback = bridge.get_population_coupling_feedback(MockEngine())
-        assert feedback["polarization"] == pytest.approx(0.7, abs=0.01)
-        assert feedback["extreme_low_frac"] == pytest.approx(0.35, abs=0.01)
-        assert feedback["extreme_high_frac"] == pytest.approx(0.35, abs=0.01)
+        # Polarization = std / uniform_std (0.289) ≈ 1.038 (bimodal)
+        assert feedback["polarization"] > 1.0
+        assert feedback["center_offset"] == pytest.approx(0.0, abs=0.01)
 
     def test_no_polarization(self):
         bridge = FlameBridge(n_influencers=4)
@@ -154,10 +153,10 @@ class TestCouplingFeedback:
                     "mean_score": 0.5,
                     "std_score": 0.05,
                     "count": 100,
-                    "histogram": [0, 0, 5, 20, 25, 25, 20, 5, 0, 0],
                 }
         feedback = bridge.get_population_coupling_feedback(MockEngine())
-        assert feedback["polarization"] == pytest.approx(0.0, abs=0.01)
+        # Polarization = 0.05 / 0.289 ≈ 0.173 (consensus)
+        assert feedback["polarization"] < 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +169,7 @@ class TestConfig:
             "n_population", "n_influencers", "space_size",
             "interaction_radius", "alpha", "kappa", "dampening",
             "influencer_weight", "score_mode", "logistic_k",
-            "drift_sigma", "move_speed", "sub_steps", "gpu_id", "seed",
+            "drift_sigma", "mobility", "sub_steps", "gpu_id", "seed",
         }
         assert set(DEFAULT_CONFIG.keys()) == expected
 

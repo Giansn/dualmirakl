@@ -61,19 +61,20 @@ def test_monitor_imbalance_neutral():
 
 # ── AdaptiveBalancer ───────────────────────────────────────────────
 
-def _make_monitor_with_power(gpu0_power: float, gpu1_power: float):
-    """Create a mock monitor that returns specific power values."""
+def _make_monitor_with_power(gpu0_power: float, gpu1_power: float,
+                             gpu0_util: float = 80, gpu1_util: float = 80):
+    """Create a mock monitor that returns specific power/utilization values."""
     monitor = MagicMock()
     monitor.target_power_w = 195.0
 
     snap0 = GPUSnapshot(
         gpu_id=0, power_w=gpu0_power, power_limit_w=300,
-        util_pct=80, mem_used_mb=16000, mem_total_mb=32000,
+        util_pct=gpu0_util, mem_used_mb=16000, mem_total_mb=32000,
         temperature_c=65, timestamp=time.monotonic(),
     )
     snap1 = GPUSnapshot(
         gpu_id=1, power_w=gpu1_power, power_limit_w=300,
-        util_pct=80, mem_used_mb=16000, mem_total_mb=32000,
+        util_pct=gpu1_util, mem_used_mb=16000, mem_total_mb=32000,
         temperature_c=65, timestamp=time.monotonic(),
     )
     monitor.sample.return_value = {0: snap0, 1: snap1}
@@ -84,9 +85,12 @@ def _make_monitor_with_power(gpu0_power: float, gpu1_power: float):
     stats1.update(snap1)
     monitor.stats = {0: stats0, 1: stats1}
 
-    def imbalance():
+    def imbalance(metric="utilization"):
+        if metric == "utilization":
+            return (stats0.ema_util - stats1.ema_util) / 100.0
         return (stats0.ema_power - stats1.ema_power) / monitor.target_power_w
     monitor.imbalance = imbalance
+    monitor._gpu_ids = [0, 1]
 
     return monitor
 
@@ -108,8 +112,8 @@ def test_balancer_no_adjust_in_deadband():
 
 
 def test_balancer_shifts_on_imbalance():
-    """GPU 0 much hotter → should shift one participant to swarm."""
-    monitor = _make_monitor_with_power(250, 140)
+    """GPU 0 much busier → should shift one participant to swarm."""
+    monitor = _make_monitor_with_power(250, 140, gpu0_util=95, gpu1_util=40)
     balancer = AdaptiveBalancer(monitor, n_participants=4, deadband=0.10)
     adjusted = balancer.rebalance(tick=1)
     assert adjusted
@@ -119,7 +123,7 @@ def test_balancer_shifts_on_imbalance():
 
 def test_balancer_respects_min_per_gpu():
     """Should not shift below min_per_gpu."""
-    monitor = _make_monitor_with_power(250, 140)
+    monitor = _make_monitor_with_power(250, 140, gpu0_util=95, gpu1_util=40)
     balancer = AdaptiveBalancer(monitor, n_participants=2, deadband=0.10, min_per_gpu=1)
     # Already at 1/1 split
     adjusted = balancer.rebalance(tick=1)
@@ -128,7 +132,7 @@ def test_balancer_respects_min_per_gpu():
 
 def test_balancer_apply_to_participants():
     """Should hot-swap backend on participant agents."""
-    monitor = _make_monitor_with_power(250, 140)
+    monitor = _make_monitor_with_power(250, 140, gpu0_util=95, gpu1_util=40)
     balancer = AdaptiveBalancer(monitor, n_participants=4, deadband=0.10)
 
     # Mock participants
@@ -151,19 +155,19 @@ def test_balancer_apply_to_participants():
 
 def test_balancer_env_move_after_sustained():
     """Environment should move after 3 ticks of sustained imbalance."""
-    monitor = _make_monitor_with_power(250, 140)
+    monitor = _make_monitor_with_power(250, 140, gpu0_util=95, gpu1_util=40)
     balancer = AdaptiveBalancer(monitor, n_participants=6, deadband=0.10)
 
-    # Simulate 3 ticks of GPU 0 being hotter
+    # Simulate 3 ticks of GPU 0 being busier
     for tick in range(1, 4):
         balancer.rebalance(tick)
 
     result = balancer.should_move_env(tick=3)
-    # env already on swarm (default), and authority is hotter → no change needed
+    # env already on swarm (default), and authority is busier → no change needed
     assert result is None
 
-    # Now simulate swarm being hotter
-    monitor2 = _make_monitor_with_power(140, 250)
+    # Now simulate swarm being busier
+    monitor2 = _make_monitor_with_power(140, 250, gpu0_util=40, gpu1_util=95)
     balancer2 = AdaptiveBalancer(monitor2, n_participants=6, deadband=0.10)
     for tick in range(1, 4):
         balancer2.rebalance(tick)

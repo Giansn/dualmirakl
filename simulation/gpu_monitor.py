@@ -107,8 +107,11 @@ class GPUMonitor:
             for gid in self._gpu_ids:
                 self._handles[gid] = pynvml.nvmlDeviceGetHandleByIndex(gid)
             self._initialized = True
-            # Log initial state
+            # Log initial state and capture min power limit for TDP-based targeting
             snap = self.sample()
+            self.min_power_limit = min(
+                (s.power_limit_w for s in snap.values()), default=300.0
+            )
             for gid, s in snap.items():
                 logger.info(
                     "GPU %d: %s, %.0fW / %.0fW limit, %dMB / %dMB, %d°C",
@@ -179,18 +182,26 @@ class GPUMonitor:
     def stats(self) -> dict[int, GPUStats]:
         return self._stats
 
-    def imbalance(self) -> float:
+    def imbalance(self, metric: str = "utilization") -> float:
         """
-        Power imbalance ratio between GPUs.
-        Returns: (gpu0_power - gpu1_power) / target_power.
-        Positive = GPU 0 is hotter. Negative = GPU 1 is hotter.
+        Imbalance ratio between GPUs.
+
+        Args:
+            metric: "utilization" (default, 0-100% based) or "power" (wattage based)
+
+        Returns: (gpu0 - gpu1) / normalizer.
+        Positive = GPU 0 is busier. Negative = GPU 1 is busier.
         Range roughly [-1, 1].
         """
         if len(self._gpu_ids) < 2:
             return 0.0
         s0 = self._stats[self._gpu_ids[0]]
         s1 = self._stats[self._gpu_ids[1]]
-        return (s0.ema_power - s1.ema_power) / max(self.target_power_w, 1.0)
+        if metric == "utilization":
+            # Normalize by 100% (max utilization)
+            return (s0.ema_util - s1.ema_util) / 100.0
+        else:
+            return (s0.ema_power - s1.ema_power) / max(self.target_power_w, 1.0)
 
     def summary(self) -> dict:
         """Human-readable summary for logging/export."""

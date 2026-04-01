@@ -77,6 +77,12 @@ async def gpu_monitor():
     html = html_file.read_text(encoding="utf-8")
     return HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
+@app.get("/pipeline", response_class=HTMLResponse)
+async def pipeline_viz():
+    html_file = _proj_dir / "static" / "pipeline.html"
+    html = html_file.read_text(encoding="utf-8")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
 
 @app.get("/gpu/telemetry")
 async def gpu_telemetry():
@@ -103,9 +109,21 @@ async def gpu_telemetry():
                     "temp": int(parts[5]),
                     "power_draw": float(parts[6]),
                 })
-        return {"gpus": gpus, "ts": __import__("time").time()}
+        resp = {"gpus": gpus, "ts": __import__("time").time()}
+        # CPU metrics (lightweight, no extra dependency)
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            resp["cpu"] = {
+                "percent": psutil.cpu_percent(interval=None),
+                "memory_used": mem.used // (1024 * 1024),
+                "memory_total": mem.total // (1024 * 1024),
+            }
+        except ImportError:
+            resp["cpu"] = None
+        return resp
     except Exception as e:
-        return {"gpus": [], "ts": __import__("time").time(), "error": str(e)}
+        return {"gpus": [], "ts": __import__("time").time(), "error": str(e), "cpu": None}
 
 
 @app.get("/", response_class=HTMLResponse)

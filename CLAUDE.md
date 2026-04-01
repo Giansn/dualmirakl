@@ -30,8 +30,8 @@ bash scripts/audit_env.sh                                        # environment +
 ## Architecture
 
 ```
-GPU 0 -- authority :8000  (environment + observers)     MAX_MODEL_LEN=8192, seqs=12
-GPU 1 -- swarm     :8001  (participants)                MAX_MODEL_LEN=8192, seqs=12
+GPU 0 -- authority :8000  (environment + observers)     MAX_MODEL_LEN=16384, seqs=16
+GPU 1 -- swarm     :8001  (participants)                MAX_MODEL_LEN=16384, seqs=16
 GPU 2 -- flame            (FLAME GPU 2 population dynamics, optional)
 CPU   -- gateway   :9000  (e5-small-v2 + proxy + UI + sim API + doc store)
 ```

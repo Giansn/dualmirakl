@@ -226,6 +226,17 @@ OBSERVER_B_ACTIONS = {
                     "type": "string",
                     "description": "Why this intervention is needed.",
                 },
+                "flame_macro": {
+                    "type": "string",
+                    "enum": ["stabilize", "loosen", "amplify_influencers",
+                             "reduce_coupling", "increase_noise"],
+                    "description": "FLAME population macro to apply (optional, requires FLAME). "
+                                   "stabilize: increase dampening, reduce noise. "
+                                   "loosen: reduce dampening and coupling. "
+                                   "amplify_influencers: increase influencer pull. "
+                                   "reduce_coupling: reduce peer conformity. "
+                                   "increase_noise: amplify random drift.",
+                },
             },
             "required": ["intervention_type", "target", "rationale"],
         },

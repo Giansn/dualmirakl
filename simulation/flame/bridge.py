@@ -125,24 +125,29 @@ class FlameBridge:
         Extract population-level feedback for dualmirakl observer agents.
         Returns aggregate metrics that observers can use to inform interventions.
 
+        Polarization is estimated from std/mean without iterating agents:
+        std of uniform [0,1] = 0.289. Ratio > 1.0 indicates bimodal spread.
+
         Returns:
-            dict with keys: mean_score, std_score, polarization, cluster_sizes
+            dict with keys: mean_score, std_score, polarization, n_population
         """
         stats = engine.get_population_stats()
-        histogram = stats.get("histogram", [0] * 10)
+        std = stats["std_score"]
+        mean = stats["mean_score"]
 
-        # Polarization: fraction of agents at extremes (bins 0-1 and 8-9)
-        total = sum(histogram) if sum(histogram) > 0 else 1
-        extreme_low = sum(histogram[:2]) / total
-        extreme_high = sum(histogram[8:]) / total
-        polarization = extreme_low + extreme_high
+        # Polarization proxy: std normalized by uniform std (0.289)
+        # Values > 1.0 suggest bimodal distribution, < 0.5 suggests consensus
+        uniform_std = 0.289
+        polarization = std / uniform_std if uniform_std > 0 else 0.0
+
+        # Distance from center: how far the mean is from 0.5
+        center_offset = abs(mean - 0.5)
 
         return {
-            "mean_score": stats["mean_score"],
-            "std_score": stats["std_score"],
-            "polarization": polarization,
-            "extreme_low_frac": extreme_low,
-            "extreme_high_frac": extreme_high,
+            "mean_score": mean,
+            "std_score": std,
+            "polarization": round(polarization, 3),
+            "center_offset": round(center_offset, 3),
             "n_population": stats["count"],
         }
 

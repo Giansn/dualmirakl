@@ -1,0 +1,587 @@
+================================================================================
+  GPU HARMONY v4 — TICK-PIPELINED DUAL/TRI-GPU EXECUTION PIPELINE
+  dualmirakl multi-agent simulation framework
+================================================================================
+
+
+PART 1: HARDWARE LAYOUT
+========================
+
+  GPU 0 (authority)           GPU 1 (swarm)               GPU 2 (FLAME)
+  +-----------------------+   +-----------------------+   +-----------------------+
+  | vLLM instance         |   | vLLM instance         |   | pyflamegpu CUDA sim   |
+  | 16K context, 16 seqs  |   | 16K context, 16 seqs  |   | 10M population agents |
+  |                       |   |                       |   | 4-8 influencer agents |
+  | Dedicated agents:     |   | Dedicated agents:     |   |                       |
+  |   observer_a          |   |   (none reserved)     |   | 3 CUDA layers/step:   |
+  |   observer_b          |   |                       |   |   1. broadcast        |
+  |                       |   | Default home for:     |   |   2. score update     |
+  | Shared pool:          |   |   environment agent   |   |   3. spatial move     |
+  |   N/2 participants    |   |   N/2 participants    |   |                       |
+  |   (adaptive)          |   |   (adaptive)          |   | 10 sub-steps per tick |
+  +-----------------------+   +-----------------------+   +-----------------------+
+            |                           |                           |
+            +---------------------------+---------------------------+
+                                        |
+                              +-----------------------+
+                              | CPU                   |
+                              | gateway + embedding   |
+                              | e5-small-v2 (384-dim) |
+                              | Score computation     |
+                              | DuckDB persistence    |
+                              +-----------------------+
+
+
+PART 2: PIPELINE ARCHITECTURE (3 workers + fire-and-forget observer)
+=====================================================================
+
+  Three async workers connected by bounded queues:
+
+    +--------------------+   stim_q (maxsize=2)   +--------------------+
+    |  STIMULUS WORKER   |----------------------->|   SWARM WORKER     |
+    |  Phase A           |                        |   Phase B          |
+    |  (GPU 0 or 1)      |                        |   (GPU 0 + GPU 1)  |
+    +--------------------+                        +---------+----------+
+           ^                                                |
+           |  (runs ahead: T+1 stimuli                      | resp_q (maxsize=2)
+           |   generated during T's                         |
+           |   Phase C on CPU)                              v
+           |                                      +--------------------+
+           |                                      |   SCORE WORKER     |
+           |                                      |   Phase C (CPU)    |
+           |                                      |   Phase F (GPU 2)  |
+           |                                      +--------+-----------+
+           |                                               |
+           |                                               | on observer ticks
+           |                                               | (every K ticks):
+           |                                               v
+           |                                      +--------------------+
+           |                                      |   OBSERVER TASK    |
+           |                                      |   Phase D (GPU 0)  |
+           |                                      |   fire-and-forget  |
+           |                                      +--------------------+
+           |
+           +--- [tick_done_q] -----> caller (sim_loop.py)
+
+
+  Queue backpressure:
+    stim_q maxsize=2 : stimulus worker can run 1-2 ticks ahead
+    resp_q maxsize=2 : prevents memory buildup if scoring is slow
+    tick_done_q      : unbounded, consumed by sim_loop.py main loop
+
+
+PART 3: 6-TICK TIMELINE (K=4, 6 participants split 3/3)
+=========================================================
+
+  Legend:
+    [A#]     = Phase A: environment.batch_decide() — generate stimuli
+    [B#]     = Phase B: participant.step() x N concurrent
+    [C#]     = Phase C: embed + score update
+    [F#]     = Phase F: FLAME population step (10 sub-steps)
+    [D#a]    = Phase D1: observer_a.analyse()
+    [D#b]    = Phase D2: observer_b.intervene()
+    [BAL]    = Adaptive balancer: sample GPU utilization, shift if >10% deadband
+    ---      = idle
+    >>>      = queue transfer
+
+  Time flows left to right. Each column is ~one phase duration.
+  Phases within a tick are sequential per worker; overlap happens ACROSS workers.
+
+
+  GPU 0         GPU 1          GPU 2          CPU
+  (authority)   (swarm)        (FLAME)        (embed+score)
+  ============  =============  =============  =============
+
+  TICK 1
+  --------------------------------------------------------------------------
+  [A1: env gen]
+     >>> stim_q >>>
+               [B1: 3 parts]
+  [B1: 3 parts]
+
+     >>> resp_q >>>
+                                              [C1: embed+score]
+                              [F1: 10 sub]
+  [BAL: sample]
+
+  TICK 2  (stimulus worker runs ahead: A2 overlaps C1)
+  --------------------------------------------------------------------------
+  [A2: env gen]
+     >>> stim_q >>>
+               [B2: 3 parts]
+  [B2: 3 parts]
+
+     >>> resp_q >>>
+                                              [C2: embed+score]
+                              [F2: 10 sub]
+  [BAL: sample]
+
+  TICK 3
+  --------------------------------------------------------------------------
+  [A3: env gen]
+     >>> stim_q >>>
+               [B3: 3 parts]
+  [B3: 3 parts]
+
+     >>> resp_q >>>
+                                              [C3: embed+score]
+                              [F3: 10 sub]
+  [BAL: sample]
+
+  TICK 4  *** OBSERVER TICK (4 % K=4 == 0) ***
+  --------------------------------------------------------------------------
+  [A4: env gen]
+     >>> stim_q >>>
+               [B4: 3 parts]
+  [B4: 3 parts]
+
+     >>> resp_q >>>
+                                              [C4: embed+score]
+                              [F4: 10 sub]
+  [D4a: obs_a]
+  [D4b: obs_b]
+  [BAL: sample]
+
+  TICK 5  (KEY OVERLAP: T5 swarm runs WHILE T4 observer finishes on GPU 0)
+  --------------------------------------------------------------------------
+  [A5: env gen]                     <-- can start even while D4b on GPU 0
+     >>> stim_q >>>                     (env is on swarm GPU by default)
+               [B5: 3 parts]       <-- GPU 1 DOES NOT WAIT for D4
+  [B5: 3 parts]                    <-- GPU 0 shares between D4b tail + B5
+
+     >>> resp_q >>>
+                                              [C5: embed+score]
+                              [F5: 10 sub]
+  [BAL: sample]
+
+  TICK 6
+  --------------------------------------------------------------------------
+  [A6: env gen]
+     >>> stim_q >>>
+               [B6: 3 parts]
+  [B6: 3 parts]
+
+     >>> resp_q >>>
+                                              [C6: embed+score]
+                              [F6: 10 sub]
+  [BAL: sample]
+
+
+PART 4: DETAILED OVERLAP DIAGRAM (zoomed into T3-T5 transition)
+=================================================================
+
+  This shows the critical overlap where the pipeline gains its efficiency.
+  Time flows left to right. Each character = ~50ms (approximate).
+
+  GPU 0:  |---A3---|----B3(3p)-----|.idle.|---A4---|----B4(3p)-----|--D4a--------|--D4b------|BAL|---A5---|----B5(3p)-----|
+  GPU 1:  |........|----B3(3p)-----|......|........|----B4(3p)-----|.............|...........|...|........|----B5(3p)-----|
+  GPU 2:  |........|...............|.F3...|........|...............|.....F4......|...........|...|........|...............|
+  CPU:    |........|...............|--C3--|.........|...............|----C4------|...........|...|........|...............|
+          ^        ^               ^      ^         ^               ^            ^           ^   ^
+          |        |               |      |         |               |            |           |   |
+          A3       B3 start        C3     A4        B4 start        C4 done      D4b done   BAL A5 start
+          env gen  all 6 agents    embed  env gen   all 6 agents    observer     observer    re-  GPU 1 already
+          on GPU0  across GPUs     CPU    on GPU0   across GPUs     a starts     b done      bal  free for B5
+                   0+1             only             0+1             GPU 0        fire tick
+                                                                                done signal
+
+  KEY INSIGHT:
+  After C4 completes, the observer (D4a+D4b) fires as a background task.
+  The score worker immediately signals the pipeline to continue.
+  GPU 1 starts B5 without waiting for D4 to finish on GPU 0.
+  Only GPU 0 is (partially) occupied by the observer.
+
+
+PART 5: DATA FLOW PER TICK
+============================
+
+  This shows what data moves between components within a single tick.
+  Arrows show direction. Labels show the data content.
+
+  TICK T (non-observer, FLAME enabled)
+  =====================================
+
+  +------------------+          +---------------------+
+  | WorldState       |          | FLAME Engine (GPU 2) |
+  | - score history  |          | - 10M pop agents    |
+  | - interventions  |          | - influencer scores |
+  | - event stream   |          +----------+----------+
+  +--------+---------+                     |
+           |                               |
+           | world state context           | population coupling
+           v                               | feedback (on obs ticks)
+  +------------------+                     |
+  | Environment      |                     |
+  | (swarm GPU 1)    |                     |
+  +--------+---------+                     |
+           |                               |
+           | stimuli = {pid: text}         |
+           | (1 LLM call, batch prompt)    |
+           v                               |
+  +------------------+                     |
+  | stim_q           |                     |
+  +--------+---------+                     |
+           |                               |
+           v                               |
+  +--------------------------+             |
+  | Participants (GPU 0 + 1) |             |
+  |                          |             |
+  | For each participant:    |             |
+  |   input:                 |             |
+  |     - stimulus text      |             |
+  |     - persona prompt     |             |
+  |     - memory context     |             |
+  |     - score dampening    |             |
+  |   output:                |             |
+  |     - response text      |             |
+  |     - parsed action      |             |
+  |       (respond/disengage |             |
+  |        /escalate)        |             |
+  +-----------+--------------+             |
+              |                            |
+              | responses[]                |
+              v                            |
+  +------------------+                     |
+  | resp_q           |                     |
+  +--------+---------+                     |
+           |                               |
+           v                               |
+  +----------------------------+           |
+  | Score Worker (CPU)         |           |
+  |                            |           |
+  | 1. Extract narrative text  |           |
+  |    from parsed actions     |           |
+  |                            |           |
+  | 2. embed_score_batch()     |           |
+  |    e5-small-v2 → 384-dim   |           |
+  |    cosine sim → signal     |           |
+  |    + standard error        |           |
+  |                            |           |
+  | 3. update_score()          |           |
+  |    EMA: s' = s + a*(sig-s) |           |
+  |      * dampening           |           |
+  |      * (1 - resilience)    |           |
+  |    OR logistic saturation  |           |
+  |                            |           |
+  | 4. Write to WorldState:    |           |
+  |    - ObsEntry (log)        |           |
+  |    - EventStream (SCORE)   |           |
+  |    - score_log append      |           |
+  +-------------+--------------+           |
+                |                          |
+                | participant scores       |
+                v                          |
+  +----------------------------+           |
+  | FLAME Bridge               |           |
+  |                            |           |
+  | push_influencer_scores()   |           |
+  |   map LLM scores →         |           |
+  |   FLAME influencer agents  |           |
+  |                            |           |
+  | engine.step(10 sub-steps)  +---------->+
+  |   (GPU 2, via executor,    |
+  |    non-blocking)           |
+  |                            |
+  | pull_population_stats()    |
+  |   mean, std, min, max      |
+  |   influencer_scores        |
+  |   histogram (10 bins)      |
+  +----------------------------+
+
+
+  TICK T (observer tick, K divides T)
+  ====================================
+
+  Same as above, PLUS after score_worker completes Phase C:
+
+  +----------------------------+
+  | Score Worker signals:      |
+  | "observer tick — launch    |
+  |  fire-and-forget task"     |
+  +-------------+--------------+
+                |
+                | asyncio.create_task()
+                v
+  +----------------------------+       +----------------------------+
+  | Observer A (GPU 0)         |       |                            |
+  |                            |       | FLAME Bridge               |
+  | Reads:                     |<------| get_population_coupling_   |
+  |   - WorldState log         |       |   feedback()               |
+  |   - score trajectories     |       |                            |
+  |   - event stream           |       | Returns:                   |
+  |   - active interventions   |       |   mean_score               |
+  |   - FLAME feedback         |       |   std_score                |
+  |     (polarization,         |       |   polarization proxy       |
+  |      mean, std, offset)    |       |   center_offset            |
+  |   - agent memories (ReACT) |       |   n_population             |
+  |   - graph memory (ReACT)   |       +----------------------------+
+  |                            |
+  | Produces:                  |
+  |   analyse action:          |
+  |     concern_level enum     |
+  |     clustering enum        |
+  |     narrative analysis     |
+  +-------------+--------------+
+                |
+                | analysis text
+                v
+  +----------------------------+
+  | Observer B (GPU 0)         |
+  |                            |
+  | Reads:                     |
+  |   - Observer A's analysis  |
+  |   - WorldState             |
+  |   - intervention codebook  |
+  |                            |
+  | Produces:                  |
+  |   intervene action:        |
+  |     intervention type      |
+  |     (from codebook enum)   |
+  |     description            |
+  |     score modifier         |
+  |     duration               |
+  |   OR no_intervention       |
+  |                            |
+  | Side effects:              |
+  |   - Adds to active_ivs     |
+  |   - Can apply FLAME macros |
+  |     (modify dampening,     |
+  |      coupling kappa)       |
+  +----------------------------+
+
+
+PART 6: ADAPTIVE BALANCER DETAIL
+==================================
+
+  The balancer runs BETWEEN ticks (after score worker, before/during next stimulus).
+  It uses GPU utilization (not power draw in v4) to decide rebalancing.
+
+  +---------------------------------------------------+
+  | AdaptiveBalancer                                   |
+  |                                                    |
+  | Every tick:                                        |
+  |   1. GPUMonitor.sample()                           |
+  |      - pynvml reads: util%, power, mem, temp       |
+  |      - EMA smoothing (alpha=0.3)                   |
+  |                                                    |
+  |   2. Compute imbalance:                            |
+  |      imbalance = (gpu0_ema_util - gpu1_ema_util)   |
+  |                  / 100.0                            |
+  |      Range: [-1.0, +1.0]                           |
+  |      Positive = GPU 0 busier                       |
+  |      Negative = GPU 1 busier                       |
+  |                                                    |
+  |   3. Deadband check:                               |
+  |      if |imbalance| < 0.10 → no action             |
+  |                                                    |
+  |   4. Shift ONE participant per tick:               |
+  |      imbalance > 0 → move 1 from auth → swarm     |
+  |      imbalance < 0 → move 1 from swarm → auth     |
+  |                                                    |
+  |   5. KV cache cap enforcement:                     |
+  |      max_auth = max_seqs - reserved                |
+  |      reserved = 2 (observers)                      |
+  |                + 1 (if env on authority)            |
+  |      Cannot exceed this even if imbalance persists |
+  |                                                    |
+  |   6. Environment migration (after 3+ ticks):       |
+  |      If authority consistently hotter → env stays  |
+  |        on swarm (default)                          |
+  |      If swarm consistently hotter → env moves to   |
+  |        authority                                   |
+  +---------------------------------------------------+
+
+  Example: 6 participants, max_seqs=16
+
+    Initial:  GPU 0: 3 participants + 2 observers = 5 seqs
+              GPU 1: 3 participants + 1 environment = 4 seqs
+              max_auth_participants = 16 - 2 = 14
+
+    After T2:  GPU 0 at 78% util, GPU 1 at 55% util
+               imbalance = +0.23 (> 0.10 deadband)
+               Action: shift 1 participant auth → swarm
+               New split: GPU 0: 2 parts, GPU 1: 4 parts
+
+    After T3:  GPU 0 at 52% util, GPU 1 at 61% util
+               imbalance = -0.09 (< 0.10 deadband)
+               Action: none (within deadband)
+
+    Convergence: typically 2-4 ticks to find stable split
+
+
+PART 7: QUEUE FLOW TRACE (single tick lifecycle)
+==================================================
+
+  This traces one tick (T) through the entire pipeline, showing exactly
+  which queue each piece of data passes through.
+
+    TIME ──────────────────────────────────────────────────────────>
+
+    Stimulus Worker:
+      [persona summaries]
+      [env.batch_decide()] ──────► stim_q.put((T, stimuli))
+                                        |
+    Swarm Worker:                       |
+                          stim_q.get() ◄┘
+      [asyncio.gather(p.step() for p)]
+      [all N participants concurrent] ──► resp_q.put((T, stimuli, responses))
+                                               |
+    Score Worker:                               |
+                             resp_q.get() ◄────┘
+      [embed_score_batch()]  ← CPU, no GPU
+      [update_score()]       ← pure math
+      [FLAME push+step+pull] ← GPU 2, via executor
+      if observer_tick:
+        asyncio.create_task(_run_observer(T))  ← fire-and-forget on GPU 0
+      else:
+        _rebalance_and_signal(T)
+          [balancer.rebalance()]
+          tick_done_q.put_nowait((T, participants, ivs_before))
+                                               |
+    Observer Task (fire-and-forget):           |
+      [obs_a.analyse()] ← GPU 0               |
+      [obs_b.intervene()] ← GPU 0             |
+      _rebalance_and_signal(T)                 |
+        tick_done_q.put_nowait(...)             |
+                                               |
+    sim_loop.py main:                          |
+                       tick_done_q.get() ◄─────┘
+      [print tick line]
+      [memory flush to DuckDB]
+      [W&B logging]
+      [on_tick callback → UI websocket]
+
+
+PART 8: WHERE IDLE GAPS REMAIN
+================================
+
+  The pipeline eliminates most idle time, but some gaps persist:
+
+  1. GPU 0 idle during Phase C (non-observer ticks)
+     ------------------------------------------------
+     Phase C runs entirely on CPU (e5-small-v2 embedding + score math).
+     GPU 0 is idle unless the stimulus worker is generating T+1 stimuli.
+     MITIGATION: stim_q backpressure lets stimulus worker run 1-2 ahead,
+     filling this gap. But if A is faster than C, GPU 0 waits on put().
+
+  2. GPU 1 during observer Phase D
+     ------------------------------------------------
+     Observer runs on GPU 0 only. GPU 1 is FREE.
+     MITIGATION: this is the KEY v4 improvement. The pipeline immediately
+     starts T+1's stimulus/swarm work. GPU 1 never waits for the observer.
+     Only GPU 0 has partial overlap (observer vs next tick's participant batch).
+
+  3. GPU 2 (FLAME) between sub-step bursts
+     ------------------------------------------------
+     FLAME runs 10 sub-steps per tick, then waits for the next tick's scores.
+     FLAME step time << LLM inference time, so GPU 2 is idle most of the tick.
+     MITIGATION: acceptable — FLAME is a population amplifier, not the bottleneck.
+     Could increase sub_steps for finer resolution, but diminishing returns.
+
+  4. CPU during Phase A and B
+     ------------------------------------------------
+     CPU does no heavy work during stimulus generation or participant responses.
+     MITIGATION: none needed — CPU is the cheap resource. Gateway serves
+     UI/API requests during this time.
+
+  5. Startup cold-start (first tick only)
+     ------------------------------------------------
+     Tick 1 cannot overlap with "Tick 0" — pipeline is empty.
+     All hardware is idle until the stimulus worker produces the first stimuli.
+     MITIGATION: none. Amortized over the run; negligible for 20+ tick runs.
+
+
+PART 9: FLAME GPU 2 DETAIL (per-tick cycle)
+=============================================
+
+  Within each dualmirakl tick, FLAME runs 10 sub-steps on GPU 2.
+  Each sub-step has 3 CUDA layers:
+
+    Sub-step 1 of 10:
+    +--------------------------------------------------+
+    | Layer 1: BROADCAST                                |
+    |   Influencer agents output: (x, y, score, idx)    |
+    |   Population agents output: (x, y, score, -1)     |
+    |   Both write to shared Spatial2D message list      |
+    |   (concurrent — different agent populations)       |
+    +--------------------------------------------------+
+              |
+              v
+    +--------------------------------------------------+
+    | Layer 2: UPDATE                                   |
+    |   Population agents read nearby messages (radius) |
+    |   Weighted average: influencer_weight * inf_score  |
+    |                   + 1.0 * pop_score               |
+    |   Score dynamics:                                  |
+    |     effective = score + susceptibility*(mean-score)|
+    |     delta = alpha * (effective - score)            |
+    |     new = score + delta*dampening*(1-resilience)   |
+    |         + kappa*(peer_mean - score)                |
+    |         + drift_sigma * noise                      |
+    |     clamp to [0, 1]                                |
+    +--------------------------------------------------+
+              |
+              v
+    +--------------------------------------------------+
+    | Layer 3: MOVE                                     |
+    |   Population agents drift toward influencers       |
+    |   + random walk (hash-based pseudo-random)         |
+    |   Wrap at boundaries (toroidal space)              |
+    +--------------------------------------------------+
+              |
+              v
+    +--------------------------------------------------+
+    | StepFunction: increment step_count                 |
+    +--------------------------------------------------+
+
+    ... repeat 9 more times ...
+
+  Data bridge (score_worker in sim_loop):
+    BEFORE sub-steps:
+      bridge.push_influencer_scores(engine, [p.behavioral_score for p in participants])
+    AFTER sub-steps:
+      snapshot = bridge.pull_population_stats(engine, tick, sub_steps=10)
+      → PopulationSnapshot(mean, std, min, max, histogram, influencer_scores)
+
+  Observer integration:
+    bridge.get_population_coupling_feedback(engine)
+      → {mean_score, std_score, polarization, center_offset, n_population}
+      Injected into observer_a's world state as flame_feedback
+
+
+PART 10: COMPARISON — v3 (sequential) vs v4 (harmony pipeline)
+================================================================
+
+  v3 (run_tick — sequential within each tick):
+  +------+------+------+------+------+------+------+------+
+  |  A1  |  B1  |  C1  |  A2  |  B2  |  C2  |  A3  |  B3 ...
+  +------+------+------+------+------+------+------+------+
+  GPU 0:  A1     B1(3p)  idle   A2     B2(3p)  idle   ...
+  GPU 1:  idle   B1(3p)  idle   idle   B2(3p)  idle   ...
+  CPU:    idle   idle    C1     idle   idle    C2     ...
+  GPU 2:  idle   idle    F1     idle   idle    F2     ...
+
+  Utilization: ~40% per GPU (large idle gaps during C and between ticks)
+
+
+  v4 (GPU Harmony — pipelined, overlapped):
+  +------+------+------+------+------+------+------+------+------+------+
+  |  A1  |  B1  | A2+C1| B2+F1| A3+C2| B3+F2|A4+C3|B4+F3| D4+C4| B5...
+  +------+------+------+------+------+------+------+------+------+------+
+  GPU 0:  A1     B1(3p)  A2     B2(3p)  A3     B3(3p)  A4     B4(3p) D4  A5  B5...
+  GPU 1:  idle   B1(3p)  idle   B2(3p)  idle   B3(3p)  idle   B4(3p)     B5(3p)...
+  CPU:    idle   idle    C1     idle    C2     idle    C3     idle   C4   idle...
+  GPU 2:  idle   idle    idle   F1     idle    F2     idle    F3    F4    idle...
+
+  Utilization: ~65-75% per GPU (Phase A fills Phase C gaps, observer is async)
+
+
+  Throughput gain: ~1.6-1.8x ticks/second (measured, depends on model + hardware)
+  The gain comes from:
+    1. Stimulus worker fills GPU 0 during CPU-only Phase C
+    2. Observer is fire-and-forget — GPU 1 never blocks
+    3. FLAME runs in executor thread — CPU stays free for C+1
+
+================================================================================
+END OF DOCUMENT
+================================================================================

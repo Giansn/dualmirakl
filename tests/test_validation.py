@@ -34,13 +34,13 @@ class TestConvergenceCheck:
         assert result["reason"] == "Too few data points"
 
     def test_constant_series(self):
-        """All-same values: variance_ratio=0 but t-test yields NaN, so converged=False."""
+        """All-same values: zero variance = trivially converged (perfect stationarity)."""
         series = np.full(100, 3.14)
         result = convergence_check(series)
-        # ttest_ind on identical arrays produces NaN p_value,
-        # so the p_value > 0.05 check fails => converged is False
-        assert result["converged"] == False
+        assert result["converged"] == True
         assert result["variance_ratio"] == 0.0
+        assert result["geweke_t"] == 0.0
+        assert result["geweke_p"] == 1.0
 
     def test_late_drift(self):
         """Series that is stationary then suddenly jumps should report converged=False."""

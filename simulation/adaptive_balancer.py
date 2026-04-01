@@ -59,6 +59,7 @@ class AdaptiveBalancer:
         deadband: float = 0.10,       # 10% deadband before adjustment
         min_per_gpu: int = 1,          # never leave a GPU completely idle
         adjust_interval: int = 1,      # rebalance every N ticks
+        max_seqs: int = 12,           # vLLM max concurrent sequences
     ):
         self.monitor = monitor
         self.n_participants = n_participants
@@ -66,6 +67,7 @@ class AdaptiveBalancer:
         self.deadband = deadband
         self.min_per_gpu = min_per_gpu
         self.adjust_interval = adjust_interval
+        self.max_seqs = max_seqs
 
         # Start with even split (or close to it)
         half = n_participants // 2
@@ -85,6 +87,14 @@ class AdaptiveBalancer:
             n_participants, self.state.auth_count, self.state.swarm_count,
             target_power_w, deadband * 100,
         )
+
+    @property
+    def max_auth_participants(self) -> int:
+        """Max participants on authority, reserving slots for observers + env."""
+        reserved = 2  # observer_a + observer_b (always on authority)
+        if self.state.env_backend == "authority":
+            reserved += 1
+        return max(self.min_per_gpu, self.max_seqs - reserved)
 
     def _recompute_assignments(self):
         """Rebuild the assignment list from current split counts."""
@@ -114,17 +124,18 @@ class AdaptiveBalancer:
         if not snap:
             return False
 
-        imbalance = self.monitor.imbalance()
+        imbalance = self.monitor.imbalance(metric="utilization")
         self.state.imbalance_history.append(imbalance)
 
-        # Log telemetry
+        # Log telemetry (utilization-focused)
         gpu_ids = sorted(snap.keys())
         if len(gpu_ids) >= 2:
             s0, s1 = snap[gpu_ids[0]], snap[gpu_ids[1]]
+            stats = self.monitor.stats
             logger.info(
-                "[Tick %d] GPU balance: %.0fW / %.0fW (imbalance=%.2f, split=%d/%d)",
-                tick, s0.power_w, s1.power_w, imbalance,
-                self.state.auth_count, self.state.swarm_count,
+                "[Tick %d] GPU util: %.0f%% / %.0f%% (imbalance=%.2f, split=%d/%d)",
+                tick, stats[gpu_ids[0]].ema_util, stats[gpu_ids[1]].ema_util,
+                imbalance, self.state.auth_count, self.state.swarm_count,
             )
 
         # Check deadband
@@ -146,11 +157,15 @@ class AdaptiveBalancer:
         else:
             # GPU 1 (swarm) is hotter → move one participant FROM swarm TO authority
             if self.state.swarm_count > self.min_per_gpu:
-                self.state.swarm_count -= 1
-                self.state.auth_count += 1
-                adjusted = True
-                logger.info("[Tick %d] Shifted 1 participant: swarm→authority (now %d/%d)",
-                            tick, self.state.auth_count, self.state.swarm_count)
+                if self.state.auth_count + 1 > self.max_auth_participants:
+                    logger.warning("[Tick %d] KV cap: can't shift to authority (%d/%d max)",
+                                   tick, self.state.auth_count, self.max_auth_participants)
+                else:
+                    self.state.swarm_count -= 1
+                    self.state.auth_count += 1
+                    adjusted = True
+                    logger.info("[Tick %d] Shifted 1 participant: swarm→authority (now %d/%d)",
+                                tick, self.state.auth_count, self.state.swarm_count)
 
         if adjusted:
             self._recompute_assignments()
@@ -195,6 +210,63 @@ class AdaptiveBalancer:
                 return "authority"
 
         return None
+
+    def save_cache(self, path: str = "data/balancer_cache.json"):
+        """Save converged split for reuse in subsequent runs."""
+        import json, hashlib
+        # Only save if converged (no adjustments in last 5 ticks)
+        recent = self.state.imbalance_history[-5:]
+        if recent and all(abs(r) < self.deadband for r in recent):
+            cache_key = hashlib.md5(
+                f"{sorted(self.monitor._gpu_ids)}-{self.max_seqs}".encode()
+            ).hexdigest()[:12]
+            cache = {
+                "key": cache_key,
+                "auth_count": self.state.auth_count,
+                "swarm_count": self.state.swarm_count,
+                "env_backend": self.state.env_backend,
+            }
+            try:
+                import os
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as f:
+                    json.dump(cache, f, indent=2)
+                logger.info("Balancer cache saved: %s (split %d/%d)",
+                            cache_key, self.state.auth_count, self.state.swarm_count)
+            except Exception as e:
+                logger.debug("Balancer cache save failed: %s", e)
+
+    def load_cache(self, path: str = "data/balancer_cache.json") -> bool:
+        """Load cached split if available and valid. Returns True if loaded."""
+        import json, hashlib
+        cache_key = hashlib.md5(
+            f"{sorted(self.monitor._gpu_ids)}-{self.max_seqs}".encode()
+        ).hexdigest()[:12]
+        try:
+            with open(path) as f:
+                cache = json.load(f)
+            if cache.get("key") != cache_key:
+                logger.debug("Balancer cache key mismatch — starting fresh")
+                return False
+            auth = cache["auth_count"]
+            swarm = cache["swarm_count"]
+            # Stale guard: validate against KV cap
+            if auth > self.max_auth_participants:
+                logger.warning("Cached split exceeds KV cap (%d > %d) — starting fresh",
+                               auth, self.max_auth_participants)
+                return False
+            if auth + swarm != self.n_participants:
+                logger.debug("Cached split count mismatch — starting fresh")
+                return False
+            self.state.auth_count = auth
+            self.state.swarm_count = swarm
+            self.state.env_backend = cache.get("env_backend", "swarm")
+            self._recompute_assignments()
+            logger.info("Balancer cache loaded: split %d/%d (key=%s)",
+                        auth, swarm, cache_key)
+            return True
+        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+            return False
 
     def tick_report(self) -> dict:
         """Export current state for event stream / DuckDB."""

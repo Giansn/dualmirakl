@@ -28,6 +28,17 @@ def convergence_check(
     tail_var = float(np.var(series[-window:]))
     ratio = tail_var / total_var if total_var > 0 else 0.0
 
+    # Constant series: near-zero variance = trivially converged
+    if total_var < 1e-20:
+        return {
+            "converged": True,
+            "variance_ratio": 0.0,
+            "geweke_t": 0.0,
+            "geweke_p": 1.0,
+            "tail_mean": float(np.mean(series[-window:])),
+            "tail_std": 0.0,
+        }
+
     # Geweke diagnostic: compare first third vs last third
     n = len(series)
     first = series[:n // 3]

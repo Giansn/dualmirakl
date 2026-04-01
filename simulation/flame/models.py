@@ -212,7 +212,7 @@ def build_model_description(config: dict):
         score_mode (str):       "ema" or "logistic" (default "ema")
         logistic_k (float):     Logistic steepness (default 6.0)
         drift_sigma (float):    Stochastic noise amplitude (default 0.01)
-        move_speed (float):     Agent movement speed (default 0.5)
+        mobility (float):       Movement as fraction of interaction_radius (default 0.1)
         sub_steps (int):        FLAME steps per dualmirakl tick (default 10)
 
     Returns:
@@ -236,7 +236,8 @@ def build_model_description(config: dict):
     env.newPropertyInt("score_mode", 0 if config.get("score_mode", "ema") == "ema" else 1)
     env.newPropertyFloat("logistic_k", config.get("logistic_k", 6.0))
     env.newPropertyFloat("drift_sigma", config.get("drift_sigma", 0.01))
-    env.newPropertyFloat("move_speed", config.get("move_speed", 0.5))
+    mobility = config.get("mobility", 0.1)
+    env.newPropertyFloat("move_speed", mobility * radius)
     env.newPropertyFloat("space_size", space)
     env.newPropertyUInt("step_count", 0)
 

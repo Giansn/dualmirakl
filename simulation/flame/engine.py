@@ -45,7 +45,7 @@ DEFAULT_CONFIG = {
     "score_mode": "ema",
     "logistic_k": 6.0,
     "drift_sigma": 0.01,
-    "move_speed": 0.5,
+    "mobility": 0.1,
     "sub_steps": 10,
     "gpu_id": 2,
     "seed": 42,
@@ -240,6 +240,11 @@ class FlameEngine:
             "score_mode": ("Int", int),
             "logistic_k": ("Float", float),
         }
+        # Convert mobility to move_speed if provided
+        if "mobility" in kwargs:
+            radius = kwargs.pop("interaction_radius", self._config.get("interaction_radius", 10.0))
+            kwargs["move_speed"] = kwargs.pop("mobility") * radius
+
         for key, value in kwargs.items():
             if key in type_map:
                 type_name, cast = type_map[key]
@@ -252,44 +257,35 @@ class FlameEngine:
         """
         Extract aggregate population statistics from FLAME GPU 2.
 
+        Uses StepLog for O(1) access to mean/std/min/max/count (pre-computed
+        on GPU by FLAME's internal reduction kernels). Avoids the O(N) Python
+        loop that previously copied and iterated the entire agent vector.
+
+        Histogram is omitted from the hot path — polarization is estimated
+        from std/mean instead (see FlameBridge.get_population_coupling_feedback).
+
         Returns:
             dict with: count, mean_score, std_score, min_score, max_score,
-                       influencer_scores, histogram (10 bins)
+                       influencer_scores
         """
         if not self._initialized:
             raise RuntimeError("FlameEngine.init() must be called first")
 
-        pyflamegpu = self._pyflamegpu
-
-        # Get population scores
-        pop = pyflamegpu.AgentVector(
-            self._model.Agent("Population"), self.config["n_population"]
-        )
-        self._sim.getPopulationData(pop)
-
-        scores = []
-        for i in range(pop.size()):
-            scores.append(pop[i].getVariableFloat("score"))
-
-        n = len(scores)
-        if n == 0:
+        # StepLog: O(1) reads of GPU-computed reductions
+        log = self._sim.getRunLog()
+        steps = log.getStepLog()
+        if not steps:
             return {
                 "count": 0, "mean_score": 0, "std_score": 0,
                 "min_score": 0, "max_score": 0,
-                "influencer_scores": [], "histogram": [0] * 10,
+                "influencer_scores": [],
             }
 
-        mean_s = sum(scores) / n
-        var_s = sum((s - mean_s) ** 2 for s in scores) / n
-        std_s = var_s ** 0.5
+        last = steps[-1]
+        pop_log = last.getAgent("Population")
 
-        # Histogram (10 bins: [0, 0.1), [0.1, 0.2), ..., [0.9, 1.0])
-        histogram = [0] * 10
-        for s in scores:
-            bin_idx = min(int(s * 10), 9)
-            histogram[bin_idx] += 1
-
-        # Get influencer scores
+        # Influencer scores: only N_inf agents (4-8), trivial copy
+        pyflamegpu = self._pyflamegpu
         inf_pop = pyflamegpu.AgentVector(
             self._model.Agent("Influencer"), self.config["n_influencers"]
         )
@@ -300,13 +296,12 @@ class FlameEngine:
         ]
 
         return {
-            "count": n,
-            "mean_score": mean_s,
-            "std_score": std_s,
-            "min_score": min(scores),
-            "max_score": max(scores),
+            "count": pop_log.getCount(),
+            "mean_score": pop_log.getMean("score"),
+            "std_score": pop_log.getStandardDev("score"),
+            "min_score": pop_log.getMin("score"),
+            "max_score": pop_log.getMax("score"),
             "influencer_scores": inf_scores,
-            "histogram": histogram,
         }
 
     def get_score_trajectories(self) -> list[dict]:
