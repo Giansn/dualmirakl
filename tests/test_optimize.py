@@ -49,7 +49,7 @@ class TestSurrogateObjective:
 
     def test_runs_without_optuna(self):
         """Surrogate objective uses update_score, not optuna internals."""
-        from simulation.sim_loop import update_score
+        from simulation.signal_computation import update_score
         # Just verify update_score works with the param ranges
         score = update_score(0.3, 0.6, 1.0, 0.15,
                              mode="logistic", logistic_k=6.0,

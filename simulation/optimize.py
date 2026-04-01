@@ -89,7 +89,7 @@ def _surrogate_objective(
 
     Returns combined loss (lower is better).
     """
-    from simulation.sim_loop import update_score
+    from simulation.signal_computation import update_score
 
     params = _suggest_params(trial, DUALMIRAKL_PARAMS)
     flame_params = {}
@@ -320,6 +320,25 @@ def run_optimization(
                 include_flame=include_flame,
                 target_mean=target_mean, target_std=target_std,
             )
+    elif mode == "surrogate":
+        try:
+            from simulation.surrogate import SurrogateModel
+        except ImportError:
+            raise ImportError("scikit-learn required for surrogate mode: pip install scikit-learn")
+        sm = SurrogateModel()
+        bench = sm.build(n_samples=max(5000, n_trials * 10), include_flame=include_flame)
+        winner_r2 = bench.gp_r2 if bench.winner == "gp" else bench.mlp_r2
+        logger.info("Surrogate trained: %s (R²=%.4f, RMSE=%.4f)",
+                     bench.winner, winner_r2,
+                     bench.gp_rmse if bench.winner == "gp" else bench.mlp_rmse)
+        if winner_r2 < 0.7:
+            logger.warning("Surrogate R²=%.2f is low — results may be unreliable", winner_r2)
+
+        def objective(trial):
+            params = _suggest_params(trial, DUALMIRAKL_PARAMS)
+            if include_flame:
+                params.update(_suggest_params(trial, FLAME_PARAMS))
+            return sm.predict_loss(params)
     elif mode == "full":
         def objective(trial):
             return _full_objective(
@@ -327,7 +346,7 @@ def run_optimization(
                 include_flame=include_flame, target_mean=target_mean,
             )
     else:
-        raise ValueError(f"Unknown mode: {mode}. Use 'fast' or 'full'.")
+        raise ValueError(f"Unknown mode: {mode}. Use 'fast', 'surrogate', or 'full'.")
 
     study.optimize(objective, n_trials=n_trials, callbacks=callbacks)
 
@@ -376,7 +395,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     parser = argparse.ArgumentParser(description="Optimize dualmirakl parameters")
-    parser.add_argument("--mode", choices=["fast", "full"], default="fast")
+    parser.add_argument("--mode", choices=["fast", "surrogate", "full"], default="fast")
     parser.add_argument("--trials", type=int, default=100)
     parser.add_argument("--ticks", type=int, default=12)
     parser.add_argument("--flame", action="store_true", help="Include FLAME params")

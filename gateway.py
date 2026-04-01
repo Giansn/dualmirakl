@@ -1,5 +1,6 @@
 import os
 import asyncio
+import threading
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
@@ -57,8 +58,7 @@ async def embeddings(req: Request):
     body = await req.json()
     inp = body.get("input", [])
     texts = inp if isinstance(inp, list) else [inp]
-    loop = asyncio.get_event_loop()
-    vectors = await loop.run_in_executor(None, _embed.encode, texts)
+    vectors = await asyncio.get_running_loop().run_in_executor(None, _embed.encode, texts)
     return {
         "object": "list",
         "data": [{"object": "embedding", "index": i, "embedding": v.tolist()} for i, v in enumerate(vectors)],
@@ -409,8 +409,7 @@ async def upload_document(req: Request):
 
     # Chunk and embed
     chunks = _chunk_text(text, chunk_size=400)
-    loop = asyncio.get_event_loop()
-    vectors = await loop.run_in_executor(None, _embed.encode, chunks)
+    vectors = await asyncio.get_running_loop().run_in_executor(None, _embed.encode, chunks)
 
     doc_entry = {
         "name": name,
@@ -513,8 +512,7 @@ async def query_documents(req: Request):
     ctx = json.loads(_context_file.read_text(encoding="utf-8"))
 
     # Embed query
-    loop = asyncio.get_event_loop()
-    q_vec = (await loop.run_in_executor(None, _embed.encode, [query]))[0]
+    q_vec = (await asyncio.get_running_loop().run_in_executor(None, _embed.encode, [query]))[0]
 
     # Search all chunks
     import numpy as _np
@@ -546,6 +544,7 @@ _sim_state = {
     "scores": [],  # latest scores per agent
     "pct": 0,
 }
+_sim_lock = threading.Lock()
 
 # Live simulation objects — set by _run(), used by /v1/interview
 _sim_live = {
@@ -553,6 +552,37 @@ _sim_live = {
     "world_state": None,    # WorldState during run
     "loop": None,           # asyncio event loop of sim thread
 }
+
+
+def _sim_update(**kwargs):
+    """Thread-safe update of _sim_state fields."""
+    with _sim_lock:
+        _sim_state.update(kwargs)
+
+
+def _run_sim_background(async_fn, label: str = "simulation"):
+    """Run an async function in a background thread with standard state management.
+
+    Sets status to 'running', runs the function, catches errors.
+    The async_fn receives no arguments — capture state via closure.
+    """
+    _sim_update(
+        status="running",
+        started_at=datetime.now(timezone.utc).isoformat(),
+        tick=0, pct=0, events=[], scores=[], run_dir=None,
+    )
+
+    def _run():
+        import asyncio as _aio
+        try:
+            _aio.run(async_fn())
+        except Exception as e:
+            import traceback as _tb
+            _sim_update(status=f"error: {e}")
+            _tb.print_exc()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": f"{label}_started"}
 
 
 @app.get("/simulation/preflight")
@@ -631,6 +661,31 @@ async def sim_flame_deactivate():
     return {"active": False}
 
 
+# ── Scenario management ─────────────────────────────────────────────────────
+
+@app.get("/simulation/scenarios")
+async def list_scenarios():
+    """List available scenario YAML files."""
+    scenarios_dir = _proj_dir / "scenarios"
+    files = sorted(scenarios_dir.glob("*.yaml"))
+    return [{"name": f.stem, "path": f"scenarios/{f.name}"} for f in files if not f.name.startswith("_")]
+
+
+@app.post("/simulation/scenarios")
+async def save_scenario(req: Request):
+    """Save a scenario YAML file. Body: {name: str, yaml: str}."""
+    body = await req.json()
+    name = body.get("name", "").strip()
+    yaml_content = body.get("yaml", "").strip()
+    if not name or not yaml_content:
+        raise HTTPException(400, "name and yaml are required")
+    slug = name.lower().replace(" ", "_").replace("-", "_")
+    slug = "".join(c for c in slug if c.isalnum() or c == "_")
+    path = _proj_dir / "scenarios" / f"{slug}.yaml"
+    path.write_text(yaml_content, encoding="utf-8")
+    return {"saved": True, "path": f"scenarios/{slug}.yaml", "name": slug}
+
+
 @app.get("/simulation/detect")
 async def sim_detect():
     """
@@ -679,7 +734,7 @@ async def sim_start(req: Request):
 
         async def _sim():
             try:
-                _sim_live["loop"] = _aio.get_event_loop()
+                _sim_live["loop"] = _aio.get_running_loop()
                 multi_run_logs: list[list[list[float]]] = []
                 all_interventions: list[dict] = []
                 last_participants = None
@@ -910,6 +965,72 @@ async def sim_nested_ensemble(req: Request):
 
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "nested_ensemble_started", "config": body}
+
+
+@app.post("/simulation/sweep")
+async def sim_sweep(req: Request):
+    """Run a parallel parameter sweep with vLLM capacity-aware scheduling."""
+    if _sim_state["status"] == "running":
+        return {"error": "Simulation already running", "status": _sim_state}
+
+    body = await req.json() if req.headers.get("content-type") == "application/json" else {}
+    param_sets = body.get("param_sets", [{}])
+    if not param_sets:
+        return {"error": "param_sets is required (list of parameter dicts)"}
+
+    _sim_state["status"] = "running"
+    _sim_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    _sim_state["tick"] = 0
+    _sim_state["pct"] = 0
+
+    def _run():
+        import asyncio as _aio
+        from parallel.tick_scheduler import MultiRunScheduler, RunConfig
+
+        async def _sweep():
+            try:
+                n_participants = body.get("n_participants", 4)
+                vllm_max_seqs = body.get("vllm_max_seqs", 12)
+                max_concurrent = min(
+                    body.get("max_concurrent", 3),
+                    max(1, vllm_max_seqs // n_participants),
+                )
+                configs = [
+                    RunConfig(
+                        run_id=f"sweep_{i:03d}",
+                        seed=body.get("base_seed", 42) + i,
+                        n_ticks=body.get("n_ticks", 12),
+                        n_participants=n_participants,
+                        alpha=p.get("alpha", 0.15),
+                        score_mode=p.get("score_mode", "ema"),
+                        logistic_k=p.get("logistic_k", 6.0),
+                        scenario_path=body.get("scenario_path"),
+                    )
+                    for i, p in enumerate(param_sets)
+                ]
+                scheduler = MultiRunScheduler(
+                    max_concurrent_runs=max_concurrent,
+                    vllm_max_seqs=vllm_max_seqs,
+                )
+                await scheduler.run_all(configs)
+                _sim_state["status"] = "completed"
+                _sim_state["sweep_result"] = scheduler.summary()
+                _sim_state["sweep_runs"] = [
+                    {"run_id": r.run_id, "seed": r.seed,
+                     "final_scores": r.final_scores,
+                     "duration_s": round(r.duration_s, 2),
+                     "error": r.error}
+                    for r in scheduler.results
+                ]
+            except Exception as e:
+                import traceback as _tb
+                _sim_state["status"] = f"error: {e}"
+                _tb.print_exc()
+
+        _aio.run(_sweep())
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "sweep_started", "n_configs": len(param_sets), "config": body}
 
 
 @app.post("/simulation/scenario_tree")

@@ -1,29 +1,21 @@
 """
 Pluggable score engines for dualmirakl.
 
-Extracts score update logic from sim_loop.py into standalone, configurable
-engines. Each engine implements the same interface but uses different dynamics.
-
-Phase 3 of the general-purpose refactoring.
+OOP wrappers around the canonical update_score() in signal_computation.py.
+Each engine holds its config and delegates to the single source of truth.
 """
 
 from __future__ import annotations
 
-import math
-from typing import Any, Optional
-
-import numpy as np
+from simulation.signal_computation import update_score
 
 
 class ScoreEngine:
     """
     Base class for score update engines.
 
-    Subclasses implement .update() with mode-specific dynamics.
-    All engines share:
-      - alpha: learning rate
-      - susceptibility/resilience: per-agent heterogeneity modifiers
-      - dampening: intervention-applied dampening
+    Subclasses configure mode-specific parameters; all delegate to
+    signal_computation.update_score() for the actual math.
     """
 
     def __init__(self, alpha: float = 0.15, **params):
@@ -84,10 +76,10 @@ class EMAScoreEngine(ScoreEngine):
         susceptibility: float = 1.0,
         resilience: float = 0.0,
     ) -> float:
-        effective_signal = current + susceptibility * (signal - current)
-        effective_dampening = dampening * (1.0 - resilience)
-        delta = self.alpha * (effective_signal - current)
-        return float(np.clip(current + delta * effective_dampening, 0.0, 1.0))
+        return update_score(
+            current, signal, dampening, self.alpha,
+            mode="ema", susceptibility=susceptibility, resilience=resilience,
+        )
 
 
 class LogisticScoreEngine(ScoreEngine):
@@ -109,9 +101,8 @@ class LogisticScoreEngine(ScoreEngine):
         susceptibility: float = 1.0,
         resilience: float = 0.0,
     ) -> float:
-        effective_signal = current + susceptibility * (signal - current)
-        midpoint = 0.5
-        effective_signal = 1.0 / (1.0 + np.exp(-self.logistic_k * (effective_signal - midpoint)))
-        effective_dampening = dampening * (1.0 - resilience)
-        delta = self.alpha * (effective_signal - current)
-        return float(np.clip(current + delta * effective_dampening, 0.0, 1.0))
+        return update_score(
+            current, signal, dampening, self.alpha,
+            mode="logistic", logistic_k=self.logistic_k,
+            susceptibility=susceptibility, resilience=resilience,
+        )

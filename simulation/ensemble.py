@@ -533,3 +533,106 @@ async def run_nested_ensemble(
     )
 
     return result
+
+
+# ── Evolutionary ensemble ────────────────────────────────────────────────────
+
+async def run_evolutionary_ensemble(
+    n_generations: int = 5,
+    n_runs_per_gen: int = 5,
+    mu: int = 10,
+    lambda_: int = 20,
+    fitness_fn=None,
+    scenario_config=None,
+    base_seed: int = 42,
+    **sim_kwargs,
+) -> dict:
+    """Run N generations of simulation + evolution.
+
+    Each generation runs an ensemble, assigns fitness to genomes based on
+    agent scores, then evolves the population for the next generation.
+
+    Args:
+        n_generations: Number of evolutionary generations.
+        n_runs_per_gen: Ensemble runs per generation.
+        mu: Parents retained per generation.
+        lambda_: Offspring per generation.
+        fitness_fn: Callable(agent_id, score_log) -> float. Defaults to mean score.
+        scenario_config: ScenarioConfig (optional).
+        base_seed: Starting seed.
+        **sim_kwargs: Passed to run_ensemble.
+
+    Returns:
+        Dict with generation_stats list and final_population.
+    """
+    try:
+        from ml.evolution import EvolutionEngine, AgentGenome
+    except ImportError:
+        raise ImportError("ml.evolution not available. pip install -r requirements-ml.txt")
+
+    if fitness_fn is None:
+        fitness_fn = lambda agent_id, score_log: float(np.mean(score_log)) if score_log else 0.0
+
+    evo = EvolutionEngine(mu=mu, lambda_=lambda_, seed=base_seed)
+
+    # Initialize population from scenario archetypes or defaults
+    n_agents = sim_kwargs.get("n_participants", 4)
+    if not evo.population:
+        evo.population = [
+            AgentGenome(
+                agent_id=f"participant_{i}",
+                personality={
+                    "openness": float(np.random.default_rng(base_seed + i).random()),
+                    "conscientiousness": float(np.random.default_rng(base_seed + i + 1).random()),
+                    "extraversion": float(np.random.default_rng(base_seed + i + 2).random()),
+                    "agreeableness": float(np.random.default_rng(base_seed + i + 3).random()),
+                    "neuroticism": float(np.random.default_rng(base_seed + i + 4).random()),
+                },
+                initial_stance=0.0,
+                influence_weight=0.5,
+                strategy_bias={},
+            )
+            for i in range(max(mu, n_agents))
+        ]
+
+    generation_stats = []
+
+    for gen in range(n_generations):
+        logger.info("Evolution generation %d/%d (pop=%d)",
+                     gen + 1, n_generations, len(evo.population))
+
+        # Map genome parameters to simulation kwargs
+        gen_seed = base_seed + gen * n_runs_per_gen
+        result = await run_ensemble(
+            n_runs=n_runs_per_gen,
+            base_seed=gen_seed,
+            scenario_config=scenario_config,
+            **sim_kwargs,
+        )
+
+        # Assign fitness from ensemble results
+        if result.all_score_logs:
+            # Average across runs for each agent position
+            for i, genome in enumerate(evo.population[:n_agents]):
+                agent_scores = []
+                for run_logs in result.all_score_logs:
+                    if i < len(run_logs):
+                        agent_scores.extend(run_logs[i])
+                genome.fitness = fitness_fn(genome.agent_id, agent_scores)
+
+        evo.evolve()
+        stats = evo.stats()
+        stats["seed"] = gen_seed
+        generation_stats.append(stats)
+        logger.info("  Gen %d: mean_fitness=%.4f, max=%.4f",
+                     gen + 1, stats["mean_fitness"], stats["max_fitness"])
+
+    return {
+        "n_generations": n_generations,
+        "generation_stats": generation_stats,
+        "final_population": [
+            {"id": g.agent_id, "fitness": g.fitness,
+             "personality": g.personality}
+            for g in evo.population
+        ],
+    }

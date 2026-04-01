@@ -312,7 +312,7 @@ class TestEMAScoreEngine:
 
     def test_matches_sim_loop_update_score(self):
         """EMAScoreEngine must produce identical results to sim_loop.update_score."""
-        from simulation.sim_loop import update_score
+        from simulation.signal_computation import update_score
         engine = EMAScoreEngine(alpha=0.15)
         for current, signal, damp, sus, res in [
             (0.3, 0.8, 1.0, 1.0, 0.0),
@@ -333,7 +333,7 @@ class TestLogisticScoreEngine:
         assert delta_low > delta_high  # sigmoid saturates at extremes
 
     def test_matches_sim_loop_update_score(self):
-        from simulation.sim_loop import update_score
+        from simulation.signal_computation import update_score
         engine = LogisticScoreEngine(alpha=0.15, logistic_k=6.0)
         for current, signal, damp, sus, res in [
             (0.3, 0.8, 1.0, 1.0, 0.0),

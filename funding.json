@@ -1,0 +1,57 @@
+{
+  "$schema": "https://fundingjson.org/schema/v1/funding.schema.json",
+  "version": "v1.0.0",
+  "entity": {
+    "type": "individual",
+    "role": "owner",
+    "name": "Gianson",
+    "email": "gianson@pm.me",
+    "description": "Independent researcher building open simulation infrastructure for multi-agent systems on GPU clusters."
+  },
+  "projects": [
+    {
+      "guid": "github.com/Giansn/dualmirakl",
+      "name": "dualmirakl",
+      "description": "Dual/tri-GPU multi-agent simulation framework. Orchestrates LLM-powered agents across GPU slots with FLAME population dynamics, Bayesian calibration (ABC-SMC), sensitivity analysis (Morris/Sobol), chaos metrics (Lyapunov, transfer entropy), and graph-based agent memory. Domain-agnostic: swap a YAML scenario file to simulate any multi-agent system.",
+      "webpageUrl": {
+        "url": "https://github.com/Giansn/dualmirakl"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/Giansn/dualmirakl.git"
+      },
+      "licenses": ["spdx:AGPL-3.0-or-later"],
+      "tags": [
+        "simulation",
+        "gpu",
+        "agent",
+        "machine-learning",
+        "python",
+        "research",
+        "data-science"
+      ]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "stripe-dualmirakl",
+        "type": "payment-provider",
+        "address": "https://buy.stripe.com/eVqbJ3eES9hY48edZpbZe00",
+        "description": "One-time or recurring support via Stripe"
+      }
+    ],
+    "plans": [
+      {
+        "guid": "community-supporter",
+        "status": "active",
+        "name": "Community Supporter",
+        "description": "Help keep dualmirakl open, maintained, and GPU-tested. Funds go toward RunPod compute for CI, model hosting, and development time.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": ["stripe-dualmirakl"]
+      }
+    ],
+    "history": []
+  }
+}

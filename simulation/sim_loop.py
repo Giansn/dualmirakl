@@ -20,10 +20,8 @@ Architecture layers (Park et al. 2023; Adaptive-VP, ACL 2025):
 from __future__ import annotations
 
 import asyncio
-import contextvars
 import json
 import logging
-import math
 import os
 import re
 import time
@@ -63,398 +61,41 @@ from orchestrator import agent_turn, close_client
 from simulation.tracking import tracker
 from simulation.topology import TopologyManager, combine_stimuli
 
+# ── Re-exports (backward compatibility) ──────────────────────────────────────
+# DEPRECATED: prefer importing directly from the canonical module.
+#   signal_computation  → set_seed, _get_embed, update_score, embed_score_batch, ...
+#   intervention_engine → Intervention, extract_interventions, ...
+#   preflight           → load_world_context, detect_missing_context, preflight_check, ...
+#   sensitivity_analysis → morris_screening, sobol_first_order, ...
+from simulation.signal_computation import (  # noqa: F401
+    set_seed, _get_rng, _get_embed, _cosine, _load_anchors,
+    _compute_signal_from_vec, _compute_signal_with_action,
+    embed_score_batch, update_score, DEFAULT_EMBED_PATH,
+    ACTION_BASE_SIGNALS, EMBED_MODIFIER_RANGE,
+)
+from simulation.intervention_engine import (  # noqa: F401
+    Intervention, extract_interventions, _make_intervention,
+    _load_codebook,
+)
+from simulation.preflight import (  # noqa: F401
+    CONTEXT_FILE, CONTEXT_REQUIREMENTS, FLAME_ENABLED,
+    load_world_context, detect_missing_context, preflight_check,
+    _flame_config_from_env, _try_init_flame,
+)
+from simulation.sensitivity_analysis import (  # noqa: F401
+    morris_screening, sobol_first_order,
+    run_sensitivity_analysis, calibrate_intervention_threshold,
+)
+from simulation.export import (  # noqa: F401
+    export_results, OUTPUT_DIR,
+)
+
 logger = logging.getLogger(__name__)
-
-# ── FLAME GPU 2 (optional, requires 3rd GPU + pyflamegpu) ────────────────────
-
-FLAME_ENABLED = os.environ.get("FLAME_ENABLED", "0") == "1"
-
-
-def _flame_config_from_env(overrides: Optional[dict] = None) -> dict:
-    """Build FLAME config from env vars + optional overrides."""
-    _e = os.environ.get
-    cfg = {
-        "n_population": int(_e("FLAME_N_POPULATION", "10000000")),
-        "n_influencers": int(_e("SIM_N_PARTICIPANTS", "4")),
-        "space_size": float(_e("FLAME_SPACE_SIZE", "100000")),
-        "interaction_radius": float(_e("FLAME_INTERACTION_RADIUS", "500")),
-        "alpha": float(_e("SIM_ALPHA", "0.15")),
-        "kappa": float(_e("FLAME_KAPPA", "0.1")),
-        "dampening": 1.0,
-        "influencer_weight": float(_e("FLAME_INFLUENCER_WEIGHT", "5.0")),
-        "score_mode": _e("SIM_SCORE_MODE", "ema"),
-        "logistic_k": float(_e("SIM_LOGISTIC_K", "6.0")),
-        "drift_sigma": float(_e("FLAME_DRIFT_SIGMA", "0.01")),
-        "mobility": float(_e("FLAME_MOBILITY", "0.1")),
-        "sub_steps": int(_e("FLAME_SUB_STEPS", "10")),
-        "gpu_id": int(_e("FLAME_GPU", "2")),
-        "seed": int(_e("SIM_SEED", "42")),
-    }
-    if overrides:
-        cfg.update(overrides)
-    return cfg
-
-
-def _try_init_flame(
-    config: dict,
-    n_participants: int,
-) -> tuple:
-    """
-    Attempt to initialize FLAME engine + bridge. Returns (engine, bridge) or (None, None).
-    Fails gracefully if pyflamegpu not installed or no GPU available.
-    """
-    try:
-        from simulation.flame import FlameEngine, FlameBridge
-        config["n_influencers"] = n_participants
-        engine = FlameEngine(config)
-        bridge = FlameBridge(
-            n_influencers=n_participants,
-            space_size=config.get("space_size", 100.0),
-        )
-        engine.init()
-        bridge.push_influencer_positions(engine)
-        logger.info("FLAME GPU 2 initialized: %d population agents on GPU %d",
-                     config["n_population"], config["gpu_id"])
-        return engine, bridge
-    except ImportError:
-        logger.warning("pyflamegpu not installed — FLAME disabled")
-        return None, None
-    except Exception as e:
-        logger.warning("FLAME init failed: %s — continuing without FLAME", e)
-        return None, None
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-DEFAULT_EMBED_PATH = os.environ.get(
-    "SIM_EMBED_MODEL",
-    os.path.join(os.environ.get("HF_HOME", "/workspace/huggingface"), "hub", "e5-small-v2"),
-)
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0  # seconds
-CONTEXT_FILE = os.environ.get(
-    "SIM_CONTEXT_FILE",
-    os.path.join(os.path.dirname(os.path.dirname(__file__)), "context", "world_context.json"),
-)
-
-
-# ── World context from uploaded documents ─────────────────────────────────────
-
-def load_world_context() -> Optional[str]:
-    """
-    Load document context uploaded via the web interface.
-
-    Returns the summary text (max ~3000 chars) from context/world_context.json,
-    or None if no documents have been uploaded.
-
-    This text gets injected into environment and observer agent prompts
-    so the simulation is grounded in the uploaded data.
-    """
-    ctx_path = Path(CONTEXT_FILE)
-    if not ctx_path.exists():
-        return None
-    try:
-        ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
-        summary = ctx.get("summary", "").strip()
-        return summary if summary else None
-    except Exception:
-        return None
-
-
-# ── World context detection ───────────────────────────────────────────────────
-#
-# Two separate checks:
-#   1. detect_missing_context() — called when user starts a simulation.
-#      Inspects world_context.json, reports what's present and what's missing,
-#      explains WHY each missing piece matters for result validity.
-#      Returns warnings but does NOT block the simulation.
-#
-#   2. preflight_check() — called on instance/pod startup.
-#      Checks infrastructure: vLLM servers reachable, models loaded,
-#      embedding model available, ports open. Blocks if critical.
-# ──────────────────────────────────────────────────────────────────────────────
-
-# Expected context categories and why they matter
-CONTEXT_REQUIREMENTS: dict[str, dict] = {
-    "scenario_description": {
-        "keywords": ["scenario", "situation", "setting", "context", "environment",
-                     "case study", "use case", "domain"],
-        "why": (
-            "Without a scenario description, the environment agent generates "
-            "generic stimuli with no domain grounding. Agents interact in a "
-            "vacuum — results cannot be mapped to any real-world setting."
-        ),
-    },
-    "population_characteristics": {
-        "keywords": ["population", "participant", "demographic", "age", "group",
-                     "cohort", "sample", "user", "student", "adolescent"],
-        "why": (
-            "Without population data, all simulated participants are generic. "
-            "Heterogeneous agent parameters (susceptibility, resilience) have "
-            "no empirical basis — individual differences are random noise "
-            "rather than calibrated to a real population."
-        ),
-    },
-    "outcome_criteria": {
-        "keywords": ["outcome", "criteria", "threshold", "metric", "measure",
-                     "indicator", "score", "prevalence", "rate", "target"],
-        "why": (
-            "Without outcome criteria, there is no way to validate whether "
-            "simulation results are plausible. History Matching targets "
-            "default to wide non-constraining ranges — calibration produces "
-            "no information."
-        ),
-    },
-    "intervention_rules": {
-        "keywords": ["intervention", "rule", "policy", "constraint", "boundary",
-                     "limit", "guideline", "protocol", "response"],
-        "why": (
-            "Without intervention rules, observer agents rely entirely on "
-            "generic codebook phrases. Interventions fire based on embedding "
-            "similarity rather than domain-appropriate decision criteria."
-        ),
-    },
-    "temporal_structure": {
-        "keywords": ["time", "duration", "period", "phase", "stage", "session",
-                     "day", "week", "hour", "tick", "timeline"],
-        "why": (
-            "Without temporal structure, each tick is abstract — there is no "
-            "mapping between simulation ticks and real-world time. Observer "
-            "frequency (K) and persona summary intervals have no empirical "
-            "anchor."
-        ),
-    },
-}
-
-
-def detect_missing_context(scenario_config=None) -> dict:
-    """
-    Inspect world context for missing information categories.
-
-    Called when user starts a simulation. Returns what's present, what's
-    missing, and why each missing piece matters.
-
-    If scenario_config is provided, uses its context_categories instead of
-    the hardcoded CONTEXT_REQUIREMENTS. This enables domain-specific context
-    detection per scenario.
-
-    Does NOT block the simulation — the user decides whether to proceed
-    or upload more documents first.
-
-    Returns:
-        {
-            "has_context": bool,
-            "n_documents": int,
-            "context_length": int,
-            "present": [{"category": str, "matched_keywords": [str]}],
-            "missing": [{"category": str, "why": str}],
-            "warnings": [str],
-            "can_proceed": True,  # always True — detection only, not blocking
-        }
-    """
-    # Build requirements from scenario config or fall back to hardcoded
-    if scenario_config is not None and hasattr(scenario_config, "context_categories"):
-        requirements = {}
-        for cat in scenario_config.context_categories:
-            requirements[cat.id] = {
-                "keywords": cat.id.replace("_", " ").split() + cat.description.lower().split()[:5],
-                "why": cat.description,
-            }
-    else:
-        requirements = CONTEXT_REQUIREMENTS
-
-    ctx_path = Path(CONTEXT_FILE)
-    result = {
-        "has_context": False,
-        "n_documents": 0,
-        "context_length": 0,
-        "present": [],
-        "missing": [],
-        "warnings": [],
-        "can_proceed": True,
-    }
-
-    if not ctx_path.exists():
-        result["warnings"].append("No documents uploaded. Simulation will run without world context.")
-        for cat, spec in requirements.items():
-            result["missing"].append({"category": cat, "why": spec["why"]})
-        return result
-
-    try:
-        ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
-    except Exception:
-        result["warnings"].append("world_context.json is corrupted. Simulation will run without context.")
-        for cat, spec in requirements.items():
-            result["missing"].append({"category": cat, "why": spec["why"]})
-        return result
-
-    summary = ctx.get("summary", "").lower()
-    result["has_context"] = bool(summary.strip())
-    result["n_documents"] = ctx.get("n_documents", 0)
-    result["context_length"] = len(ctx.get("summary", ""))
-
-    if not summary.strip():
-        result["warnings"].append("Documents uploaded but summary is empty.")
-        for cat, spec in requirements.items():
-            result["missing"].append({"category": cat, "why": spec["why"]})
-        return result
-
-    # Scan for each category
-    for cat, spec in requirements.items():
-        matched = [kw for kw in spec["keywords"] if kw in summary]
-        if matched:
-            result["present"].append({"category": cat, "matched_keywords": matched})
-        else:
-            result["missing"].append({"category": cat, "why": spec["why"]})
-
-    if result["missing"]:
-        missing_names = [m["category"] for m in result["missing"]]
-        result["warnings"].append(
-            f"Missing context categories: {', '.join(missing_names)}. "
-            f"Results may lack domain grounding in these areas."
-        )
-
-    if result["context_length"] < 200:
-        result["warnings"].append(
-            "Context is very short (<200 chars). Consider uploading more "
-            "detailed documents for better agent grounding."
-        )
-
-    return result
-
-
-# ── Preflight check (instance startup) ────────────────────────────────────────
-
-async def preflight_check() -> dict:
-    """
-    Infrastructure check — called on pod/instance arrival.
-
-    Verifies that the simulation can run:
-    - vLLM servers reachable (authority, swarm)
-    - Embedding model loadable
-    - Required Python modules importable
-    - Output directory writable
-
-    Returns:
-        {
-            "ready": bool,
-            "checks": [{"name": str, "status": "ok"|"fail", "detail": str}],
-        }
-    """
-    checks = []
-
-    # Check orchestrator connectivity
-    try:
-        from orchestrator import health_check
-        status = await health_check()
-        for name, st in status.items():
-            ok = st == "up"
-            checks.append({"name": f"vllm_{name}", "status": "ok" if ok else "fail", "detail": st})
-    except Exception as e:
-        checks.append({"name": "vllm_connectivity", "status": "fail", "detail": str(e)})
-
-    # Check embedding model
-    try:
-        _get_embed()
-        checks.append({"name": "embedding_model", "status": "ok", "detail": DEFAULT_EMBED_PATH})
-    except Exception as e:
-        checks.append({"name": "embedding_model", "status": "fail", "detail": str(e)})
-
-    # Check output directory writable
-    try:
-        out_dir = Path(os.environ.get("SIM_OUTPUT_DIR", "data"))
-        out_dir.mkdir(parents=True, exist_ok=True)
-        test_file = out_dir / ".write_test"
-        test_file.write_text("ok")
-        test_file.unlink()
-        checks.append({"name": "output_dir", "status": "ok", "detail": str(out_dir)})
-    except Exception as e:
-        checks.append({"name": "output_dir", "status": "fail", "detail": str(e)})
-
-    # Check context file access
-    ctx_exists = Path(CONTEXT_FILE).exists()
-    checks.append({
-        "name": "world_context",
-        "status": "ok" if ctx_exists else "warn",
-        "detail": "loaded" if ctx_exists else "no documents uploaded yet",
-    })
-
-    # Check FLAME GPU 2 (optional — warn, never fail)
-    if FLAME_ENABLED:
-        try:
-            import pyflamegpu
-            checks.append({
-                "name": "flame_gpu2",
-                "status": "ok",
-                "detail": f"pyflamegpu available, GPU {os.environ.get('FLAME_GPU', '2')}",
-            })
-        except ImportError:
-            checks.append({
-                "name": "flame_gpu2",
-                "status": "warn",
-                "detail": "FLAME_ENABLED=1 but pyflamegpu not installed — will run without FLAME",
-            })
-    else:
-        checks.append({
-            "name": "flame_gpu2",
-            "status": "info",
-            "detail": "disabled (set FLAME_ENABLED=1 for 3-GPU mode)",
-        })
-
-    ready = all(c["status"] != "fail" for c in checks)
-    return {"ready": ready, "checks": checks}
-
-
-# ── Reproducibility ───────────────────────────────────────────────────────────
-
-_rng: Optional[np.random.RandomState] = None
-_rng_ctx: contextvars.ContextVar[Optional[np.random.RandomState]] = contextvars.ContextVar(
-    "_rng_ctx", default=None
-)
-
-
-def set_seed(seed: int = 42) -> None:
-    """Set the RNG for the current context (or global fallback)."""
-    rng = np.random.RandomState(seed)
-    _rng_ctx.set(rng)
-    global _rng
-    _rng = rng
-    logger.info(f"Seed set to {seed}")
-
-
-def _get_rng() -> np.random.RandomState:
-    """Get the RNG for the current context, falling back to global."""
-    ctx_rng = _rng_ctx.get(None)
-    if ctx_rng is not None:
-        return ctx_rng
-    global _rng
-    if _rng is None:
-        set_seed(42)
-    return _rng
-
-
-# ── Embedding helper ──────────────────────────────────────────────────────────
-from sentence_transformers import SentenceTransformer
-
-_embed_model: Optional[SentenceTransformer] = None
-
-
-def _get_embed() -> SentenceTransformer:
-    global _embed_model
-    if _embed_model is not None:
-        return _embed_model
-    try:
-        _embed_model = SentenceTransformer(DEFAULT_EMBED_PATH)
-        logger.info(f"Loaded embedding model from: {DEFAULT_EMBED_PATH}")
-    except Exception as e:
-        logger.warning(f"Failed to load from {DEFAULT_EMBED_PATH}: {e}. Falling back to HuggingFace.")
-        _embed_model = SentenceTransformer("intfloat/e5-small-v2")
-        logger.info("Loaded embedding model from HuggingFace: intfloat/e5-small-v2")
-    return _embed_model
-
-
-def _cosine(a, b) -> float:
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
-
 
 # ── Resilient agent_turn wrapper ──────────────────────────────────────────────
 
@@ -504,16 +145,6 @@ async def _resilient_agent_turn(
 
 
 # ── Data structures ───────────────────────────────────────────────────────────
-
-@dataclass
-class Intervention:
-    type: str
-    description: str
-    modifier: dict
-    activated_at: int
-    duration: int = -1
-    source: str = ""
-
 
 @dataclass
 class ObsEntry:
@@ -638,298 +269,8 @@ class WorldState:
         }
 
 
-# ── Score update ──────────────────────────────────────────────────────────────
-
-_anchor_vecs: Optional[np.ndarray] = None
-_anchor_labels: list[str] = []
-
-
-def _load_anchors():
-    global _anchor_vecs, _anchor_labels
-    if _anchor_vecs is not None:
-        return
-    model = _get_embed()
-    high = ENGAGEMENT_ANCHORS["high"]
-    low  = ENGAGEMENT_ANCHORS["low"]
-    _anchor_labels = ["high"] * len(high) + ["low"] * len(low)
-    _anchor_vecs = model.encode(high + low)
-
-
-_anchor_high_mask: Optional[np.ndarray] = None
-
-
-def _compute_signal_from_vec(vec) -> tuple[float, float]:
-    """Vectorized cosine similarity against all anchors.
-
-    SE is propagated from both poles separately via delta method:
-      signal = (high_mean - low_mean + 1) / 2
-      se(signal) = sqrt(se_high^2 + se_low^2) / 2
-    This captures uncertainty in *both* pole estimates rather than
-    pooling all 20 similarities into a single noisy scalar.
-    """
-    global _anchor_high_mask
-    _load_anchors()
-    if _anchor_high_mask is None:
-        _anchor_high_mask = np.array([l == "high" for l in _anchor_labels])
-    # Vectorized: cosine sims for all anchors at once
-    norms = np.linalg.norm(_anchor_vecs, axis=1) * (np.linalg.norm(vec) + 1e-8)
-    sims = _anchor_vecs @ vec / norms
-    high_sims = sims[_anchor_high_mask]
-    low_sims = sims[~_anchor_high_mask]
-    high_sim = float(np.mean(high_sims))
-    low_sim  = float(np.mean(low_sims))
-    signal = float(np.clip((high_sim - low_sim + 1.0) / 2.0, 0.0, 1.0))
-    # Per-pole SE, propagated through the signal transform
-    se_high = float(np.std(high_sims) / math.sqrt(len(high_sims)))
-    se_low = float(np.std(low_sims) / math.sqrt(len(low_sims)))
-    se = float(math.sqrt(se_high**2 + se_low**2) / 2.0)
-    return signal, se
-
-
-# ── Action-based signal override ─────────────────────────────────────────────
-# Base signal for each structured action type.
-# 5-level system: wider spread + larger modifier range for meaningful variation.
-ACTION_BASE_SIGNALS: dict[str, float] = {
-    "disengage": 0.10,
-    "withdraw": 0.25,
-    "respond": 0.50,
-    "engage": 0.70,
-    "escalate": 0.85,
-}
-EMBED_MODIFIER_RANGE = 0.20
-
-
-def _compute_signal_with_action(
-    parsed_action: Optional[dict],
-    embed_vec,
-) -> tuple[float, float]:
-    """
-    Compute behavioral signal using structured action as base, with
-    embedding similarity as a fine-grained modifier.
-
-    Falls back to pure embedding if no recognized action.
-    """
-    embed_signal, embed_se = _compute_signal_from_vec(embed_vec)
-
-    if parsed_action is None:
-        return embed_signal, embed_se
-
-    action_type = str(parsed_action.get("action", "")).lower().strip()
-
-    if action_type in ACTION_BASE_SIGNALS:
-        base = ACTION_BASE_SIGNALS[action_type]
-        modifier = (embed_signal - 0.5) * 2.0 * EMBED_MODIFIER_RANGE
-        signal = float(np.clip(base + modifier, 0.0, 1.0))
-        return signal, embed_se
-
-    intensity = parsed_action.get("intensity")
-    if intensity is not None:
-        try:
-            intensity_f = float(intensity)
-            if 0.0 <= intensity_f <= 1.0:
-                signal = float(np.clip(0.7 * intensity_f + 0.3 * embed_signal, 0.0, 1.0))
-                return signal, embed_se
-        except (TypeError, ValueError):
-            pass
-
-    return embed_signal, embed_se
-
-
-def embed_score_batch(
-    responses: list[str],
-    parsed_actions: Optional[list[Optional[dict]]] = None,
-) -> list[tuple[float, float]]:
-    """[Fix 12] Batch encode all responses in one model call.
-    If parsed_actions provided, uses action type as base signal with embed modifier."""
-    _load_anchors()
-    model = _get_embed()
-    vecs = model.encode(responses, batch_size=EMBED_BATCH_SIZE, show_progress_bar=False)
-
-    if parsed_actions is None:
-        return [_compute_signal_from_vec(v) for v in vecs]
-
-    return [
-        _compute_signal_with_action(
-            parsed_actions[i] if i < len(parsed_actions) else None, v
-        )
-        for i, v in enumerate(vecs)
-    ]
-
-
-def update_score(
-    current: float,
-    signal: float,
-    dampening: float = 1.0,
-    alpha: float = 0.2,
-    mode: str = "ema",
-    logistic_k: float = 6.0,
-    susceptibility: float = 1.0,
-    resilience: float = 0.0,
-) -> float:
-    """
-    Score update with two modes and heterogeneous agent modifiers.
-
-    Modes:
-      ema      — linear EMA: Score += d * α * (signal - score). Analytically
-                 tractable, suitable for SA sweeps.
-      logistic — sigmoid-transformed signal: captures saturation at extremes.
-                 Clinically motivated: deeply engaged users resist both
-                 intervention (hard to push below 0.8) and further escalation
-                 (ceiling effect). k controls steepness.
-
-    Agent modifiers (heterogeneous agents):
-      susceptibility — scales raw signal before update (higher = more affected
-                       by stimuli). Default 1.0 = no modification.
-      resilience     — additive dampening (higher = more resistant to score
-                       change). Applied multiplicatively with intervention
-                       dampening: effective_d = dampening * (1 - resilience).
-    """
-    # Apply susceptibility: modulates how strongly signal affects this agent
-    effective_signal = current + susceptibility * (signal - current)
-
-    if mode == "logistic":
-        midpoint = 0.5
-        effective_signal = 1.0 / (1.0 + np.exp(-logistic_k * (effective_signal - midpoint)))
-
-    # Apply resilience: baseline resistance to score change
-    effective_dampening = dampening * (1.0 - resilience)
-
-    delta = alpha * (effective_signal - current)
-    return float(np.clip(current + delta * effective_dampening, 0.0, 1.0))
-
-
-# ── Sensitivity analysis ─────────────────────────────────────────────────────
-
-def morris_screening(
-    func,
-    bounds: list[tuple[float, float]],
-    r: int = 10,
-    p: int = 4,
-    seed: int = 42,
-) -> dict[int, dict]:
-    rng = np.random.RandomState(seed)
-    k = len(bounds)
-    delta = 1.0 / (p - 1) if p > 1 else 0.5
-    effects = {i: [] for i in range(k)}
-
-    for _ in range(r):
-        x_base = rng.randint(0, p, size=k) / (p - 1)
-        x_scaled = np.array([lo + x_base[i] * (hi - lo) for i, (lo, hi) in enumerate(bounds)])
-        order = rng.permutation(k)
-        x_current = x_scaled.copy()
-        y_current = func(x_current)
-        for i in order:
-            lo, hi = bounds[i]
-            step = delta * (hi - lo)
-            x_next = x_current.copy()
-            x_next[i] += step
-            if x_next[i] > hi:
-                x_next[i] -= 2 * step
-            y_next = func(x_next)
-            ee = (y_next - y_current) / (step if step != 0 else 1e-8)
-            effects[i].append(ee)
-            x_current = x_next
-            y_current = y_next
-
-    return {i: {
-        "mu_star": float(np.mean(np.abs(effects[i]))),
-        "sigma": float(np.std(effects[i])),
-        "mu": float(np.mean(effects[i])),
-    } for i in range(k)}
-
-
-def sobol_first_order(
-    func,
-    bounds: list[tuple[float, float]],
-    n_samples: int = 1024,
-    seed: int = 42,
-) -> dict[int, float]:
-    rng = np.random.RandomState(seed)
-    k = len(bounds)
-
-    def _sample(n):
-        raw = rng.uniform(size=(n, k))
-        return np.array([[lo + raw[j, i] * (hi - lo) for i, (lo, hi) in enumerate(bounds)]
-                         for j in range(n)])
-
-    A = _sample(n_samples)
-    B = _sample(n_samples)
-    y_A = np.array([func(A[j]) for j in range(n_samples)])
-    y_B = np.array([func(B[j]) for j in range(n_samples)])
-    var_y = np.var(np.concatenate([y_A, y_B]))
-
-    if var_y < 1e-12:
-        return {i: 0.0 for i in range(k)}
-
-    indices = {}
-    for i in range(k):
-        AB_i = A.copy()
-        AB_i[:, i] = B[:, i]
-        y_AB_i = np.array([func(AB_i[j]) for j in range(n_samples)])
-        s_i = float(np.mean(y_B * (y_AB_i - y_A)) / var_y)
-        indices[i] = max(0.0, min(1.0, s_i))
-    return indices
-
-
-# ── Intervention extraction ───────────────────────────────────────────────────
-
-_codebook_vecs: Optional[np.ndarray] = None
-_codebook_keys: list[str] = []
-_codebook_phrases: list[str] = []
-
-
-def _load_codebook():
-    global _codebook_vecs, _codebook_keys, _codebook_phrases
-    if _codebook_vecs is not None:
-        return
-    model = _get_embed()
-    for key, phrases in INTERVENTION_CODEBOOK.items():
-        for phrase in phrases:
-            _codebook_keys.append(key)
-            _codebook_phrases.append(phrase)
-    _codebook_vecs = model.encode(_codebook_phrases)
-
-
-def extract_interventions(observer_id: str, response: str, tick: int, precomputed_vec=None) -> list[Intervention]:
-    _load_codebook()
-    vec = precomputed_vec if precomputed_vec is not None else _get_embed().encode([response])[0]
-    triggered = {}
-    # Vectorized cosine similarity against codebook
-    norms = np.linalg.norm(_codebook_vecs, axis=1) * (np.linalg.norm(vec) + 1e-8)
-    sims = _codebook_vecs @ vec / norms
-    for idx, (key, phrase) in enumerate(zip(_codebook_keys, _codebook_phrases)):
-        s = float(sims[idx])
-        if s >= INTERVENTION_THRESHOLD:
-            if key not in triggered or s > triggered[key][0]:
-                triggered[key] = (s, phrase)
-
-    ivs = []
-    for key, (sim, phrase) in triggered.items():
-        iv_type, description, modifier = _make_intervention(key)
-        ivs.append(Intervention(
-            type=iv_type, description=description, modifier=modifier,
-            activated_at=tick, source=observer_id,
-        ))
-        logger.info(f"  [{observer_id}] INTERVENTION: {key} (sim={sim:.2f})")
-    return ivs
-
-
-def _make_intervention(key: str) -> tuple[str, str, dict]:
-    defaults = {
-        "pause_prompt":        ("participant_nudge",
-                                "A pause prompt appeared: 'Take a moment to reflect.'", {}),
-        "boundary_warning":    ("environment_constraint",
-                                "Flag content or interactions approaching scenario boundaries.", {}),
-        "pacing_adjustment":   ("participant_nudge",
-                                "Consider adjusting the pace of the current interaction.", {}),
-        "dynamics_dampening":  ("score_modifier",
-                                "Behavioral dynamics dampened by observer recommendation.",
-                                {"dampening": 0.6}),
-    }
-    return defaults.get(key, ("environment_constraint", key, {}))
-
-
 def _format_stats(stats: dict) -> str:
+    """Format score statistics for observer prompt injection."""
     if not stats:
         return ""
     s = (
@@ -1016,44 +357,79 @@ class EnvironmentAgent:
 
     async def batch_decide(
         self, participants: list["ParticipantAgent"], world_state: WorldState,
-        max_tokens: int = 256,
+        max_tokens: int = 256, clusters: list | None = None,
     ) -> dict[str, str]:
+        """Generate stimuli for all participants in one LLM call.
+
+        When clusters is provided, builds cluster-aware prompts where
+        participants see their neighbors' recent activity. Otherwise,
+        builds per-participant summaries with DDA scoring context.
+        """
         constraints = world_state.environment_constraints()
         constraint_note = f"\nACTIVE CONSTRAINTS: {constraints}" if constraints else ""
 
-        participant_summaries = []
-        for p in participants:
-            if p.behavioral_score >= 0.8:
-                dda = "HIGH"
-            elif p.behavioral_score >= 0.5:
-                dda = "MODERATE"
-            else:
-                dda = "BASELINE"
-            participant_summaries.append(
-                f"  {p.agent_id}: score={p.behavioral_score:.2f} ({dda}) "
-                f"last_response=\"{p.last_response[:60]}\""
+        if clusters:
+            # Cluster-aware: group participants by topology cluster
+            summaries = []
+            for cluster in clusters:
+                members_info = []
+                for pid in cluster.members:
+                    p = next((x for x in participants if x.agent_id == pid), None)
+                    if p:
+                        members_info.append(
+                            f"    {pid}: score={p.behavioral_score:.2f}, "
+                            f"last=\"{p.last_response[:50]}\""
+                        )
+                summaries.append(
+                    f"  Cluster {cluster.id} ({len(cluster.members)} members):\n"
+                    + "\n".join(members_info)
+                )
+            prompt = (
+                f"Generate a community-style stimulus for each participant. "
+                f"Members of the same cluster share a common context — reference "
+                f"what their neighbors are doing. Respond with ONLY a JSON object "
+                f"mapping participant_id to stimulus string. "
+                f"No explanation, no reasoning, just the JSON.{constraint_note}\n\n"
+                + "\n".join(summaries)
             )
+            agent_label = "environment_clustered"
+            history = []
+        else:
+            # Broadcast: per-participant DDA summaries
+            summaries = []
+            for p in participants:
+                if p.behavioral_score >= 0.8:
+                    dda = "HIGH"
+                elif p.behavioral_score >= 0.5:
+                    dda = "MODERATE"
+                else:
+                    dda = "BASELINE"
+                summaries.append(
+                    f"  {p.agent_id}: score={p.behavioral_score:.2f} ({dda}) "
+                    f"last_response=\"{p.last_response[:60]}\""
+                )
+            prompt = (
+                f"Generate a stimulus for each of the following {len(participants)} participants. "
+                f"Respond with ONLY a JSON object mapping participant_id to stimulus string. "
+                f"No explanation, no reasoning, just the JSON.{constraint_note}\n\n"
+                + "\n".join(summaries)
+            )
+            agent_label = "environment"
+            history = self.history[-self.history_window:]
 
-        prompt = (
-            f"Generate a stimulus for each of the following {len(participants)} participants. "
-            f"Respond with ONLY a JSON object mapping participant_id to stimulus string. "
-            f"No explanation, no reasoning, just the JSON.{constraint_note}\n\n"
-            + "\n".join(participant_summaries)
-        )
-
-        # Budget: reasoning models may emit CoT before JSON, so allow headroom
         batch_max = max(512, 120 * len(participants))
 
         response = await _resilient_agent_turn(
-            agent_id="environment",
+            agent_id=agent_label,
             backend=self.cfg["backend"],
             system_prompt=self._system_prompt(),
             user_message=prompt,
-            history=self.history[-self.history_window:],
+            history=history,
             max_tokens=batch_max,
         )
-        self.history.append({"role": "user", "content": prompt})
-        self.history.append({"role": "assistant", "content": response})
+        if not clusters:
+            self.history.append({"role": "user", "content": prompt})
+            self.history.append({"role": "assistant", "content": response})
 
         try:
             stimuli = self._extract_json(response)
@@ -1063,71 +439,16 @@ class EnvironmentAgent:
                 raise ValueError(f"Missing participants in batch response: {missing}")
             return stimuli
         except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"batch_decide parse failed ({e}), falling back to sequential")
+            logger.warning(f"batch_decide parse failed ({e}), falling back")
             logger.debug(f"batch_decide raw response ({len(response)} chars): {response[:300]}")
+            if clusters:
+                # Fallback: retry without cluster context
+                return await self.batch_decide(participants, world_state, max_tokens)
+            # Fallback: sequential per-participant
             stimuli = {}
             for p in participants:
                 stimuli[p.agent_id] = await self.decide(p, world_state, max_tokens=max(64, max_tokens // 2))
             return stimuli
-
-    async def batch_decide_clustered(
-        self,
-        participants: list["ParticipantAgent"],
-        world_state: WorldState,
-        clusters: list,
-        max_tokens: int = 256,
-    ) -> dict[str, str]:
-        """
-        Generate cluster-aware stimuli. Participants in the same cluster
-        share context about their neighbors' recent activity.
-        """
-        constraints = world_state.environment_constraints()
-        constraint_note = f"\nACTIVE CONSTRAINTS: {constraints}" if constraints else ""
-
-        cluster_summaries = []
-        for cluster in clusters:
-            members_info = []
-            for pid in cluster.members:
-                p = next((x for x in participants if x.agent_id == pid), None)
-                if p:
-                    members_info.append(
-                        f"    {pid}: score={p.behavioral_score:.2f}, "
-                        f"last=\"{p.last_response[:50]}\""
-                    )
-            cluster_summaries.append(
-                f"  Cluster {cluster.id} ({len(cluster.members)} members):\n"
-                + "\n".join(members_info)
-            )
-
-        prompt = (
-            f"Generate a community-style stimulus for each participant. "
-            f"Members of the same cluster share a common context — reference "
-            f"what their neighbors are doing. Respond with ONLY a JSON object "
-            f"mapping participant_id to stimulus string. "
-            f"No explanation, no reasoning, just the JSON.{constraint_note}\n\n"
-            + "\n".join(cluster_summaries)
-        )
-
-        batch_max = max(512, 120 * len(participants))
-
-        response = await _resilient_agent_turn(
-            agent_id="environment_clustered",
-            backend=self.cfg["backend"],
-            system_prompt=self._system_prompt(),
-            user_message=prompt,
-            history=[],
-            max_tokens=batch_max,
-        )
-
-        try:
-            stimuli = self._extract_json(response)
-            missing = [p.agent_id for p in participants if p.agent_id not in stimuli]
-            if missing:
-                raise ValueError(f"Missing participants in clustered response: {missing}")
-            return stimuli
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"batch_decide_clustered parse failed ({e}), falling back to broadcast")
-            return await self.batch_decide(participants, world_state, max_tokens)
 
 
 class ParticipantAgent:
@@ -1223,6 +544,8 @@ class ParticipantAgent:
             parts.append(trait.strip())
         if strategy_constraint:
             parts.append(f"Current behavioral strategy: {strategy_constraint}")
+        if hasattr(self, '_beliefs') and self._beliefs is not None:
+            parts.append(self._beliefs.to_context_string())
         parts.append(base)
         return "\n\n".join(parts)
 
@@ -1591,9 +914,15 @@ async def _batch_phase_b(
             if aid != rep.agent_id:
                 responses_map[aid] = rep_response
                 batched_from_map[aid] = rep.agent_id
-                # Update agent history with the shared response
                 agent = agent_lookup[aid]
+                # Mirror what ParticipantAgent.step() does for the representative:
+                # 1. Update stimulus/response state for DDA context on next tick
+                agent.last_stimulus = stimuli.get(aid, "")
+                agent.last_response = rep_response
+                # 2. Append both user and assistant to maintain role alternation
+                agent.history.append({"role": "user", "content": f"[Tick {tick}] The environment presents: \"{stimuli.get(aid, '')[:120]}\". How do you respond?"})
                 agent.history.append({"role": "assistant", "content": rep_response})
+                # 3. Copy parsed action and prompt hash from representative
                 agent._last_parsed = rep._last_parsed if hasattr(rep, '_last_parsed') else None
                 if hasattr(rep, '_last_prompt_hash'):
                     agent._last_prompt_hash = rep._last_prompt_hash
@@ -1659,17 +988,13 @@ async def run_tick(
         # Multi-topology: generate stimuli per topology, combine for each participant
         all_stimuli = {}  # {topo_id: {pid: stimulus}}
         for topo_cfg in topology_configs:
-            if topo_cfg.type == "clustered":
-                clusters = topology_manager.get_clusters(topo_cfg.id)
-                all_stimuli[topo_cfg.id] = await environment.batch_decide_clustered(
-                    participants, world_state, clusters,
-                    max_tokens=max(64, max_tokens // 2),
-                )
-            else:
-                all_stimuli[topo_cfg.id] = await environment.batch_decide(
-                    participants, world_state,
-                    max_tokens=max(64, max_tokens // 2),
-                )
+            clusters = (topology_manager.get_clusters(topo_cfg.id)
+                        if topo_cfg.type == "clustered" else None)
+            all_stimuli[topo_cfg.id] = await environment.batch_decide(
+                participants, world_state,
+                max_tokens=max(64, max_tokens // 2),
+                clusters=clusters,
+            )
         # Combine into single stimulus per participant
         stimuli = {}
         for p in participants:
@@ -1840,21 +1165,26 @@ async def run_tick(
 
     # -- Bandit reward update (after scoring, before FLAME) ─────────────────
     if bandit is not None and _bandit_selections:
+        # Build per-agent signal lookup from this tick's log entries
+        tick_entries = world_state._log_by_tick.get(tick, [])
+        signal_by_agent = {e.participant_id: e.signal for e in tick_entries}
         for p in participants:
             strategy = _bandit_selections.get(p.agent_id)
             if not strategy or p.agent_id not in bandit.agents:
                 continue
-            # Reward: how much did the score move in the desired direction?
-            # Use the signal directly as reward — higher engagement signal = better
-            last_entry = world_state._log[-1] if world_state._log else None
-            reward = 0.5
-            if last_entry and last_entry.participant_id == p.agent_id:
-                reward = last_entry.signal
+            reward = signal_by_agent.get(p.agent_id, 0.5)
             bandit.update(p.agent_id, strategy, reward)
 
         # Decay every 10 ticks to prevent early lock-in
         if tick > 0 and tick % 10 == 0:
             bandit.decay(0.97)
+
+    # -- Belief update (after scoring, before FLAME) ──────────────────────
+    for p in participants:
+        if hasattr(p, '_beliefs') and p._beliefs is not None and len(p.score_log) >= 2:
+            delta = p.score_log[-1] - p.score_log[-2]
+            for dim_name in p._beliefs.dimensions:
+                p._beliefs.update_continuous(dim_name, p.behavioral_score, weight=abs(delta))
 
     # -- Phase F -- FLAME population step (GPU 2, optional) [Opt 4] ────────
     flame_snapshot = None
@@ -1866,7 +1196,7 @@ async def run_tick(
         flame_engine.set_environment(dampening=dampening)
 
         # Run sub-steps on GPU 2 (offloaded to thread to not block event loop)
-        await asyncio.get_event_loop().run_in_executor(
+        await asyncio.get_running_loop().run_in_executor(
             None, flame_engine.step
         )
 
@@ -2203,6 +1533,27 @@ async def run_simulation(
             logger.info("Contextual bandit enabled for %d agents", len(participants))
         except ImportError:
             logger.warning("ml.bandit not available, skipping bandit")
+
+    # ── Belief system (per-agent Bayesian belief tracking, opt-in) ──────
+    _beliefs_enabled = False
+    if scenario_config is not None:
+        _beliefs_enabled = getattr(scenario_config, "beliefs_enabled", False)
+    if _beliefs_enabled:
+        try:
+            from ml.beliefs import AgentBeliefs
+            belief_dims = getattr(scenario_config, "belief_dimensions", [])
+            for p in participants:
+                ab = AgentBeliefs(p.agent_id)
+                for dim in belief_dims:
+                    ab.add(dim.get("name", "engagement"),
+                           dim.get("description", dim.get("name", "engagement")),
+                           dim.get("alpha", 2.0), dim.get("beta", 2.0))
+                p._beliefs = ab
+            logger.info("Belief system enabled: %d dimensions, %d agents",
+                        len(belief_dims), len(participants))
+        except ImportError:
+            logger.warning("ml.beliefs not available, skipping belief system")
+            _beliefs_enabled = False
 
     # ── Persona generation (Enhancement 3): generate from KG if configured ──
     _use_generated_personas = False
@@ -2543,291 +1894,6 @@ async def run_simulation(
     print(f"  \u2500\u2500 {run_dir} \u2500\u2500")
 
     return participants, world_state
-
-
-# ── Data export ───────────────────────────────────────────────────────────────
-
-OUTPUT_DIR = os.environ.get("SIM_OUTPUT_DIR", "data")
-
-
-def export_results(
-    participants: list[ParticipantAgent],
-    world_state: WorldState,
-    config: dict,
-    duration_s: float,
-    output_dir: str | None = None,
-) -> str:
-    """
-    Export simulation results to JSON files in data/{run_id}/.
-    Returns the output directory path.
-    """
-    output_dir = output_dir or OUTPUT_DIR
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    run_id = f"run_{ts}_s{config.get('seed', 0)}"
-    run_dir = Path(output_dir) / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    # Config + metadata
-    meta = {
-        "run_id": run_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "duration_s": round(duration_s, 2),
-        "config": config,
-    }
-    (run_dir / "config.json").write_text(json.dumps(meta, indent=2))
-
-    # Score trajectories + agent parameters
-    trajectories = {}
-    for p in participants:
-        trajectories[p.agent_id] = {
-            "initial_score": p.score_log[0] if p.score_log else p.behavioral_score,
-            "final_score": p.behavioral_score,
-            "susceptibility": round(p.susceptibility, 4),
-            "resilience": round(p.resilience, 4),
-            "score_log": [round(s, 4) for s in p.score_log],
-        }
-    (run_dir / "trajectories.json").write_text(json.dumps(trajectories, indent=2))
-
-    # Full observation log
-    obs_log = [
-        {
-            "tick": e.tick, "participant_id": e.participant_id,
-            "score_before": round(e.score_before, 4),
-            "score_after": round(e.score_after, 4),
-            "signal": round(e.signal, 4),
-            "signal_se": round(e.signal_se, 4),
-            "stimulus": e.stimulus, "response": e.response,
-        }
-        for e in world_state.full_log()
-    ]
-    (run_dir / "observations.json").write_text(json.dumps(obs_log, indent=2))
-
-    # Compliance report
-    compliance = world_state.compliance_report()
-    if compliance:
-        (run_dir / "compliance.json").write_text(json.dumps(compliance, indent=2))
-
-    # Interventions that were active during the run
-    interventions = [
-        {
-            "type": iv.type, "description": iv.description,
-            "activated_at": iv.activated_at, "source": iv.source,
-        }
-        for iv in world_state.active_interventions
-    ]
-    (run_dir / "interventions.json").write_text(json.dumps(interventions, indent=2))
-
-    # Full event stream (unified audit log)
-    (run_dir / "event_stream.json").write_text(
-        json.dumps(world_state.stream.export(), indent=2)
-    )
-
-    # Agent memories (if any were stored during the run)
-    if world_state.memory is not None and len(world_state.memory) > 0:
-        (run_dir / "agent_memories.json").write_text(
-            json.dumps(world_state.memory.export(), indent=2)
-        )
-
-    logger.info(f"Results exported to {run_dir}")
-    return str(run_dir)
-
-
-# ── Sensitivity analysis runner ───────────────────────────────────────────────
-
-def run_sensitivity_analysis(
-    mode: str = "morris",
-    n_ticks: int = 6,
-    n_participants: int = 4,
-    r: int = 10,
-    n_samples: int = 256,
-) -> dict:
-    bounds = [
-        (0.1, 0.4),    # alpha
-        (1.0, 6.0),    # K (cast to int)
-        (0.60, 0.85),  # intervention threshold
-        (0.3, 1.0),    # dampening coefficient
-        (0.2, 1.0),    # susceptibility
-        (0.0, 0.6),    # resilience
-        (3.0, 10.0),   # logistic_k (steepness)
-    ]
-    param_names = ["alpha", "K", "threshold", "dampening",
-                   "susceptibility", "resilience", "logistic_k"]
-
-    # Pre-compute anchor-based signal profiles from representative responses.
-    # These replace the synthetic sin+noise with signals grounded in the actual
-    # embedding pipeline, covering the full behavioral spectrum.
-    _sa_response_templates = [
-        "I felt calm and handled the situation without difficulty.",        # ~low
-        "I pulled back a little, unsure whether to continue.",             # ~withdraw
-        "I responded to the situation as it came, nothing special.",        # ~neutral
-        "I leaned in and got more involved than I expected.",              # ~engage
-        "I could not stop myself, I kept pushing further and further.",     # ~escalate
-    ]
-    _sa_signals = None
-
-    def _get_sa_signals():
-        nonlocal _sa_signals
-        if _sa_signals is None:
-            _load_anchors()
-            model = _get_embed()
-            vecs = model.encode(_sa_response_templates, show_progress_bar=False)
-            _sa_signals = [_compute_signal_from_vec(v)[0] for v in vecs]
-        return _sa_signals
-
-    def objective(x: np.ndarray) -> float:
-        alpha, k_float, threshold, dampening, susceptibility, resilience, logistic_k = x
-        rng = np.random.RandomState(42)
-        sa_signals = _get_sa_signals()
-        scores = []
-        score = 0.3
-        for t in range(n_ticks):
-            # Sample from anchor-grounded signal distribution instead of synthetic sine
-            base_idx = rng.randint(0, len(sa_signals))
-            signal = sa_signals[base_idx] + rng.normal(0, 0.05)
-            signal = max(0.0, min(1.0, signal))
-            d = dampening if (t % max(1, int(k_float)) == 0) else 1.0
-            score = update_score(score, signal, d, alpha,
-                                 mode="logistic", logistic_k=logistic_k,
-                                 susceptibility=susceptibility,
-                                 resilience=resilience)
-            scores.append(score)
-        return float(np.mean(scores))
-
-    if mode == "morris":
-        results = morris_screening(objective, bounds, r=r)
-        print("\n\u2500\u2500 Morris Screening Results \u2500\u2500")
-        for i, name in enumerate(param_names):
-            r_i = results[i]
-            print(f"  {name:<15} \u03bc*={r_i['mu_star']:.4f}  \u03c3={r_i['sigma']:.4f}  \u03bc={r_i['mu']:.4f}")
-        return {"mode": "morris", "param_names": param_names, "results": results}
-
-    elif mode == "sobol":
-        results = sobol_first_order(objective, bounds, n_samples=n_samples)
-        print("\n\u2500\u2500 Sobol First-Order Indices \u2500\u2500")
-        for i, name in enumerate(param_names):
-            print(f"  {name:<15} S_i={results[i]:.4f}")
-        return {"mode": "sobol", "param_names": param_names, "results": results}
-
-    else:
-        raise ValueError(f"Unknown SA mode: {mode}. Use 'morris' or 'sobol'.")
-
-
-# ── Intervention threshold calibration ────────────────────────────────────────
-
-def calibrate_intervention_threshold(
-    run_dirs: list[str],
-    labels: Optional[dict[str, bool]] = None,
-    theta_range: tuple[float, float] = (0.60, 0.85),
-    n_steps: int = 26,
-) -> dict:
-    """Sweep intervention threshold and find optimal F1.
-
-    If labels is None, uses a heuristic: interventions triggered when any
-    agent's score > 0.8 for 2+ consecutive ticks are "warranted".
-
-    Args:
-        run_dirs: paths to completed run directories containing observations.json
-        labels: optional dict mapping run_dir -> bool (intervention warranted)
-        theta_range: range of thresholds to sweep
-        n_steps: number of threshold values to test
-
-    Returns:
-        dict with optimal_theta, f1_scores, and best_f1
-    """
-    from pathlib import Path
-
-    # Collect observer_b outputs and ground truth labels
-    samples = []
-    for run_dir in run_dirs:
-        rd = Path(run_dir)
-        obs_path = rd / "observations.json"
-        event_path = rd / "event_stream.json"
-        if not obs_path.exists():
-            logger.warning(f"Skipping {run_dir}: no observations.json")
-            continue
-
-        obs_data = json.loads(obs_path.read_text())
-
-        # Extract observer_b responses from event stream
-        observer_texts = []
-        if event_path.exists():
-            events = json.loads(event_path.read_text())
-            observer_texts = [
-                e.get("content", "") for e in events
-                if e.get("event_type") == "observation"
-                and "observer_b" in e.get("agent_id", "")
-            ]
-
-        # Determine ground truth: was intervention warranted?
-        if labels is not None:
-            warranted = labels.get(run_dir, False)
-        else:
-            # Heuristic: check if any agent had score > 0.8 for 2+ consecutive ticks
-            warranted = False
-            for agent_obs in obs_data if isinstance(obs_data, list) else obs_data.values():
-                if isinstance(agent_obs, dict):
-                    agent_obs = [agent_obs]
-                scores = [o.get("score_after", 0) for o in agent_obs if isinstance(o, dict)]
-                for i in range(1, len(scores)):
-                    if scores[i] > 0.8 and scores[i - 1] > 0.8:
-                        warranted = True
-                        break
-                if warranted:
-                    break
-
-        for text in observer_texts:
-            samples.append({"text": text, "warranted": warranted})
-
-    if not samples:
-        logger.warning("No samples found for calibration. Run pilot simulations first.")
-        return {"optimal_theta": INTERVENTION_THRESHOLD, "f1_scores": {}, "best_f1": 0.0}
-
-    # Compute cosine similarities against intervention codebook
-    model = _get_embed()
-    codebook_phrases = []
-    for phrases in INTERVENTION_CODEBOOK.values():
-        codebook_phrases.extend(phrases)
-    codebook_vecs = model.encode(codebook_phrases, show_progress_bar=False)
-
-    sample_vecs = model.encode([s["text"] for s in samples], show_progress_bar=False)
-    max_sims = []
-    for sv in sample_vecs:
-        norms = np.linalg.norm(codebook_vecs, axis=1) * (np.linalg.norm(sv) + 1e-8)
-        sims = codebook_vecs @ sv / norms
-        max_sims.append(float(np.max(sims)))
-
-    # Sweep thresholds
-    thetas = np.linspace(theta_range[0], theta_range[1], n_steps)
-    f1_scores = {}
-    best_f1, optimal_theta = 0.0, INTERVENTION_THRESHOLD
-
-    for theta in thetas:
-        tp = fp = fn = 0
-        for i, sample in enumerate(samples):
-            predicted = max_sims[i] >= theta
-            actual = sample["warranted"]
-            if predicted and actual:
-                tp += 1
-            elif predicted and not actual:
-                fp += 1
-            elif not predicted and actual:
-                fn += 1
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-        f1_scores[float(theta)] = f1
-        if f1 > best_f1:
-            best_f1 = f1
-            optimal_theta = float(theta)
-
-    print(f"\n── Threshold Calibration ──")
-    print(f"  Samples: {len(samples)}")
-    print(f"  Best F1: {best_f1:.3f} at θ={optimal_theta:.3f}")
-    print(f"  Current θ: {INTERVENTION_THRESHOLD:.3f}")
-    if best_f1 > 0:
-        print(f"  Recommendation: set INTERVENTION_THRESHOLD={optimal_theta:.2f}")
-
-    return {"optimal_theta": optimal_theta, "f1_scores": f1_scores, "best_f1": best_f1}
 
 
 # ── CLI entry point ───────────────────────────────────────────────────────────

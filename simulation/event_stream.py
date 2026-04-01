@@ -164,7 +164,15 @@ class EventStream:
         Returns newest-last ordering. Use last_n to limit results.
         """
         # Start from the narrowest index available
-        if event_type is not None and agent_id is None and since_tick is None:
+        if agent_id is not None and event_type is not None and since_tick is None:
+            # Both filters: pick the smaller index to minimize scanning
+            by_a = self._by_agent.get(agent_id, [])
+            by_t = self._by_type.get(event_type, [])
+            if len(by_a) <= len(by_t):
+                candidates = by_a
+            else:
+                candidates = by_t
+        elif event_type is not None and agent_id is None and since_tick is None:
             candidates = self._by_type.get(event_type, [])
         elif agent_id is not None and event_type is None and since_tick is None:
             candidates = self._by_agent.get(agent_id, [])

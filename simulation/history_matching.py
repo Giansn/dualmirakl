@@ -479,7 +479,7 @@ def run_history_matching(
     Returns summary dict + NROY points.
     """
     import math
-    from simulation.sim_loop import update_score
+    from simulation.signal_computation import update_score
 
     bounds = [
         (0.1, 0.4),    # alpha

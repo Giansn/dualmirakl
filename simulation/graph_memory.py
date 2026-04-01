@@ -165,17 +165,21 @@ class GraphMemory:
     ) -> list[tuple[str, str, TemporalEdge]]:
         """Query edges from a source node with optional filters."""
         results = []
-        for (s, d), edges in self._edges.items():
-            if s != src and d != src:
-                continue
-            if dst is not None and d != dst and s != dst:
-                continue
-            for edge in edges:
+        # Use adjacency index to find only relevant edge pairs
+        if dst is not None:
+            # Specific pair: check both directions
+            pairs = [(src, dst), (dst, src)]
+        else:
+            # All neighbors of src
+            neighbors = self._adjacency.get(src, set())
+            pairs = [(src, n) for n in neighbors] + [(n, src) for n in neighbors]
+        for pair in pairs:
+            for edge in self._edges.get(pair, []):
                 if edge_type is not None and edge.edge_type != edge_type:
                     continue
                 if active_only and not edge.is_active:
                     continue
-                results.append((s, d, edge))
+                results.append((pair[0], pair[1], edge))
         return results
 
     def expire_edges(
@@ -205,18 +209,19 @@ class GraphMemory:
         if edge_type is None and not active_only:
             return list(self._adjacency.get(node_id, set()))
 
+        # Use adjacency index to narrow search
         result = set()
-        for (s, d), edges in self._edges.items():
-            if s != node_id and d != node_id:
-                continue
-            other = d if s == node_id else s
-            for edge in edges:
-                if edge_type is not None and edge.edge_type != edge_type:
-                    continue
-                if active_only and not edge.is_active:
-                    continue
-                result.add(other)
-                break
+        for other in self._adjacency.get(node_id, set()):
+            for pair in [(node_id, other), (other, node_id)]:
+                for edge in self._edges.get(pair, []):
+                    if edge_type is not None and edge.edge_type != edge_type:
+                        continue
+                    if active_only and not edge.is_active:
+                        continue
+                    result.add(other)
+                    break
+                if other in result:
+                    break
         return list(result)
 
     def relationship_path(

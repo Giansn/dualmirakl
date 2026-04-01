@@ -112,6 +112,9 @@ class GPUHarmony:
         # FLAME serialization lock — prevents overlapping steps from racing
         self._flame_lock: asyncio.Lock = asyncio.Lock()
 
+        # Intervention lock — prevents observer extend racing with score_dampening reads
+        self._intervention_lock: asyncio.Lock = asyncio.Lock()
+
         # ── Adaptive GPU balancing (v3) ──────────────────────────────
         self._monitor = None
         self._balancer = None
@@ -407,7 +410,8 @@ class GPUHarmony:
 
             # Phase D2: observer_b intervention (authority GPU)
             ivs = await obs_b.intervene(tick, ws, n, analysis)
-            ws.active_interventions.extend(ivs)
+            async with self._intervention_lock:
+                ws.active_interventions.extend(ivs)
 
             for iv in ivs:
                 ws.stream.emit(tick, "D", EV_INTERVENTION, "observer_b", {
@@ -427,9 +431,8 @@ class GPUHarmony:
         async with self._flame_lock:
             try:
                 self._flame_bridge.push_influencer_scores(self._flame_engine, scores)
-                loop = asyncio.get_event_loop()
                 sub_steps = self._flame_engine.config.get("sub_steps", 10)
-                await loop.run_in_executor(None, self._flame_engine.step, sub_steps)
+                await asyncio.get_running_loop().run_in_executor(None, self._flame_engine.step, sub_steps)
                 self.ws.flame_snapshot = self._flame_bridge.pull_population_stats(
                     self._flame_engine, tick, sub_steps
                 )

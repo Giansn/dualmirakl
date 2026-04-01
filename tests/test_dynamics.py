@@ -11,7 +11,7 @@ import pytest
 class TestCoupledDynamics:
     def test_zero_coupling_matches_uncoupled(self):
         from simulation.dynamics import coupled_score_update
-        from simulation.sim_loop import update_score
+        from simulation.signal_computation import update_score
         scores = [0.3, 0.5, 0.7]
         signal = 0.6
         coupled = coupled_score_update(0.3, signal, scores, kappa=0.0, alpha=0.2)

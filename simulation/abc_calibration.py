@@ -379,7 +379,7 @@ def make_abc_sim_func(
 
     No vLLM needed — uses update_score() directly.
     """
-    from simulation.sim_loop import update_score
+    from simulation.signal_computation import update_score
 
     def sim_func(theta: np.ndarray) -> dict[str, float]:
         params = dict(zip(param_names, theta))

@@ -1332,7 +1332,7 @@ def stochastic_resonance_curve(
     if temperature_values is None:
         temperature_values = [round(t * 0.1, 2) for t in range(0, 16)]
 
-    from simulation.sim_loop import update_score
+    from simulation.signal_computation import update_score
 
     snr_list = []
     response_list = []
@@ -1662,7 +1662,7 @@ if __name__ == "__main__":
 
     print("\n== (D) Sobol S2 Interaction Indices ==\n")
 
-    from simulation.sim_loop import update_score
+    from simulation.signal_computation import update_score
 
     def objective(x):
         alpha, dampening, susceptibility, resilience = x

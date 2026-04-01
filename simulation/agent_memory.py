@@ -55,11 +55,13 @@ class Memory:
 
 
 def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
-    """Cosine similarity between two vectors."""
-    norm = (np.linalg.norm(a) * np.linalg.norm(b))
-    if norm < 1e-8:
-        return 0.0
-    return float(np.dot(a, b) / norm)
+    """Cosine similarity between two vectors.
+
+    Delegates to signal_computation._cosine for consistency.
+    Kept as a named function for backward compatibility with tests.
+    """
+    from simulation.signal_computation import _cosine
+    return _cosine(a, b)
 
 
 class AgentMemoryStore:
@@ -440,11 +442,18 @@ class DuckDBMemoryBackend:
 
     def memory_stats(self, run_id: Optional[str] = None) -> dict:
         """Get memory statistics for a run (or all runs)."""
-        where = f"WHERE run_id = '{run_id}'" if run_id else ""
-        row = self.db.execute(f"""
-            SELECT COUNT(*) as total,
-                   COUNT(DISTINCT agent_id) as agents,
-                   COUNT(DISTINCT run_id) as runs
-            FROM agent_memories {where}
-        """).fetchone()
+        if run_id:
+            row = self.db.execute("""
+                SELECT COUNT(*) as total,
+                       COUNT(DISTINCT agent_id) as agents,
+                       COUNT(DISTINCT run_id) as runs
+                FROM agent_memories WHERE run_id = ?
+            """, [run_id]).fetchone()
+        else:
+            row = self.db.execute("""
+                SELECT COUNT(*) as total,
+                       COUNT(DISTINCT agent_id) as agents,
+                       COUNT(DISTINCT run_id) as runs
+                FROM agent_memories
+            """).fetchone()
         return {"total_memories": row[0], "agents": row[1], "runs": row[2]}
