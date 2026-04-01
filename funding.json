@@ -11,7 +11,7 @@
   },
   "projects": [
     {
-      "guid": "github.com/Giansn/dualmirakl",
+      "guid": "dualmirakl",
       "name": "dualmirakl",
       "description": "Dual/tri-GPU multi-agent simulation framework. Orchestrates LLM-powered agents across GPU slots with FLAME population dynamics, Bayesian calibration (ABC-SMC), sensitivity analysis (Morris/Sobol), chaos metrics (Lyapunov, transfer entropy), and graph-based agent memory. Domain-agnostic: swap a YAML scenario file to simulate any multi-agent system.",
       "webpageUrl": {
