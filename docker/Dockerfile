@@ -55,7 +55,7 @@ COPY . /app/
 RUN chmod +x /app/*.sh
 
 # ── RunPod compatibility (post_start hook) ────────────────────────────────────
-COPY docker-post-start.sh /post_start.sh
+COPY docker/post-start.sh /post_start.sh
 RUN chmod +x /post_start.sh
 
 # ── Volumes (models, data output, logs) ──────────────────────────────────────

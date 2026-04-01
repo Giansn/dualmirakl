@@ -1,7 +1,7 @@
 import os
 import asyncio
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sentence_transformers import SentenceTransformer
@@ -159,6 +159,176 @@ async def health():
         except Exception as e:
             s[name] = f"down ({e})"
     return s
+
+
+# ── System Control (startup panel) ──────────────────────────────────────────
+
+_system_task: dict = {"running": False, "type": None, "log": []}
+_SYSTEM_TOKEN = os.getenv("SYSTEM_API_TOKEN", "")
+_SYSTEM_LOG_MAX = 500
+
+
+def _sys_log(msg: str):
+    _system_task["log"].append(msg)
+    if len(_system_task["log"]) > _SYSTEM_LOG_MAX:
+        _system_task["log"] = _system_task["log"][-200:]
+
+
+def _check_system_auth(request):
+    """Verify bearer token for mutating /system/* endpoints."""
+    if not _SYSTEM_TOKEN:
+        return  # no token configured — allow (local dev)
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if token != _SYSTEM_TOKEN:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+@app.get("/system/status")
+async def system_status():
+    """Structured status of all services + GPU + setup state."""
+    import shutil
+
+    services = {}
+    for name, url in [("authority", AUTHORITY), ("swarm", SWARM)]:
+        try:
+            r = await client.get(url + "/models", timeout=3.0)
+            if r.status_code == 200:
+                models = r.json().get("data", [])
+                model_id = models[0]["id"] if models else "?"
+                services[name] = {"status": "up", "model": model_id}
+            else:
+                services[name] = {"status": "error", "detail": f"HTTP {r.status_code}"}
+        except Exception as e:
+            services[name] = {"status": "down", "detail": str(e)}
+
+    services["gateway"] = {"status": "up", "model": "e5-small-v2"}
+
+    # FLAME
+    flame_enabled = os.getenv("FLAME_ENABLED", "0") == "1"
+    services["flame"] = {
+        "status": "up" if flame_enabled else "off",
+        "gpu": int(os.getenv("FLAME_GPU", "2")),
+    }
+
+    # GPU info
+    gpus = []
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        for i in range(pynvml.nvmlDeviceGetCount()):
+            h = pynvml.nvmlDeviceGetHandleByIndex(i)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(h)
+            util = pynvml.nvmlDeviceGetUtilizationRates(h)
+            gpus.append({
+                "index": i,
+                "name": pynvml.nvmlDeviceGetName(h),
+                "utilization": util.gpu,
+                "memory_used": mem.used // (1024 * 1024),
+                "memory_total": mem.total // (1024 * 1024),
+            })
+    except Exception:
+        pass
+
+    # Setup state
+    setup_done = os.path.isfile(_proj_dir / "logs" / ".setup_done")
+
+    # Background task
+    task_info = None
+    if _system_task["running"]:
+        task_info = {"type": _system_task["type"], "log": _system_task["log"][-20:]}
+
+    return {
+        "services": services,
+        "gpus": gpus,
+        "setup_done": setup_done,
+        "task": task_info,
+        "ready": all(
+            services[s].get("status") == "up"
+            for s in ["authority", "swarm", "gateway"]
+        ),
+    }
+
+
+@app.post("/system/setup")
+async def system_setup(request: Request):
+    """Run setup.sh in background."""
+    _check_system_auth(request)
+    import asyncio
+    if _system_task["running"]:
+        return {"error": f"{_system_task['type']} already running"}
+
+    async def _run():
+        _system_task["running"] = True
+        _system_task["type"] = "setup"
+        _system_task["log"] = []
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "bash", str(_proj_dir / "scripts" / "setup.sh"), "--force",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(_proj_dir),
+            )
+            async for line in proc.stdout:
+                _sys_log(line.decode(errors="replace").rstrip())
+            await proc.wait()
+            _sys_log(f"[exit code: {proc.returncode}]")
+        except Exception as e:
+            _sys_log(f"[error: {e}]")
+        finally:
+            _system_task["running"] = False
+
+    asyncio.create_task(_run())
+    return {"status": "started", "type": "setup"}
+
+
+@app.post("/system/start")
+async def system_start(request: Request):
+    """Run start_all.sh in background."""
+    _check_system_auth(request)
+    import asyncio
+    if _system_task["running"]:
+        return {"error": f"{_system_task['type']} already running"}
+
+    async def _run():
+        _system_task["running"] = True
+        _system_task["type"] = "start"
+        _system_task["log"] = []
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "bash", str(_proj_dir / "scripts" / "start_all.sh"),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(_proj_dir),
+            )
+            async for line in proc.stdout:
+                _sys_log(line.decode(errors="replace").rstrip())
+            await proc.wait()
+            _sys_log(f"[exit code: {proc.returncode}]")
+        except Exception as e:
+            _sys_log(f"[error: {e}]")
+        finally:
+            _system_task["running"] = False
+
+    asyncio.create_task(_run())
+    return {"status": "started", "type": "start"}
+
+
+@app.post("/system/stop")
+async def system_stop(request: Request):
+    """Run stop_all.sh."""
+    _check_system_auth(request)
+    import asyncio
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "bash", str(_proj_dir / "scripts" / "stop_all.sh"),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(_proj_dir),
+        )
+        out, _ = await proc.communicate()
+        return {"status": "stopped", "output": out.decode(errors="replace")}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ── Document Context Store ────────────────────────────────────────────────────

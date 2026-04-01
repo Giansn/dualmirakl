@@ -37,7 +37,9 @@ case "$MODE" in
         exec bash
         ;;
     all)
-        exec bash scripts/start_all.sh
+        bash scripts/start_all.sh
+        # Keep container alive — vLLM runs as background processes
+        exec sleep infinity
         ;;
     *)
         # Default: keep container alive with SSH accessible.

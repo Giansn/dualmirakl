@@ -5,14 +5,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## RunPod Quick Start (generic pod, no custom Docker)
 
 ```bash
-bash scripts/setup.sh             # install deps, download models, create .env
-bash scripts/start_all.sh         # start authority(:8000) + swarm(:8001) + gateway(:9000)
+bash scripts/go.sh                # one command: setup (if needed) + start all services
 ```
+
+Or step by step: `bash scripts/setup.sh` then `bash scripts/start_all.sh`.
 
 ## Commands
 
 ```bash
-bash scripts/start_all.sh                                       # start authority(:8000) + swarm(:8001) + gateway(:9000)
+bash scripts/go.sh                                               # setup + start (idempotent)
+bash scripts/go.sh --restart                                     # stop + start
+bash scripts/go.sh --status                                      # check what's running
+bash scripts/status.sh                                           # quick health dashboard
+bash scripts/start_all.sh                                        # start authority(:8000) + swarm(:8001) + gateway(:9000)
 bash scripts/stop_all.sh                                         # kill all vLLM processes
 bash scripts/pull_models.sh                                      # download models to $HF_HOME
 python -m simulation.sim_loop                                    # run simulation (interactive CLI, legacy mode)

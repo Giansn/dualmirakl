@@ -959,14 +959,26 @@ body{font-family:'Outfit',sans-serif;background:var(--bg0);background-image:var(
     <div style="max-width:720px;margin:0 auto;padding:0 24px">
       <h4 style="font-size:16px;font-weight:400;color:var(--t1);letter-spacing:.5px;margin-bottom:24px">System</h4>
 
-      <!-- LIVE STATUS -->
+      <!-- STARTUP PANEL -->
       <div class="arch" style="max-width:100%;margin-bottom:16px">
-        <div class="arch-t">services</div>
+        <div class="arch-t" style="display:flex;align-items:center">
+          services
+          <span id="sysReadyBadge" style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:9px;padding:1px 6px;border-radius:2px;display:none"></span>
+          <div style="margin-left:auto;display:flex;gap:4px">
+            <button class="mac" onclick="systemAction('setup')" id="btnSetup">setup</button>
+            <button class="mac" onclick="systemAction('start')" id="btnStart">start all</button>
+            <button class="mac" onclick="systemAction('stop')" id="btnStop" style="color:var(--r);border-color:var(--r)">stop all</button>
+          </div>
+        </div>
         <div class="arch-fl" id="sysServices">
           <div class="arch-r"><div class="arch-n nc"><span class="dot off" id="sysAuth" style="margin-right:4px"></span>Authority :8000</div><span class="arch-ar">&rarr;</span><div class="arch-d" id="sysAuthModel">environment + observers</div></div>
           <div class="arch-r"><div class="arch-n nq"><span class="dot off" id="sysSwarm" style="margin-right:4px"></span>Swarm :8001</div><span class="arch-ar">&rarr;</span><div class="arch-d" id="sysSwarmModel">participants</div></div>
           <div class="arch-r"><div class="arch-n ne"><span class="dot off" id="sysEmbed" style="margin-right:4px"></span>e5-small-v2 :9000</div><span class="arch-ar">&rarr;</span><div class="arch-d">embed + cosine search + top-k</div></div>
           <div class="arch-r"><div class="arch-n" style="border-color:var(--w)"><span class="dot off" id="sysFlame" style="margin-right:4px"></span>FLAME :GPU2</div><span class="arch-ar">&rarr;</span><div class="arch-d" id="sysFlameDesc">population dynamics (disabled)</div></div>
+        </div>
+        <!-- Task log (setup/start progress) -->
+        <div id="sysTaskLog" style="display:none;margin-top:8px;padding:8px;background:var(--bg0);border-radius:var(--rax);max-height:160px;overflow-y:auto">
+          <pre id="sysTaskLogPre" style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--t2);margin:0;white-space:pre-wrap"></pre>
         </div>
       </div>
 
@@ -1897,6 +1909,112 @@ async function pollGpuTelemetry() {
     if (cpuEl) cpuEl.innerHTML = '<span style="opacity:.5">cpu metrics unavailable</span>';
   }
 }
+
+// ── SYSTEM CONTROL (startup panel) ──
+
+async function systemAction(action) {
+  const gwUrl = url.gw();
+  try {
+    const r = await fetch(`${gwUrl}/system/${action}`, {method: 'POST'});
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    // Show task log
+    const logDiv = document.getElementById('sysTaskLog');
+    const logPre = document.getElementById('sysTaskLogPre');
+    if (logDiv) { logDiv.style.display = 'block'; logPre.textContent = `[${action}] started...\n`; }
+    // Poll task progress
+    if (action !== 'stop') pollSystemTask();
+  } catch (e) {
+    alert(`Cannot reach gateway: ${e.message}`);
+  }
+}
+
+async function pollSystemTask() {
+  const gwUrl = url.gw();
+  const logPre = document.getElementById('sysTaskLogPre');
+  const logDiv = document.getElementById('sysTaskLog');
+  const poll = async () => {
+    try {
+      const r = await fetch(`${gwUrl}/system/status`);
+      const d = await r.json();
+      // Update service dots
+      updateServiceDots(d);
+      // Update task log
+      if (d.task && d.task.log) {
+        logPre.textContent = d.task.log.join('\n');
+        logDiv.scrollTop = logDiv.scrollHeight;
+      }
+      // Continue polling if task running
+      if (d.task) {
+        setTimeout(poll, 1500);
+      } else {
+        if (logPre.textContent) logPre.textContent += '\n[done]';
+        setTimeout(() => { logDiv.style.display = 'none'; }, 5000);
+      }
+    } catch { /* gateway offline during restart — expected */ }
+  };
+  setTimeout(poll, 1000);
+}
+
+function updateServiceDots(statusData) {
+  if (!statusData || !statusData.services) return;
+  const s = statusData.services;
+  const dotMap = {
+    authority: ['sysAuth', 'stAuth'],
+    swarm: ['sysSwarm', 'stSwarm'],
+    gateway: ['sysEmbed', 'stEmbed'],
+    flame: ['sysFlame', 'stFlame'],
+  };
+  for (const [svc, ids] of Object.entries(dotMap)) {
+    const info = s[svc];
+    if (!info) continue;
+    const cls = info.status === 'up' ? 'on' : (info.status === 'off' ? 'off' : 'off');
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.className = 'dot ' + cls;
+    });
+  }
+  // Model names
+  if (s.authority && s.authority.model) {
+    const el = document.getElementById('sysAuthModel');
+    if (el) el.textContent = s.authority.status === 'up' ? s.authority.model : 'environment + observers';
+  }
+  if (s.swarm && s.swarm.model) {
+    const el = document.getElementById('sysSwarmModel');
+    if (el) el.textContent = s.swarm.status === 'up' ? s.swarm.model : 'participants';
+  }
+  // Ready badge
+  const badge = document.getElementById('sysReadyBadge');
+  if (badge) {
+    if (statusData.ready) {
+      badge.style.display = 'inline';
+      badge.style.background = 'rgba(56,200,200,.15)';
+      badge.style.color = 'var(--a)';
+      badge.textContent = 'READY';
+    } else {
+      badge.style.display = 'inline';
+      badge.style.background = 'rgba(192,144,144,.15)';
+      badge.style.color = 'var(--r)';
+      badge.textContent = 'NOT READY';
+    }
+  }
+  // Setup button state
+  const btnSetup = document.getElementById('btnSetup');
+  if (btnSetup && statusData.setup_done) {
+    btnSetup.textContent = 'setup ✓';
+    btnSetup.style.opacity = '0.5';
+  }
+}
+
+// Poll system status every 5s to keep dots + badge live
+async function pollSystemStatus() {
+  try {
+    const r = await fetch(`${url.gw()}/system/status`);
+    if (r.ok) updateServiceDots(await r.json());
+  } catch { /* gateway offline */ }
+}
+setInterval(pollSystemStatus, 5000);
+setTimeout(pollSystemStatus, 1200);
 
 setInterval(pollHealth, 5000);
 setInterval(pollGpuTelemetry, 333);
