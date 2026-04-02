@@ -272,5 +272,5 @@ Swap a model: edit `config/<slot>.env`. Nothing else changes.
 AGPL-3.0-or-later. See [LICENSE](LICENSE).
 
 <p align="center">
-  <a href="https://github.com/Giansn/dualmirakl/blob/runpod/funding.json">Support this project</a>
+  <a href="https://buy.stripe.com/eVqbJ3eES9hY48edZpbZe00">Support this project</a>
 </p>
