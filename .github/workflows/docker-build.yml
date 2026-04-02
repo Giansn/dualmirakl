@@ -4,14 +4,16 @@ on:
   push:
     branches: [main]
     paths:
-      - Dockerfile
-      - docker-post-start.sh
+      - docker/Dockerfile
+      - docker/entrypoint.sh
+      - docker/post-start.sh
       - requirements.txt
       - .dockerignore
-      - entrypoint.sh
-      - start_all.sh
-      - start_authority.sh
-      - start_swarm.sh
+      - scripts/start_all.sh
+      - scripts/start_authority.sh
+      - scripts/start_swarm.sh
+      - scripts/start_gateway.sh
+      - config/*.env
   workflow_dispatch:
 
 jobs:
@@ -35,11 +37,11 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: docker/Dockerfile
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:runpod-cu128
+            ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:runpod-cu129
             ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:latest
           cache-from: type=gha
           cache-to:   type=gha,mode=max
