@@ -63,9 +63,10 @@ class TestSurrogateObjective:
             assert spec["type"] in ("float", "int"), f"{name}: bad type {spec['type']}"
 
 
-optuna = pytest.importorskip("optuna", reason="optuna not installed")
+optuna = pytest.importorskip("optuna", reason="optuna not installed (optional dependency)")
 
 
+@pytest.mark.optionally
 class TestOptunaIntegration:
     """Test actual Optuna integration (skipped if optuna not installed)."""
 
