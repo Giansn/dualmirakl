@@ -45,6 +45,8 @@ RUN CUDA_LIB=/usr/local/cuda/lib64 && \
         $CUDA_LIB/libnvrtc.so
 
 # ── Project Python dependencies ──────────────────────────────────────────────
+# NOTE: neuralprophet excluded — requires numpy<2.0, incompatible with vLLM 0.18.
+#       forecaster.py falls back to linear extrapolation automatically.
 RUN pip install \
     openai==2.24.0 \
     fastapi==0.134.0 \
@@ -58,11 +60,9 @@ RUN pip install \
     jax==0.9.0.1 \
     jaxlib==0.9.0.1 \
     numpyro==0.20.0 \
-    numpy==2.2.6 \
     scipy==1.17.1 \
     duckdb==1.2.0 \
     pynvml==12.0.0 \
-    neuralprophet==0.8.0 \
     python-dotenv==1.2.1 \
     loguru==0.7.3 \
     rich==14.3.3 \
