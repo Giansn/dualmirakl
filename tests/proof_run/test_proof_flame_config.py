@@ -70,7 +70,7 @@ def parse_env_file(path):
             result[key] = val
     return result
 def main():
-    from simulation.sim_loop import _flame_config_from_env
+    from simulation.preflight import _flame_config_from_env
 
     test_keys = list(ENV_DEFAULTS.keys()) + [
         "SIM_N_PARTICIPANTS", "SIM_ALPHA", "SIM_SCORE_MODE",

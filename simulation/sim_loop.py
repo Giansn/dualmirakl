@@ -80,7 +80,6 @@ from simulation.intervention_engine import (  # noqa: F401
 from simulation.preflight import (  # noqa: F401
     CONTEXT_FILE, CONTEXT_REQUIREMENTS, FLAME_ENABLED,
     load_world_context, detect_missing_context, preflight_check,
-    _flame_config_from_env, _try_init_flame,
 )
 from simulation.sensitivity_analysis import (  # noqa: F401
     morris_screening, sobol_first_order,

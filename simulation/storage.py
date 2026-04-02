@@ -252,6 +252,12 @@ def cosine_similarity_sql(embedding_col: str, query_embedding: list[float]) -> s
     return f"list_cosine_similarity({embedding_col}, {vec_str}::FLOAT[384])"
 
 
+_ALLOWED_TABLES = frozenset({
+    "entities", "relations", "agent_memories",
+    "generated_personas", "analysis_reports",
+})
+
+
 def vector_search(
     conn,
     table: str,
@@ -260,22 +266,32 @@ def vector_search(
     top_k: int = 5,
     threshold: float = 0.5,
     where_clause: str = "",
+    where_params: list | None = None,
 ) -> list[dict]:
     """
     Perform a vector similarity search on a DuckDB table.
 
     Returns list of dicts with all columns plus a 'similarity' column,
     ordered by descending similarity, filtered by threshold.
+
+    Args:
+        where_clause: SQL fragment using ? placeholders (e.g. "run_id = ?")
+        where_params: parameter values for the placeholders
     """
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f"table must be one of {_ALLOWED_TABLES}, got {table!r}")
+
     sim_expr = cosine_similarity_sql(embedding_col, query_embedding)
     where = f"WHERE {where_clause} AND" if where_clause else "WHERE"
+    params = list(where_params or [])
 
     sql = f"""
         SELECT *, {sim_expr} AS similarity
         FROM {table}
-        {where} {sim_expr} >= {threshold}
+        {where} {sim_expr} >= ?
         ORDER BY similarity DESC
-        LIMIT {top_k}
+        LIMIT ?
     """
-    result = conn.execute(sql).fetchdf()
+    params.extend([threshold, top_k])
+    result = conn.execute(sql, params).fetchdf()
     return result.to_dict("records") if len(result) > 0 else []

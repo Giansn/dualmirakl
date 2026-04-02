@@ -72,7 +72,7 @@ def flame_boot(
     _e = os.environ.get
 
     # ── Step 1: Init FLAME engine ────────────────────────────────────────
-    from simulation.sim_loop import _flame_config_from_env, _try_init_flame
+    from simulation.preflight import _flame_config_from_env, _try_init_flame
 
     fcfg = _flame_config_from_env(flame_config)
     fcfg.update({

@@ -619,7 +619,7 @@ async def sim_flame_activate(req: Request):
 
     body = await req.json() if req.headers.get("content-length", "0") != "0" else {}
 
-    from simulation.sim_loop import _flame_config_from_env, _try_init_flame
+    from simulation.preflight import _flame_config_from_env, _try_init_flame
     overrides = {}
     if body.get("population_size"):
         overrides["n_population"] = int(body["population_size"])
