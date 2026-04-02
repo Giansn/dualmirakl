@@ -53,7 +53,7 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:runpod-cu129
             ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:latest
-            ghcr.io/${{ github.repository }}:runpod-cu129
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/giansn/dualmirakl:runpod-cu129
+            ghcr.io/giansn/dualmirakl:latest
           cache-from: type=gha
           cache-to:   type=gha,mode=max
