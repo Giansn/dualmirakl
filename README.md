@@ -76,7 +76,7 @@ Stream-and-score dual-GPU execution orchestrator (v5). Manages the full tick pip
 
 ## FLAME GPU 2
 
-Optional population amplifier on GPU 2. Scales N LLM participants to thousands of reactive agents without proportional LLM cost.
+Optional population amplifier on GPU 2. Scales N LLM participants (typically 4-16) to **10,000-100,000+ reactive agents** via CUDA RTC spatial messaging — without proportional LLM cost. A single RTX 4500 (32 GB) comfortably handles 100K agents at sub-second step times.
 
 ```
 dualmirakl (Phases A-E)              FLAME GPU 2 (Phase F)
