@@ -2,7 +2,7 @@
 # dualmirakl — container image (Blackwell RTX PRO 4500 / sm_120)
 #
 # Base: runpod/pytorch (CUDA 12.9, PyTorch 2.9.1, Python 3.12, Ubuntu 22.04)
-# vLLM 0.18.2 (Blackwell sm_120 + flashinfer MOE FP4)
+# vLLM 0.18.1 (Blackwell sm_120 + flashinfer MOE FP4)
 #
 # Portable: works on RunPod, Docker Compose, K8s.
 # Models are NOT baked in — mount or download at runtime.
@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── vLLM (separate layer — largest dep, benefits from cache) ──────────────────
-RUN pip install vllm==0.18.2
+RUN pip install vllm==0.18.1
 
 # ── NVIDIA headers for flashinfer JIT (Blackwell sm_120) ─────────────────────
 RUN for d in /usr/local/lib/python3.*/dist-packages/nvidia/*/include/; do \
