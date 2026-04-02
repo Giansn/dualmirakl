@@ -2750,6 +2750,84 @@ async function runCalibration() {
   setTimeout(() => { btn.disabled = false; }, 1000);
 }
 
+// ── LLM-GENERATED SCENARIO ──
+
+async function createScenarioFromDescription(description) {
+  const gwUrl = url.gw();
+  const sysPrompt = `You are a simulation architect for dualmirakl, a multi-agent simulation framework.
+Given a user's description, generate a complete scenario YAML config.
+
+Output ONLY valid YAML — no markdown fences, no explanation, no commentary.
+
+Required sections: meta, agents (with observer_a, observer_b, environment, participant_template), archetypes (profiles + distribution), actions (schemas + instances), scoring, transitions, memory, safety, flame, environment.
+
+Rules:
+- observer_a: analysis only, no interventions
+- observer_b: decides interventions using the 4 standard phrases
+- environment: generates domain-specific events per participant
+- participant_template: uses {agent_name}, {archetype_label}, {archetype_profile} placeholders
+- archetypes: 2-4 domain-specific profiles with properties
+- actions schemas must include "respond", "disengage", "escalate"
+- scoring.mode: "ema" (default) or "logistic"
+- scoring.parameters: alpha, K, threshold, dampening, coupling_kappa, logistic_k
+- environment.tick_count: reasonable for the domain (12-48 typical)
+- All system_prompt fields use | (literal block scalar)
+- flame.enabled: false (user activates separately)
+
+Use the domain described to create specific, realistic agent prompts and archetypes.`;
+
+  try {
+    const r = await fetch(`${gwUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'authority',
+        messages: [
+          {role: 'system', content: sysPrompt},
+          {role: 'user', content: description},
+        ],
+        max_tokens: 4096,
+        temperature: 0.4,
+      }),
+    });
+    const d = await r.json();
+    let yaml = d.choices?.[0]?.message?.content || '';
+
+    // Strip markdown fences if model wrapped it
+    yaml = yaml.replace(/^```ya?ml\s*/i, '').replace(/```\s*$/, '').trim();
+    if (!yaml || !yaml.includes('meta:')) return '**Error:** Authority did not produce valid YAML. Try rephrasing.';
+
+    // Extract name from YAML
+    const nameMatch = yaml.match(/name:\s*"?([^"\n]+)"?/);
+    const name = nameMatch ? nameMatch[1].trim() : 'generated_scenario';
+
+    // Save via gateway
+    const sr = await fetch(`${gwUrl}/simulation/scenarios`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, yaml}),
+    });
+    const sd = await sr.json();
+    if (!sd.saved) return `**Error saving:** ${JSON.stringify(sd)}`;
+
+    // Add to dropdown and select it
+    const select = document.getElementById('simScenario');
+    if (!Array.from(select.options).some(o => o.value === sd.path)) {
+      const opt = document.createElement('option');
+      opt.value = sd.path;
+      opt.textContent = sd.name;
+      select.appendChild(opt);
+    }
+    select.value = sd.path;
+    switchMode('sim'); switchSimSub('specs');
+    updateTimeEstimate();
+
+    return `**Scenario created: ${sd.name}**\nSaved to \`${sd.path}\`\n\nSwitch to the Simulation tab to configure and run it.`;
+  } catch (e) {
+    return `**Error creating scenario:** ${e.message}`;
+  }
+}
+
 // ── NEW SCENARIO ──
 
 function openNewScenario() {
@@ -4246,6 +4324,12 @@ function parseChatCommand(text) {
     return {type: 'suggest'};
   }
 
+  // Create scenario from description — flexible matching
+  const createMatch = text.match(/^(?:create|generate|make|build|design)\s+(?:a\s+|the\s+)?(?:[\w\s]*?)(?:scenario|setup|config|simulation)\s*[:\-—]?\s*(.+)/is);
+  if (createMatch) return {type: 'create_scenario', description: createMatch[1].trim()};
+  // Also catch "do it" / "type it in" style follow-ups when last message was a scenario description
+  if (/^(?:do\s+it|type\s+it|create\s+it|generate\s+it|make\s+it|yes\s+do\s+it)/i.test(t)) return {type: 'create_scenario_from_history'};
+
   // Not a command — return null, proceed to normal LLM chat
   return null;
 }
@@ -4305,6 +4389,13 @@ async function executeChatCommand(cmd, originalText) {
       switchMode('sim'); switchSimSub('specs');
       setTimeout(() => getSuggestions(), 300);
       return '**Requesting data-grounded suggestions** from authority...';
+    case 'create_scenario':
+      return await createScenarioFromDescription(cmd.description);
+    case 'create_scenario_from_history': {
+      const chat = getChat();
+      const recent = chat.messages.slice(-6).map(m => `${m.role}: ${m.content}`).join('\n\n');
+      return await createScenarioFromDescription(recent);
+    }
     default:
       return `Unknown command type: ${cmd.type}`;
   }

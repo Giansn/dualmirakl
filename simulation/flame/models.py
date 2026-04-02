@@ -20,12 +20,14 @@ GPU constraints: no Python stdlib, no file I/O, printf only for debug.
 # ---------------------------------------------------------------------------
 INFLUENCER_OUTPUT_SRC = r"""
 FLAMEGPU_AGENT_FUNCTION(influencer_output, flamegpu::MessageNone, flamegpu::MessageSpatial2D) {
+    const float px = FLAMEGPU->getVariable<float>("x");
+    const float py = FLAMEGPU->getVariable<float>("y");
     FLAMEGPU->message_out.setVariable<flamegpu::id_t>("id", FLAMEGPU->getID());
     FLAMEGPU->message_out.setVariable<float>("score", FLAMEGPU->getVariable<float>("score"));
     FLAMEGPU->message_out.setVariable<int>("llm_index", FLAMEGPU->getVariable<int>("llm_index"));
-    FLAMEGPU->message_out.setLocation(
-        FLAMEGPU->getVariable<float>("x"),
-        FLAMEGPU->getVariable<float>("y"));
+    FLAMEGPU->message_out.setVariable<float>("pos_x", px);
+    FLAMEGPU->message_out.setVariable<float>("pos_y", py);
+    FLAMEGPU->message_out.setLocation(px, py);
     return flamegpu::ALIVE;
 }
 """
@@ -35,12 +37,14 @@ FLAMEGPU_AGENT_FUNCTION(influencer_output, flamegpu::MessageNone, flamegpu::Mess
 # ---------------------------------------------------------------------------
 POPULATION_OUTPUT_SRC = r"""
 FLAMEGPU_AGENT_FUNCTION(population_output, flamegpu::MessageNone, flamegpu::MessageSpatial2D) {
+    const float px = FLAMEGPU->getVariable<float>("x");
+    const float py = FLAMEGPU->getVariable<float>("y");
     FLAMEGPU->message_out.setVariable<flamegpu::id_t>("id", FLAMEGPU->getID());
     FLAMEGPU->message_out.setVariable<float>("score", FLAMEGPU->getVariable<float>("score"));
     FLAMEGPU->message_out.setVariable<int>("llm_index", -1);
-    FLAMEGPU->message_out.setLocation(
-        FLAMEGPU->getVariable<float>("x"),
-        FLAMEGPU->getVariable<float>("y"));
+    FLAMEGPU->message_out.setVariable<float>("pos_x", px);
+    FLAMEGPU->message_out.setVariable<float>("pos_y", py);
+    FLAMEGPU->message_out.setLocation(px, py);
     return flamegpu::ALIVE;
 }
 """
@@ -159,8 +163,8 @@ FLAMEGPU_AGENT_FUNCTION(population_move, flamegpu::MessageSpatial2D, flamegpu::M
     for (const auto& msg : FLAMEGPU->message_in(my_x, my_y)) {
         int llm_idx = msg.getVariable<int>("llm_index");
         if (llm_idx >= 0) {
-            float dx = msg.getVirtualX() - my_x;
-            float dy = msg.getVirtualY() - my_y;
+            float dx = msg.getVariable<float>("pos_x") - my_x;
+            float dy = msg.getVariable<float>("pos_y") - my_y;
             float dist = sqrtf(dx * dx + dy * dy);
             if (dist > 0.01f) {
                 fx += dx / dist;
@@ -246,6 +250,8 @@ def build_model_description(config: dict):
     msg.newVariableID("id")
     msg.newVariableFloat("score")
     msg.newVariableInt("llm_index")  # -1 = population, 0..N = influencer
+    msg.newVariableFloat("pos_x")   # explicit position for RTC access
+    msg.newVariableFloat("pos_y")
     msg.setRadius(radius)
     msg.setMin(0, 0)
     msg.setMax(space, space)
@@ -279,18 +285,22 @@ def build_model_description(config: dict):
     fn_pop_move.setMessageInput("social_signal")
 
     # --- Execution order ---
-    # Layer 1: All agents output their position + score
-    layer1 = model.newLayer("broadcast")
+    # Layer 1: Influencer agents broadcast their score
+    layer1 = model.newLayer("influencer_broadcast")
     layer1.addAgentFunction(fn_inf_out)
-    layer1.addAgentFunction(fn_pop_out)  # concurrent (different populations)
 
-    # Layer 2: Population agents read messages and update scores
-    layer2 = model.newLayer("update")
-    layer2.addAgentFunction(fn_pop_update)
+    # Layer 2: Population agents broadcast their score (separate layer —
+    #          same message list output is not allowed in a single layer)
+    layer2 = model.newLayer("population_broadcast")
+    layer2.addAgentFunction(fn_pop_out)
 
-    # Layer 3: Population agents move in social space
-    layer3 = model.newLayer("move")
-    layer3.addAgentFunction(fn_pop_move)
+    # Layer 3: Population agents read messages and update scores
+    layer3 = model.newLayer("update")
+    layer3.addAgentFunction(fn_pop_update)
+
+    # Layer 4: Population agents move in social space
+    layer4 = model.newLayer("move")
+    layer4.addAgentFunction(fn_pop_move)
 
     # --- Step function: increment step counter ---
     class StepCounter(pyflamegpu.HostFunction):
@@ -300,13 +310,13 @@ def build_model_description(config: dict):
 
     model.addStepFunction(StepCounter())
 
-    # --- Logging ---
+    # --- Logging (rc5: type-specific methods) ---
     log_cfg = pyflamegpu.LoggingConfig(model)
     pop_log = log_cfg.agent("Population")
-    pop_log.logMean("score")
-    pop_log.logStandardDev("score")
-    pop_log.logMin("score")
-    pop_log.logMax("score")
+    pop_log.logMeanFloat("score")
+    pop_log.logStandardDevFloat("score")
+    pop_log.logMinFloat("score")
+    pop_log.logMaxFloat("score")
     pop_log.logCount()
 
     step_log = pyflamegpu.StepLoggingConfig(log_cfg)

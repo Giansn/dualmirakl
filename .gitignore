@@ -45,3 +45,4 @@ Thumbs.db
 *.key
 *.pem
 lightning_logs/
+.gitnexus

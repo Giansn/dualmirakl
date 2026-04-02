@@ -1,0 +1,238 @@
+# Nash Equilibrium in Pricing
+# Retailers with heterogeneous price elasticities converge toward Nash equilibrium.
+# Tests emergent pricing dynamics, competitive adaptation, and equilibrium stability.
+
+meta:
+  name: "nash-pricing"
+  version: "1.0"
+  description: "Price competition among retailers converging to Nash equilibrium with heterogeneous demand elasticities"
+
+agents:
+  roles:
+    - id: "observer_a"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        You are a market analyst observing retailer pricing dynamics.
+
+        For each retailer, assess:
+        - Is their price converging toward or diverging from competitors?
+        - Are they pricing aggressively (below average) or conservatively (above)?
+        - Is their inventory turning over efficiently at current prices?
+
+        For the market overall:
+        - Is price dispersion narrowing (convergence) or widening (divergence)?
+        - Are there price leaders that others follow?
+        - Is the market approaching equilibrium or still volatile?
+
+        Rules:
+        - Ground claims in observable data (prices, sales, inventory).
+        - Name specific retailers and ticks.
+        - Do NOT recommend pricing strategies.
+        - Keep analysis under 200 words.
+      max_tokens: 512
+
+    - id: "observer_b"
+      slot: "authority"
+      type: "observer"
+      system_prompt: |
+        You are a market stability specialist. Based on the analyst's report,
+        decide whether a market intervention is needed.
+
+        Available interventions:
+
+        (1) PAUSE PROMPT — temporarily halt a retailer's price updates.
+        Phrase: 'take a pause and reflect'.
+
+        (2) BOUNDARY WARNING — flag that pricing is approaching extreme levels.
+        Phrase: 'approaching scenario boundary'.
+
+        (3) DYNAMICS DAMPENING — reduce the speed of price adjustments.
+        Phrase: 'dampen the behavioural dynamics'.
+
+        (4) PACING ADJUSTMENT — slow down pricing update frequency.
+        Phrase: 'adjust the pacing'.
+
+        Decision rules:
+        - Stable pricing: 'No intervention needed.'
+        - At most ONE intervention per cycle.
+        - Intervene only when price war or collusion risk is detected.
+      max_tokens: 256
+
+    - id: "environment"
+      slot: "authority"
+      type: "environment"
+      system_prompt: |
+        You generate market conditions for competing retailers.
+
+        Each turn you receive:
+        (1) The retailer's current price and inventory;
+        (2) Their last pricing decision;
+        (3) Any regulatory constraints;
+        (4) A competitive pressure indicator.
+
+        Follow the competitive pressure:
+        - '[HIGH SCORE]' — retailer priced aggressively. Generate a stabilising event (demand surge, supply disruption in competitor's area).
+        - '[MODERATE SCORE]' — moderate pricing. Introduce a market development (new competitor entry, seasonal demand shift, cost change).
+        - '[LOW SCORE]' — conservative pricing. Generate a competitive pressure event (competitor price cut, new entrant, promotional campaign nearby).
+
+        Rules:
+        - Be specific: name products, price points, market events.
+        - Each event must differ from the previous one.
+        - Demand is constant overall but shifts between retailers.
+        - Never mention the simulation framework.
+      max_tokens: 256
+
+    - id: "participant_template"
+      slot: "swarm"
+      type: "participant"
+      count: 8
+      system_prompt: |
+        You are {agent_name}, a {archetype_label} in a competitive retail market.
+        Profile: {archetype_profile}
+
+        You set prices to maximize profit. You observe competitor prices and market demand.
+        Your pricing formula: NashPrice = (avg_competitor_price * (1 - 1/PED)) / 2
+
+        But you can deviate from this formula based on your strategy and market conditions.
+        You start with 100 units of inventory. Each tick, sales depend on your price relative to competitors.
+
+        Stay in character. React to market events based on your pricing strategy.
+        Never mention being an AI or part of a simulation.
+      max_tokens: 128
+
+archetypes:
+  profiles:
+    - id: "aggressive"
+      label: "Aggressive Pricer"
+      description: "Undercuts competitors, high volume, thin margins. PED around -4 to -5."
+      properties:
+        pricing_style: "undercut"
+        target_margin: 0.10
+        price_elasticity: -4.5
+    - id: "premium"
+      label: "Premium Retailer"
+      description: "Prices above average, relies on brand loyalty, lower volume. PED around -1 to -2."
+      properties:
+        pricing_style: "premium"
+        target_margin: 0.30
+        price_elasticity: -1.5
+    - id: "adaptive"
+      label: "Adaptive Pricer"
+      description: "Follows market average, adjusts gradually, moderate margins. PED around -2 to -3."
+      properties:
+        pricing_style: "follow"
+        target_margin: 0.20
+        price_elasticity: -2.5
+
+  distribution:
+    aggressive: 0.35
+    premium: 0.25
+    adaptive: 0.40
+
+actions:
+  schemas:
+    - "respond"
+    - "disengage"
+    - "escalate"
+  instances:
+    - id: "set_price"
+      schema: "respond"
+      prompt_fragment: "What price do you set for your products this period?"
+    - id: "exit_market"
+      schema: "disengage"
+      prompt_fragment: "Do you exit the market due to unsustainable margins?"
+    - id: "price_war"
+      schema: "escalate"
+      prompt_fragment: "Do you aggressively cut prices to gain market share?"
+
+scoring:
+  mode: "ema"
+  distributions:
+    susceptibility:
+      type: "beta"
+      params: [2, 3]
+    resilience:
+      type: "beta"
+      params: [2, 5]
+  parameters:
+    alpha: 0.15
+    K: 4
+    threshold: 0.7
+    dampening: 1.0
+    coupling_kappa: 0.15
+    logistic_k: 6.0
+
+transitions:
+  - from: "premium"
+    to: "adaptive"
+    function: "escalation_sustained"
+    params:
+      threshold: 0.85
+      consecutive_ticks: 4
+  - from: "adaptive"
+    to: "aggressive"
+    function: "escalation_sustained"
+    params:
+      threshold: 0.90
+      consecutive_ticks: 3
+  - from: "aggressive"
+    to: "adaptive"
+    function: "recovery_sustained"
+    params:
+      threshold: 0.25
+      consecutive_ticks: 3
+
+memory:
+  enabled: true
+  max_entries_per_agent: 20
+  dedup_threshold: 0.85
+  summary_interval: 10
+
+safety:
+  enabled: true
+  action_allowlist: []
+  max_retries_on_invalid: 2
+  fallback_action: "set_price"
+
+context_categories:
+  - id: "market_rules"
+    description: "Pricing constraints, market structure, product categories"
+    required: true
+  - id: "competitor_profiles"
+    description: "Retailer types, strategies, and elasticity parameters"
+    required: true
+  - id: "demand_model"
+    description: "Demand curve, elasticity ranges, seasonal effects"
+    required: false
+
+outcome_criteria:
+  targets:
+    - name: "mean_score"
+      low: 0.35
+      high: 0.65
+    - name: "score_std"
+      low: 0.08
+      high: 0.30
+      weight: 1.5
+    - name: "score_range"
+      low: 0.20
+      high: 0.75
+  validation_metrics:
+    - "crps"
+  convergence_required: true
+
+flame:
+  enabled: false
+  population_size: 100000
+  kappa: 0.15
+  influencer_weight: 3.0
+  sub_steps: 10
+
+environment:
+  tick_count: 24
+  tick_unit: "day"
+  initial_state:
+    avg_market_price: 100
+    demand_level: "constant"
+    competition_intensity: 0.5
