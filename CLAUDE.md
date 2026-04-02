@@ -70,6 +70,10 @@ authority  →  output + new need  →  swarm  [repeat]
 - Observer A → B is sequential (B depends on A's analysis output)
 - `MultiRunScheduler` in `parallel/tick_scheduler.py` manages concurrent runs with `asyncio.Semaphore` respecting vLLM max_seqs
 
+### Static import cycles (refactor safety)
+
+GitNexus may report **mutual `IMPORTS` edges** between file pairs, e.g. `optimize.py` ↔ `surrogate.py`, `react_observer.py` ↔ `sim_loop.py`, `optimize.py` ↔ `sim_loop.py`, `gpu_harmony.py` ↔ `sim_loop.py`. At runtime these are usually **broken by lazy imports** (imports inside functions / after tick 0). Avoid adding **top-level** cross-imports between those modules without checking load order.
+
 ## Scenario System (domain-agnostic framework)
 
 dualmirakl is a general-purpose multi-agent simulation framework. All domain-specific configuration lives in `scenarios/*.yaml` files. Swap one file to run a completely different simulation domain.
@@ -260,7 +264,7 @@ RunPod: `giansn/dualmirakl:runpod-cu128`. Docker Compose: `docker compose -f doc
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **dualmirakl** (2751 symbols, 11927 relationships, 238 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **dualmirakl** (2756 symbols, 11813 relationships, 238 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

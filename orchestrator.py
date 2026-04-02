@@ -1,7 +1,11 @@
-import os
-import httpx
 import asyncio
+import logging
+import os
 from typing import Literal
+
+import httpx
+
+logger = logging.getLogger(__name__)
 
 AUTHORITY_URL = os.getenv("AUTHORITY_URL", "http://localhost:8000/v1")
 SWARM_URL     = os.getenv("SWARM_URL",     "http://localhost:8001/v1")
@@ -56,7 +60,12 @@ async def chat(
             _cached = _cache.lookup(_prompt_key, _model_id, temperature)
             if _cached is not None:
                 return _cached
-    except Exception:
+    except Exception as e:
+        logger.debug(
+            "Response cache lookup failed; continuing without cache: %s",
+            e,
+            exc_info=True,
+        )
         _cache = None
         _prompt_key = None
         _model_id = None
@@ -78,8 +87,12 @@ async def chat(
     try:
         if _cache is not None and _cache._enabled and _prompt_key is not None:
             _cache.store(_prompt_key, _model_id, temperature, None, response_text)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(
+            "Response cache store failed (reply still returned): %s",
+            e,
+            exc_info=True,
+        )
 
     return response_text
 

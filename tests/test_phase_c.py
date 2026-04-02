@@ -11,6 +11,7 @@ import math
 
 import pytest
 import numpy as np
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -207,6 +208,20 @@ class TestGPEmulator:
         gp.fit(X, y)
         suggestions = gp.suggest_next([(0, 1)], n_suggestions=3, strategy="expected_improvement")
         assert suggestions.shape == (3, 1)
+
+    def test_suggest_expected_improvement_scipy_backend(self):
+        """EI runs on scipy RBF path; forces _HAS_SKLEARN False so this runs in all envs."""
+        import simulation.gp_emulator as ge
+        with patch.object(ge, "_HAS_SKLEARN", False):
+            gp = ge.GPEmulator()
+            assert gp._backend == "scipy_rbf"
+            X = np.linspace(0, 1, 15).reshape(-1, 1)
+            y = (X.ravel() - 0.3) ** 2
+            gp.fit(X, y)
+            suggestions = gp.suggest_next(
+                [(0, 1)], n_suggestions=3, strategy="expected_improvement"
+            )
+            assert suggestions.shape == (3, 1)
 
     def test_emulator_result_fields(self):
         from simulation.gp_emulator import GPEmulator
