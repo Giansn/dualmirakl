@@ -57,3 +57,26 @@ jobs:
             ghcr.io/giansn/dualmirakl:latest
           cache-from: type=gha
           cache-to:   type=gha,mode=max
+
+  # Mirror existing Docker Hub image to GHCR (no rebuild)
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Install crane
+        run: |
+          curl -sL https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz | tar xz crane
+          sudo mv crane /usr/local/bin/
+
+      - name: Log in to Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | crane auth login index.docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Copy image to GHCR
+        run: |
+          crane copy ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:runpod-cu129 ghcr.io/giansn/dualmirakl:runpod-cu129
+          crane copy ${{ secrets.DOCKERHUB_USERNAME }}/dualmirakl:latest ghcr.io/giansn/dualmirakl:latest
