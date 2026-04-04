@@ -187,4 +187,4 @@ def main():
     print(f"{'='*50}")
     return 0 if fails == 0 else 1
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

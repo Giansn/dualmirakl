@@ -11,80 +11,89 @@ import urllib.request
 
 BASE = os.getenv("PROOF_BASE_URL", "https://48acx0kqem74jt-9000.proxy.runpod.net")
 CTX = ssl._create_unverified_context()
-FAIL = False
 def get(path: str) -> dict:
     url = f"{BASE}{path}"
     req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "dualmirakl-proof-run"})
     with urllib.request.urlopen(req, context=CTX, timeout=30) as resp:
         return json.loads(resp.read().decode())
-def check(label: str, ok: bool, detail: str = ""):
-    global FAIL
-    tag = "[PASS]" if ok else "[FAIL]"
-    msg = f"{tag} {label}"
-    if detail:
-        msg += f"  ({detail})"
-    print(msg)
-    if not ok:
-        FAIL = True
-# ── /simulation/detect ──────────────────────────────────────────────────────
 
-detect = get("/simulation/detect")
 
-check("detect: has_context == true",
-      detect.get("has_context") is True,
-      f"got {detect.get('has_context')}")
+def main() -> int:
+    FAIL = False
+    def check(label: str, ok: bool, detail: str = ""):
+        nonlocal FAIL
+        tag = "[PASS]" if ok else "[FAIL]"
+        msg = f"{tag} {label}"
+        if detail:
+            msg += f"  ({detail})"
+        print(msg)
+        if not ok:
+            FAIL = True
 
-check("detect: n_documents >= 10",
-      detect.get("n_documents", 0) >= 10,
-      f"got {detect.get('n_documents')}")
+    # ── /simulation/detect ──────────────────────────────────────────────────────
 
-check("detect: can_proceed == true",
-      detect.get("can_proceed") is True,
-      f"got {detect.get('can_proceed')}")
+    detect = get("/simulation/detect")
 
-present_cats = [p["category"] for p in detect.get("present", [])]
-check("detect: >= 3 present categories",
-      len(present_cats) >= 3,
-      f"got {len(present_cats)}: {present_cats}")
+    check("detect: has_context == true",
+          detect.get("has_context") is True,
+          f"got {detect.get('has_context')}")
 
-missing = detect.get("missing", [])
-check("detect: missing list is empty",
-      len(missing) == 0,
-      f"got {len(missing)}: {[m['category'] for m in missing]}" if missing else "none missing")
+    check("detect: n_documents >= 10",
+          detect.get("n_documents", 0) >= 10,
+          f"got {detect.get('n_documents')}")
 
-warnings = detect.get("warnings", [])
-check("detect: warnings list is empty",
-      len(warnings) == 0,
-      f"got {len(warnings)}: {warnings}" if warnings else "no warnings")
-# ── /v1/documents ───────────────────────────────────────────────────────────
+    check("detect: can_proceed == true",
+          detect.get("can_proceed") is True,
+          f"got {detect.get('can_proceed')}")
 
-docs = get("/v1/documents")
+    present_cats = [p["category"] for p in detect.get("present", [])]
+    check("detect: >= 3 present categories",
+          len(present_cats) >= 3,
+          f"got {len(present_cats)}: {present_cats}")
 
-check("docs: n_documents >= 10",
-      docs.get("n_documents", 0) >= 10,
-      f"got {docs.get('n_documents')}")
+    missing = detect.get("missing", [])
+    check("detect: missing list is empty",
+          len(missing) == 0,
+          f"got {len(missing)}: {[m['category'] for m in missing]}" if missing else "none missing")
 
-check("docs: n_chunks >= 500",
-      docs.get("n_chunks", 0) >= 500,
-      f"got {docs.get('n_chunks')}")
+    warnings = detect.get("warnings", [])
+    check("detect: warnings list is empty",
+          len(warnings) == 0,
+          f"got {len(warnings)}: {warnings}" if warnings else "no warnings")
+    # ── /v1/documents ───────────────────────────────────────────────────────────
 
-doc_list = docs.get("documents", [])
-required_fields = ("name", "role", "n_chunks", "uploaded_at")
-all_ok = True
-bad = []
-for d in doc_list:
-    for f in required_fields:
-        if f not in d or d[f] is None:
-            all_ok = False
-            bad.append(f"{d.get('name', '?')} missing {f}")
-check("docs: every document has name/role/n_chunks/uploaded_at",
-      all_ok,
-      ", ".join(bad) if bad else f"checked {len(doc_list)} documents")
-# ── Summary ─────────────────────────────────────────────────────────────────
+    docs = get("/v1/documents")
 
-print()
-if FAIL:
-    print("RESULT: some checks failed")
-    sys.exit(1)
-else:
-    print("RESULT: all checks passed")
+    check("docs: n_documents >= 10",
+          docs.get("n_documents", 0) >= 10,
+          f"got {docs.get('n_documents')}")
+
+    check("docs: n_chunks >= 500",
+          docs.get("n_chunks", 0) >= 500,
+          f"got {docs.get('n_chunks')}")
+
+    doc_list = docs.get("documents", [])
+    required_fields = ("name", "role", "n_chunks", "uploaded_at")
+    all_ok = True
+    bad = []
+    for d in doc_list:
+        for f in required_fields:
+            if f not in d or d[f] is None:
+                all_ok = False
+                bad.append(f"{d.get('name', '?')} missing {f}")
+    check("docs: every document has name/role/n_chunks/uploaded_at",
+          all_ok,
+          ", ".join(bad) if bad else f"checked {len(doc_list)} documents")
+    # ── Summary ─────────────────────────────────────────────────────────────────
+
+    print()
+    if FAIL:
+        print("RESULT: some checks failed")
+        return 1
+    else:
+        print("RESULT: all checks passed")
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
