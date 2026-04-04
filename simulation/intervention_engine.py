@@ -47,7 +47,8 @@ def _load_codebook():
     _codebook_vecs = model.encode(_codebook_phrases)
 
 
-def extract_interventions(observer_id: str, response: str, tick: int, precomputed_vec=None) -> list[Intervention]:
+def extract_interventions(observer_id: str, response: str, tick: int, precomputed_vec=None,
+                          threshold: float = INTERVENTION_THRESHOLD) -> list[Intervention]:
     _load_codebook()
     vec = precomputed_vec if precomputed_vec is not None else _get_embed().encode([response])[0]
     triggered = {}
@@ -56,7 +57,7 @@ def extract_interventions(observer_id: str, response: str, tick: int, precompute
     sims = _codebook_vecs @ vec / norms
     for idx, (key, phrase) in enumerate(zip(_codebook_keys, _codebook_phrases)):
         s = float(sims[idx])
-        if s >= INTERVENTION_THRESHOLD:
+        if s >= threshold:
             if key not in triggered or s > triggered[key][0]:
                 triggered[key] = (s, phrase)
 

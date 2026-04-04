@@ -242,7 +242,7 @@ class FlameEngine:
         }
         # Convert mobility to move_speed if provided
         if "mobility" in kwargs:
-            radius = kwargs.pop("interaction_radius", self._config.get("interaction_radius", 10.0))
+            radius = kwargs.pop("interaction_radius", self.config.get("interaction_radius", 10.0))
             kwargs["move_speed"] = kwargs.pop("mobility") * radius
 
         for key, value in kwargs.items():

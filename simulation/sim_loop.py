@@ -475,6 +475,7 @@ class ParticipantAgent:
         susceptibility: Optional[float] = None,
         resilience: Optional[float] = None,
         backend_override: Optional[str] = None,
+        persona_summary_interval: int = PERSONA_SUMMARY_INTERVAL,
     ):
         self.agent_id = agent_id
         self.cfg = {**AGENT_ROLES["participant"]}
@@ -490,14 +491,15 @@ class ParticipantAgent:
             logger.warning("[%s] susceptibility=%.6f near zero — agent ignores signals", agent_id, self.susceptibility)
         if self.resilience > 1.0 - 1e-6:
             logger.warning("[%s] resilience=%.6f near 1.0 — agent score frozen", agent_id, self.resilience)
+        self._persona_summary_interval: int = persona_summary_interval
         self.score_log: list[float] = []
         self.last_stimulus: str = "nothing yet"
         self.last_response: str = ""
         self.persona_summary: str = ""
 
     async def _maybe_update_persona_summary(self, tick: int) -> None:
-        """[Fix 7] Generate persona summary every PERSONA_SUMMARY_INTERVAL ticks."""
-        if tick % PERSONA_SUMMARY_INTERVAL != 0 or tick == 0:
+        """[Fix 7] Generate persona summary every persona_summary_interval ticks."""
+        if tick % self._persona_summary_interval != 0 or tick == 0:
             return
         if len(self.history) < 4:
             return
@@ -536,7 +538,7 @@ class ParticipantAgent:
         parts = []
         if self.persona_summary:
             parts.append(PERSONA_SUMMARY_TEMPLATE.format(
-                interval=PERSONA_SUMMARY_INTERVAL,
+                interval=self._persona_summary_interval,
                 summary=self.persona_summary,
             ))
         if trait.strip():
@@ -624,7 +626,8 @@ class ObserverAgent:
     """
 
     def __init__(self, agent_id: str, role: str, history_window: int = 4,
-                 max_tokens: int = 256, world_context: Optional[str] = None):
+                 max_tokens: int = 256, world_context: Optional[str] = None,
+                 intervention_threshold: float = INTERVENTION_THRESHOLD):
         self.agent_id = agent_id
         self.cfg = AGENT_ROLES[role]
         self.history: list[dict] = []
@@ -632,6 +635,7 @@ class ObserverAgent:
         self.max_tokens = max_tokens
         self.analyses: list[str] = []
         self.world_context = world_context
+        self._intervention_threshold = intervention_threshold
 
     def _system_prompt(self) -> str:
         base = self.cfg["system"]
@@ -815,7 +819,8 @@ class ObserverAgent:
 
         # Fallback: cosine codebook matching with safety gate
         logger.debug(f"[{self.agent_id}] structured parse failed, falling back to cosine codebook")
-        raw_ivs = extract_interventions(self.agent_id, response, tick)
+        raw_ivs = extract_interventions(self.agent_id, response, tick,
+                                         threshold=self._intervention_threshold)
         # Apply safety gate to cosine-extracted interventions
         approved_ivs = []
         for iv in raw_ivs:
@@ -1057,7 +1062,13 @@ async def run_tick(
             p.step(tick, stimuli[p.agent_id], world_state, max_tokens=max_tokens,
                    strategy_constraint=_bandit_selections.get(p.agent_id, ""))
             for p in participants
-        ])
+        ], return_exceptions=True)
+        # Replace exceptions with empty fallback so one timeout doesn't kill the tick
+        for i, resp in enumerate(responses):
+            if isinstance(resp, BaseException):
+                logger.warning("[Tick %d] %s raised %s — using empty fallback",
+                               tick, participants[i].agent_id, resp)
+                responses[i] = ""
 
     # Emit responses to event stream (with structured data + prompt hash)
     for p, resp in zip(participants, responses):
@@ -1093,7 +1104,10 @@ async def run_tick(
                 for p, resp in zip(participants, responses)
             ]
             parsed_actions = [getattr(p, '_last_parsed', None) for p in participants]
-            return embed_score_batch(texts, parsed_actions=parsed_actions)
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                None, lambda: embed_score_batch(texts, parsed_actions=parsed_actions)
+            )
 
         async def _phase_d1():
             return await obs_a.analyse(tick, world_state, n)
@@ -1131,7 +1145,10 @@ async def run_tick(
             for p, resp in zip(participants, responses)
         ]
         parsed_actions = [getattr(p, '_last_parsed', None) for p in participants]
-        signals_and_ses = embed_score_batch(texts, parsed_actions=parsed_actions)
+        loop = asyncio.get_running_loop()
+        signals_and_ses = await loop.run_in_executor(
+            None, lambda: embed_score_batch(texts, parsed_actions=parsed_actions)
+        )
 
     # -- Score update (always after embedding completes) ────────────────────
     for participant, response, (signal, signal_se) in zip(participants, responses, signals_and_ses):
@@ -1283,13 +1300,6 @@ async def run_simulation(
                 "influencer_weight": scenario_config.flame.influencer_weight,
                 "sub_steps": scenario_config.flame.sub_steps,
             }
-
-    # Temporarily override module-level threshold for this run
-    import simulation.agent_rolesv3 as _cfg
-    _original_threshold = _cfg.INTERVENTION_THRESHOLD
-    _original_interval = _cfg.PERSONA_SUMMARY_INTERVAL
-    _cfg.INTERVENTION_THRESHOLD = intervention_threshold
-    _cfg.PERSONA_SUMMARY_INTERVAL = persona_summary_interval
 
     t_start = time.monotonic()
 
@@ -1462,6 +1472,7 @@ async def run_simulation(
                     susceptibility=params["susceptibility"],
                     resilience=params["resilience"],
                     backend_override=_pick_backend(idx),
+                    persona_summary_interval=persona_summary_interval,
                 )
                 participants.append(p)
                 logger.debug(
@@ -1476,19 +1487,22 @@ async def run_simulation(
                 i = len(participants)
                 participants.append(
                     ParticipantAgent(f"participant_{i}", history_window=history_window,
-                                    backend_override=_pick_backend(i))
+                                    backend_override=_pick_backend(i),
+                                    persona_summary_interval=persona_summary_interval)
                 )
         except Exception as e:
             logger.warning("AgentFactory failed (%s), falling back to default creation", e)
             participants = [
                 ParticipantAgent(f"participant_{i}", history_window=history_window,
-                                backend_override=_pick_backend(i))
+                                backend_override=_pick_backend(i),
+                                persona_summary_interval=persona_summary_interval)
                 for i in range(n_participants)
             ]
     else:
         participants = [
             ParticipantAgent(f"participant_{i}", history_window=history_window,
-                            backend_override=_pick_backend(i))
+                            backend_override=_pick_backend(i),
+                            persona_summary_interval=persona_summary_interval)
             for i in range(n_participants)
         ]
 
@@ -1618,7 +1632,8 @@ async def run_simulation(
         obs_a,
         ObserverAgent("observer_b", "observer_b",
                       history_window=history_window, max_tokens=max_tokens,
-                      world_context=world_context),
+                      world_context=world_context,
+                      intervention_threshold=intervention_threshold),
     ]
 
     # ── Topology setup (dual-environment, MiroFish-inspired) ────────────
@@ -1789,8 +1804,7 @@ async def run_simulation(
             )
 
     finally:
-        _cfg.INTERVENTION_THRESHOLD = _original_threshold
-        _cfg.PERSONA_SUMMARY_INTERVAL = _original_interval
+        await close_client()
 
     duration_s = time.monotonic() - t_start
 

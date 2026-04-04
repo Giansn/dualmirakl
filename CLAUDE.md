@@ -264,7 +264,7 @@ RunPod: `giansn/dualmirakl:runpod-cu128`. Docker Compose: `docker compose -f doc
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **dualmirakl** (2756 symbols, 11813 relationships, 238 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **dualmirakl** (2749 symbols, 11938 relationships, 237 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
