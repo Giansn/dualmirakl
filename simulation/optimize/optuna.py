@@ -89,7 +89,7 @@ def _surrogate_objective(
 
     Returns combined loss (lower is better).
     """
-    from simulation.signal_computation import update_score
+    from simulation.signal.computation import update_score
 
     params = _suggest_params(trial, DUALMIRAKL_PARAMS)
     flame_params = {}
@@ -199,7 +199,7 @@ def _full_objective(
     Much slower but captures real LLM behavioral dynamics.
     """
     import asyncio
-    from simulation.sim_loop import run_simulation
+    from simulation.core.runner import run_simulation
 
     params = _suggest_params(trial, DUALMIRAKL_PARAMS)
     flame_config = None
@@ -298,7 +298,7 @@ def run_optimization(
     callbacks = []
     if wandb_project:
         try:
-            from simulation.tracking import tracker
+            from simulation.storage.tracking import tracker
             tracker.init_run(
                 config={
                     "optuna_mode": mode,
@@ -322,7 +322,7 @@ def run_optimization(
             )
     elif mode == "surrogate":
         try:
-            from simulation.surrogate import SurrogateModel
+            from simulation.optimize.surrogate import SurrogateModel
         except ImportError:
             raise ImportError("scikit-learn required for surrogate mode: pip install scikit-learn")
         sm = SurrogateModel()
@@ -364,7 +364,7 @@ def run_optimization(
     # Finish W&B if active
     if wandb_project:
         try:
-            from simulation.tracking import tracker
+            from simulation.storage.tracking import tracker
             tracker.log_summary({
                 "mean": study.best_trial.user_attrs.get("mean_final", 0),
                 "std": study.best_trial.user_attrs.get("std_final", 0),

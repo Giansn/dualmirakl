@@ -72,7 +72,7 @@ def flame_boot(
     _e = os.environ.get
 
     # ── Step 1: Init FLAME engine ────────────────────────────────────────
-    from simulation.preflight import _flame_config_from_env, _try_init_flame
+    from simulation.signal.preflight import _flame_config_from_env, _try_init_flame
 
     fcfg = _flame_config_from_env(flame_config)
     fcfg.update({
@@ -115,7 +115,7 @@ def _setup_wandb(
     Initialize W&B with FLAME-enriched config.
     Returns True if successful.
     """
-    from simulation.tracking import tracker
+    from simulation.storage.tracking import tracker
 
     if not tracker.available:
         logger.debug("FLAME boot: wandb not installed — skipping tracking")

@@ -72,7 +72,7 @@ authority  →  output + new need  →  swarm  [repeat]
 
 ### Static import cycles (refactor safety)
 
-GitNexus may report **mutual `IMPORTS` edges** between file pairs, e.g. `optimize.py` ↔ `surrogate.py`, `react_observer.py` ↔ `sim_loop.py`, `optimize.py` ↔ `sim_loop.py`, `gpu_harmony.py` ↔ `sim_loop.py`. At runtime these are usually **broken by lazy imports** (imports inside functions / after tick 0). Avoid adding **top-level** cross-imports between those modules without checking load order.
+The sim_loop.py decomposition into `core/` submodules resolved most historical cycles. Remaining lazy-import pairs: `optimize/optuna.py` ↔ `optimize/surrogate.py` (contained within one package), `gpu/harmony.py` → `core/state.py` + `core/tick.py` (lazy, downward only). Avoid adding **top-level** cross-imports between subpackages without checking load order.
 
 ## Scenario System (domain-agnostic framework)
 
@@ -202,39 +202,94 @@ Boot sequence (`flame_setup.py`): auto-configures engine + W&B + Optuna. Status:
 **Optuna**: Bayesian optimization. Fast (surrogate, no GPU) or full (live sim). Param space from scenario config.
 **W&B**: Experiment tracking. Auto-logs per-tick scores, FLAME stats, run artifacts. No-op if not installed.
 
+## Package Layout
+
+```
+simulation/
+    core/                       # Tick engine (hot path)
+        state.py                # ObsEntry, WorldState, _format_stats, re-exports
+        agents_impl.py          # EnvironmentAgent, ParticipantAgent, ObserverAgent
+        tick.py                 # _batch_phase_b, run_tick
+        runner.py               # run_simulation
+        cli.py                  # CLI entry point
+        event_stream.py         # SimEvent, EventStream, event type constants
+        scoring.py              # ScoreEngine base + EMA/Logistic
+        topology.py             # TopologyManager, combine_stimuli
+        safety.py               # ObserverMode, SafetyTier, SafetyGate
+        transitions.py          # @register_transition + built-ins
+    config/                     # Scenario definitions
+        scenario.py             # ScenarioConfig + Pydantic validator
+        action_schema.py        # Typed JSON schemas for agent outputs
+        agents.py               # AgentFactory, AgentSpec, AgentSet
+        legacy_roles.py         # Legacy roles, anchors, codebook (was agent_rolesv3.py)
+    signal/                     # Signal processing
+        computation.py          # Embedding, score math, anchors
+        intervention.py         # Intervention extraction + codebook matching
+        preflight.py            # Pre-simulation checks + context loading
+        sensitivity.py          # Morris screening, Sobol analysis
+    analysis/                   # Post-sim analysis
+        dynamics.py             # 8-module analysis toolkit (ODE, bifurcation, Lyapunov, etc.)
+        output_pipeline.py      # Analysis chain orchestrator
+        ensemble.py             # Multi-run ensemble
+        possibility_report.py   # Structured possibility branches
+        report.py               # HTML/JSON report generation
+        scenario_tree.py        # Scenario branching tree
+        abc_calibration.py      # ABC calibration
+        history_matching.py     # Morris + NROY history matching
+        gp_emulator.py          # Gaussian process emulator
+    gpu/                        # GPU orchestration (optional)
+        harmony.py              # 3-worker pipeline with warm-start (~90% util)
+        monitor.py              # pynvml GPU telemetry
+        balancer.py             # Adaptive GPU load balancing
+        forecaster.py           # Workload prediction
+    knowledge/                  # Knowledge layer
+        agent_memory.py         # Per-agent memory + DuckDB persistence
+        graph_memory.py         # Real-time knowledge graph feedback
+        graph_rag.py            # Document -> Knowledge Graph extraction
+        ontology_generator.py   # LLM-generated ontology + persona generation
+        response_cache.py       # LLM response caching
+    observe/                    # Observer strategies
+        react_observer.py       # ReACT observer (live) + PostSimAnalyser (post-sim)
+    storage/                    # Persistence
+        db.py                   # DuckDB storage layer
+        experiment_db.py        # Experiment database
+        tracking.py             # W&B experiment tracking
+        export.py               # Data export
+    optimize/                   # Optimization
+        optuna.py               # Bayesian optimization (Optuna)
+        surrogate.py            # Surrogate model
+    flame/                      # FLAME GPU 2 engine (unchanged)
+        bridge.py, engine.py, models.py, macros.py
+    flame_setup.py              # FLAME boot sequence
+    sim_loop.py                 # Backward-compat shim (re-exports from core/)
+    *.py (other shims)          # Backward-compat shims at old paths
+```
+
+Old import paths (`from simulation.dynamics import X`) still work via shims.
+
 ## Key Files
 
 | File | Purpose |
 |---|---|
-| `simulation/sim_loop.py` | Tick loop, agents, scoring, SA, export, FLAME integration |
-| `simulation/scenario.py` | ScenarioConfig loader + Pydantic validator + dry-run CLI |
-| `simulation/agents.py` | AgentFactory, AgentSpec, AgentSet, prompt template rendering |
-| `simulation/scoring.py` | ScoreEngine base + EMA/Logistic implementations |
-| `simulation/transitions.py` | Transition function registry + built-ins |
-| `simulation/event_stream.py` | Unified event stream (SimEvent, EventStream) |
-| `simulation/action_schema.py` | Structured action schemas + JSON parsing + fallback |
-| `simulation/agent_memory.py` | Per-agent memory store + DuckDB persistence backend |
-| `simulation/safety.py` | Observer mode (ANALYSE/INTERVENE) + safety classification |
-| `simulation/react_observer.py` | ReACT observer (live) + PostSimAnalyser (post-sim) |
-| `simulation/graph_memory.py` | Real-time graph memory + GraphRAG seeding |
-| `simulation/topology.py` | Dual-environment topology manager |
-| `simulation/ontology_generator.py` | LLM-generated ontology + persona generation |
-| `simulation/storage.py` | DuckDB storage layer (entities, memories, personas, reports) |
-| `simulation/graph_rag.py` | Document → Knowledge Graph extraction pipeline |
-| `simulation/possibility_report.py` | Structured possibility branches output |
-| `simulation/dynamics.py` | 8-module analysis toolkit (ODE, bifurcation, Lyapunov, etc.) |
-| `simulation/history_matching.py` | Morris + NROY history matching for SA |
-| `simulation/agent_rolesv3.py` | Legacy roles, anchors, codebook, compliance |
+| `simulation/core/runner.py` | `run_simulation` entry point |
+| `simulation/core/tick.py` | `run_tick` phase orchestration |
+| `simulation/core/state.py` | WorldState, ObsEntry, re-exports |
+| `simulation/core/agents_impl.py` | EnvironmentAgent, ParticipantAgent, ObserverAgent |
+| `simulation/config/scenario.py` | ScenarioConfig loader + Pydantic validator |
+| `simulation/config/action_schema.py` | Structured action schemas + JSON parsing |
+| `simulation/signal/computation.py` | Embedding + signal math |
+| `simulation/analysis/dynamics.py` | 8-module analysis toolkit |
+| `simulation/gpu/harmony.py` | 3-worker GPU pipeline |
+| `simulation/knowledge/agent_memory.py` | Per-agent memory + DuckDB |
+| `simulation/knowledge/graph_memory.py` | Real-time graph memory |
+| `simulation/observe/react_observer.py` | ReACT observer + PostSimAnalyser |
+| `simulation/storage/db.py` | DuckDB storage layer |
+| `simulation/analysis/output_pipeline.py` | Post-sim analysis chain |
 | `simulation/flame/` | FLAME GPU 2 engine, bridge, models |
-| `simulation/flame_setup.py` | FLAME boot sequence |
-| `simulation/tracking.py` | W&B tracking (optional) |
-| `simulation/optimize.py` | Optuna optimization (optional) |
-| `stats/core.py` | Stance drift, polarization, opinion clusters, influence network |
-| `ml/evolution.py` | Evolutionary strategy (AgentGenome, EvolutionEngine) |
-| `ml/beliefs.py` | Bayesian belief updates |
-| `ml/bandit.py` | Multi-armed bandit strategy selection |
-| `parallel/tick_scheduler.py` | MultiRunScheduler (capacity-aware parallel runs) |
-| `orchestrator.py` | httpx HTTP/2 async client for dual vLLM backends |
+| `stats/core.py` | Stance drift, polarization, opinion clusters |
+| `ml/` | evolution.py, beliefs.py, bandit.py |
+| `parallel/tick_scheduler.py` | MultiRunScheduler |
+| `orchestrator.py` | httpx HTTP/2 async client |
 | `gateway.py` | FastAPI proxy, doc store, embedding, sim API, UI |
 
 ## Gateway API
@@ -264,7 +319,7 @@ RunPod: `giansn/dualmirakl:runpod-cu128`. Docker Compose: `docker compose -f doc
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **dualmirakl** (2749 symbols, 11938 relationships, 237 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **dualmirakl** (2760 symbols, 11833 relationships, 238 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

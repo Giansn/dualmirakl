@@ -301,69 +301,47 @@ class TestTransitionRegistry:
 
 
 class TestEscalationSustained:
-    def test_below_threshold(self):
-        history = [{"score": 0.5}, {"score": 0.6}, {"score": 0.7}]
-        assert not escalation_sustained({}, history, threshold=0.8, consecutive_ticks=3)
-
-    def test_above_threshold(self):
-        history = [{"score": 0.9}, {"score": 0.85}, {"score": 0.95}]
-        assert escalation_sustained({}, history, threshold=0.8, consecutive_ticks=3)
-
-    def test_too_short_history(self):
-        history = [{"score": 0.9}]
-        assert not escalation_sustained({}, history, threshold=0.8, consecutive_ticks=3)
-
-    def test_mixed_above_below(self):
-        history = [{"score": 0.9}, {"score": 0.5}, {"score": 0.9}]
-        assert not escalation_sustained({}, history, threshold=0.8, consecutive_ticks=3)
+    @pytest.mark.parametrize("history, expected", [
+        pytest.param([{"score": 0.5}, {"score": 0.6}, {"score": 0.7}], False, id="below_threshold"),
+        pytest.param([{"score": 0.9}, {"score": 0.85}, {"score": 0.95}], True, id="above_threshold"),
+        pytest.param([{"score": 0.9}], False, id="too_short"),
+        pytest.param([{"score": 0.9}, {"score": 0.5}, {"score": 0.9}], False, id="mixed"),
+    ])
+    def test_escalation(self, history, expected):
+        assert escalation_sustained({}, history, threshold=0.8, consecutive_ticks=3) is expected
 
 
 class TestRecoverySustained:
-    def test_above_threshold(self):
-        history = [{"score": 0.5}] * 5
-        assert not recovery_sustained({}, history, threshold=0.3, consecutive_ticks=5)
-
-    def test_below_threshold(self):
-        history = [{"score": 0.2}] * 5
-        assert recovery_sustained({}, history, threshold=0.3, consecutive_ticks=5)
-
-    def test_too_short(self):
-        history = [{"score": 0.1}] * 3
-        assert not recovery_sustained({}, history, threshold=0.3, consecutive_ticks=5)
+    @pytest.mark.parametrize("history, expected", [
+        pytest.param([{"score": 0.5}] * 5, False, id="above_threshold"),
+        pytest.param([{"score": 0.2}] * 5, True, id="below_threshold"),
+        pytest.param([{"score": 0.1}] * 3, False, id="too_short"),
+    ])
+    def test_recovery(self, history, expected):
+        assert recovery_sustained({}, history, threshold=0.3, consecutive_ticks=5) is expected
 
 
 class TestThresholdCross:
-    def test_cross_up(self):
-        history = [{"score": 0.4}, {"score": 0.6}]
-        assert threshold_cross({}, history, threshold=0.5, direction="up")
-
-    def test_no_cross_up(self):
-        history = [{"score": 0.6}, {"score": 0.7}]
-        assert not threshold_cross({}, history, threshold=0.5, direction="up")
-
-    def test_cross_down(self):
-        history = [{"score": 0.6}, {"score": 0.4}]
-        assert threshold_cross({}, history, threshold=0.5, direction="down")
-
-    def test_too_short(self):
-        history = [{"score": 0.6}]
-        assert not threshold_cross({}, history, threshold=0.5, direction="up")
+    @pytest.mark.parametrize("history, direction, expected", [
+        pytest.param([{"score": 0.4}, {"score": 0.6}], "up", True, id="cross_up"),
+        pytest.param([{"score": 0.6}, {"score": 0.7}], "up", False, id="no_cross_up"),
+        pytest.param([{"score": 0.6}, {"score": 0.4}], "down", True, id="cross_down"),
+        pytest.param([{"score": 0.6}], "up", False, id="too_short"),
+    ])
+    def test_threshold(self, history, direction, expected):
+        assert threshold_cross({}, history, threshold=0.5, direction=direction) is expected
 
 
 class TestOscillationDetect:
-    def test_high_oscillation(self):
-        history = [{"score": 0.2}, {"score": 0.8}, {"score": 0.3},
-                   {"score": 0.7}, {"score": 0.2}]
-        assert oscillation_detect({}, history, window=5, amplitude=0.5)
-
-    def test_low_oscillation(self):
-        history = [{"score": 0.5}, {"score": 0.51}, {"score": 0.49},
-                   {"score": 0.5}, {"score": 0.52}]
-        assert not oscillation_detect({}, history, window=5, amplitude=0.5)
-
-    def test_too_short(self):
-        history = [{"score": 0.2}, {"score": 0.8}]
-        assert not oscillation_detect({}, history, window=5, amplitude=0.5)
+    @pytest.mark.parametrize("history, expected", [
+        pytest.param([{"score": 0.2}, {"score": 0.8}, {"score": 0.3},
+                      {"score": 0.7}, {"score": 0.2}], True, id="high_oscillation"),
+        pytest.param([{"score": 0.5}, {"score": 0.51}, {"score": 0.49},
+                      {"score": 0.5}, {"score": 0.52}], False, id="low_oscillation"),
+        pytest.param([{"score": 0.2}, {"score": 0.8}], False, id="too_short"),
+    ])
+    def test_oscillation(self, history, expected):
+        assert oscillation_detect({}, history, window=5, amplitude=0.5) is expected
 
 
 # ══════════════════════════════════════════════════════════════════════════════

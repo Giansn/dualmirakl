@@ -393,7 +393,7 @@ class TestReactLoop:
         })
 
         with patch(
-            "simulation.sim_loop._resilient_agent_turn",
+            "simulation.core.agents_impl.resilient_agent_turn",
             new_callable=AsyncMock,
             return_value=final,
         ):
@@ -426,7 +426,7 @@ class TestReactLoop:
                 })
 
         with patch(
-            "simulation.sim_loop._resilient_agent_turn",
+            "simulation.core.agents_impl.resilient_agent_turn",
             side_effect=mock_agent_turn,
         ):
             obs = ReactObserver("observer_a", "observer_a", max_steps=5)
@@ -450,7 +450,7 @@ class TestReactLoop:
             return json.dumps({"action": "query_scores"})
 
         with patch(
-            "simulation.sim_loop._resilient_agent_turn",
+            "simulation.core.agents_impl.resilient_agent_turn",
             side_effect=mock_agent_turn,
         ):
             obs = ReactObserver("observer_a", "observer_a", max_steps=3)
@@ -480,7 +480,7 @@ class TestReactLoop:
                 })
 
         with patch(
-            "simulation.sim_loop._resilient_agent_turn",
+            "simulation.core.agents_impl.resilient_agent_turn",
             side_effect=mock_agent_turn,
         ):
             obs = ReactObserver("observer_a", "observer_a", max_steps=5)
@@ -510,7 +510,7 @@ class TestReactLoop:
                 })
 
         with patch(
-            "simulation.sim_loop._resilient_agent_turn",
+            "simulation.core.agents_impl.resilient_agent_turn",
             side_effect=mock_agent_turn,
         ):
             obs = ReactObserver("observer_a", "observer_a", max_steps=5)
@@ -534,7 +534,7 @@ class TestReactLoop:
         })
 
         with patch(
-            "simulation.sim_loop._resilient_agent_turn",
+            "simulation.core.agents_impl.resilient_agent_turn",
             new_callable=AsyncMock,
             return_value=final,
         ):
